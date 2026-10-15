@@ -1,0 +1,60 @@
+extends RefCounted
+## All prototype balance and movement values live here (pixels / seconds).
+
+const VIEW_SIZE := Vector2(1280, 720)
+const COLORS := [Color("57d8ff"), Color("ffac63")]
+const COLOR_NAMES := ["A / 青", "B / 橙"]
+const PLAYER_SIZE := Vector2(30, 44)
+const ENEMY_SIZE := Vector2(38, 44)
+const BOSS_SIZE := Vector2(106, 116)
+const MOVE_SPEED := 320.0
+const GROUND_ACCELERATION := 3200.0 # Full speed in 6 physics frames at 60 Hz.
+const GROUND_DECELERATION := 6400.0 # Stop in 3 frames.
+const AIR_ACCELERATION := 4200.0
+const AIR_DECELERATION := 12000.0
+const GRAVITY := 4400.0
+const FALL_GRAVITY := 5600.0
+const MAX_FALL_SPEED := 1250.0
+const JUMP_SPEED := 1260.0
+const JUMP_CUT_SPEED := 650.0
+const CEILING_CORRECTION := 6
+const COYOTE_TIME := 0.1
+const JUMP_BUFFER := 0.12
+const PLAYER_HP := 100
+const ENEMY_NORMAL_DAMAGE := 12
+const ENEMY_HOMING_DAMAGE := 18
+const INVULNERABILITY := 1.0
+const SHOT_INTERVAL := 0.25
+const NORMAL_DAMAGE := 1
+const HOMING_DAMAGE := 4
+const GAUGE_CAPACITY := 8
+const ENEMY_HP := 8
+const BOSS_HP := 80
+const ENEMY_SCORE := 100
+const BOSS_SCORE := 1000
+const PLAYER_BULLET_SPEED := 760.0
+const ENEMY_BULLET_SPEED := 260.0
+const PLAYER_HOMING_SPEED := 540.0
+const ENEMY_HOMING_SPEED := 230.0
+const HOMING_TURN_RATE := 2.8
+const BULLET_LIFETIME := 5.0
+const SHOT_WARNING := 0.45
+const SPECIAL_WARNING := 0.8
+const SWITCH_WARNING := 0.8
+const ENEMY_WAKE_DELAY := 1.1
+const ENEMY_SHOT_INTERVAL := 1.8
+const BOSS_SHOT_INTERVAL := 1.15
+const SWITCH_INTERVAL := 5.0
+const PATROL_SPEED := 46.0
+const GENERATION_RETRIES := 12
+const LANDING_MARGIN := 12.0
+const MAX_STEP_HEIGHT := JUMP_SPEED * JUMP_SPEED / (2.0 * GRAVITY) - LANDING_MARGIN
+
+# Exploration layout and room travel (stage 2).
+const TILE_SIZE := 32
+const ROOM_SIZE := Vector2(1280, 736)
+const ROOM_FLOOR_Y := 640.0
+const ROOMS_PER_BIOME := 4
+const DOOR_INTERACT_RADIUS := 84.0
+const ROOM_TRAVEL_COOLDOWN := 0.45
+const BIOME_NAMES := ["翠の水路", "紫晶の回廊", "灰燼の遺構"]
