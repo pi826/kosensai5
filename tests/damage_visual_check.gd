@@ -32,7 +32,7 @@ func run() -> void:
 		normals[i].polarity = i % 2
 	await frames(2)
 	normals[0].receive_hit(1, 1)
-	normals[1].receive_hit(0, 4)
+	normals[1].receive_hit(0, T.NORMAL_DAMAGE)
 	normals[2].receive_hit(1, 1)
 	for i in range(3):
 		normals[i].tick_visuals(0.2)

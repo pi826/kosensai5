@@ -83,7 +83,7 @@ func test_travel_and_enemy_state() -> void:
 	var enemy = room_enemy(first_target)
 	if not check(is_instance_valid(enemy), "The first region contains a real enemy fixture"):
 		return
-	enemy.hp = 7
+	enemy.hp = 1
 	enemy.gauge = 3
 	enemy.action = "windup_special"
 	enemy.action_remaining = 0.4
@@ -100,7 +100,7 @@ func test_travel_and_enemy_state() -> void:
 	await frames(90)
 	check(enemy.position.is_equal_approx(dormant_position), "Inactive enemies do not fall or patrol")
 	check(enemy.action == "windup_special" and is_equal_approx(enemy.action_remaining, 0.4), "Inactive enemy windups do not advance")
-	check(enemy.gauge == 3 and enemy.hp == 7, "Inactive enemy health and gauge remain unchanged")
+	check(enemy.gauge == 3 and enemy.hp == 1, "Inactive enemy health and gauge remain unchanged")
 	check(is_zero_approx(enemy.shot_clock) and is_equal_approx(enemy.switch_clock, 100.0), "Inactive attack and switch timers do not advance")
 	check(game.projectiles.get_child_count() == 0, "Inactive enemies cannot shoot into another room")
 	if not place_at_door(first_target):
@@ -150,15 +150,15 @@ func test_travel_and_enemy_state() -> void:
 	check(shot_tick > warning_tick and shot_tick < 125, "An activated enemy eventually completes its visible shot warning")
 	report["enemy_warning_after_entry_frames"] = warning_tick
 	report["enemy_first_shot_after_entry_frames"] = shot_tick
-	enemy.hp = 5
+	enemy.hp = 1
 	enemy.gauge = 4
 	if not await travel(start_room):
 		return
 	await frames(60)
-	check(enemy.hp == 5 and enemy.gauge == 4, "A living enemy retains partial health and absorbed gauge while its room is inactive")
+	check(enemy.hp == 1 and enemy.gauge == 4, "A living enemy retains partial health and absorbed gauge while its room is inactive")
 	if not await travel(first_target):
 		return
-	check(enemy.hp == 5 and enemy.gauge == 4, "Re-entering a room preserves a living enemy's health and gauge")
+	check(enemy.hp == 1 and enemy.gauge == 4, "Re-entering a room preserves a living enemy's health and gauge")
 	check(game.ui.minimap.get_visible_rooms().size() == 2, "Entering a new region reveals that room and no unexplored neighbours")
 	place_at_door(start_room)
 	await frames(30)

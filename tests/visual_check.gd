@@ -53,7 +53,7 @@ func run() -> void:
 		game.player.gauge = 5
 		game.player.hp = 88
 		var actor = get_nodes_in_group("enemies").filter(func(enemy): return enemy.room_id == game.current_room_id)[0]
-		actor.receive_hit(1 - actor.polarity, 4)
+		actor.receive_hit(1 - actor.polarity, T.NORMAL_DAMAGE)
 		actor.tick_visuals(0.2)
 		await frames(8)
 		await capture("biome_%d" % (biome + 1))

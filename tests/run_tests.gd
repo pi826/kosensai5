@@ -1,6 +1,7 @@
 extends SceneTree
 const T := preload("res://scripts/tuning.gd")
 const Actor := preload("res://scripts/combatant.gd")
+const Enemy := preload("res://scripts/enemy.gd")
 
 class ObservedMain extends "res://scripts/main.gd":
 	var result_menu_count := 0
@@ -55,7 +56,7 @@ func run() -> void:
 	protected_actor.receive_hit(0, 1)
 	check(protected_actor.gauge == 1, "can absorb during hit protection")
 	protected_actor.free()
-	check(is_equal_approx(T.ENEMY_HP / (T.NORMAL_DAMAGE / T.SHOT_INTERVAL), 2.0), "two-second normal enemy damage budget")
+	check(T.ENEMY_HP == 2 and T.NORMAL_DAMAGE == 1, "normal enemies require two opposite-color normal shots")
 	game = ObservedMain.new()
 	game.controls_path = "res://builds/qa/unit_controls.cfg"
 	root.add_child(game)
@@ -90,16 +91,16 @@ func run() -> void:
 	game.player.polarity = 1
 	check(bullet.polarity == 0, "projectile keeps launch color")
 	await frames(25)
-	check(enemy.hp == 7, "swept projectile damages opposite-color body")
+	check(enemy.hp == T.ENEMY_HP - T.NORMAL_DAMAGE, "swept projectile damages opposite-color body")
 	check(game.effects.damage_sequence == 1 and game.effects.damage_numbers[0].amount == 1, "normal hit displays actual integer damage")
 	game.player.polarity = 1
 	game.spawn_bullet(game.player, Vector2.RIGHT)
 	await frames(25)
-	check(enemy.hp == 7 and enemy.gauge == 1, "same-color projectile feeds enemy")
+	check(enemy.hp == T.ENEMY_HP - T.NORMAL_DAMAGE and enemy.gauge == 1, "same-color projectile feeds enemy")
 	check(game.effects.damage_sequence == 1, "absorption produces no damage number")
 	enemy.invulnerability = 1
 	enemy.receive_hit(0, 4)
-	check(game.effects.damage_sequence == 1 and enemy.hp == 7, "protected hit produces no damage number")
+	check(game.effects.damage_sequence == 1 and enemy.hp == T.ENEMY_HP - T.NORMAL_DAMAGE, "protected hit produces no damage number")
 	enemy.invulnerability = 0
 	check(game.score == 0, "absorption awards no score")
 	game.player.polarity = 0
@@ -310,6 +311,7 @@ func run() -> void:
 	await frames(3)
 	check(game.state == "playing" and game.current_seed == 37 and game.player.hp == T.PLAYER_HP and game.player.gauge == 0 and game.score == 0, "death retry resets player and reuses seed")
 	check(boss_enemies().size() == 3 and game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty() and game.visited_rooms.size() == 1 and game.visited_rooms.has(0), "death retry revives guardians and resets exploration")
+	await verify_two_hit_enemies()
 	await verify_guardian_orders()
 	game.queue_free()
 	await frames(2)
@@ -329,6 +331,56 @@ func boss_enemies() -> Array:
 func clear_bullets() -> void:
 	for bullet in game.projectiles.get_children():
 		bullet.free()
+
+func two_hit_fixture(kind: String, color: int):
+	game.start_run(37)
+	game.player.set_physics_process(false)
+	for actor in get_nodes_in_group("enemies"):
+		actor.set_physics_process(false)
+	var enemy := Enemy.new()
+	enemy.game = game
+	enemy.kind = kind
+	enemy.polarity = color
+	enemy.room_id = game.current_room_id
+	enemy.spawn_id = "two_hit_%s_%d" % [kind, color]
+	enemy.position = Vector2(400, T.ROOM_FLOOR_Y - T.ENEMY_SIZE.y / 2)
+	game.world.add_child(enemy)
+	enemy.set_physics_process(false)
+	game.player.polarity = 1 - color
+	game.player.facing = 1
+	return enemy
+
+func verify_two_hit_enemies() -> void:
+	for kind in ["turret", "walker", "shifter"]:
+		for color in [0, 1]:
+			var enemy = two_hit_fixture(kind, color)
+			await frames(3)
+			var context := "%s color %d" % [kind, color]
+			check(enemy.hp == 2 and enemy.max_hp == 2, context + ": default enemy HP is two")
+			var first_shot = game.spawn_bullet(game.player, Vector2.RIGHT)
+			check(not first_shot.homing and first_shot.damage == 1, context + ": first hit uses a real normal projectile")
+			await frames(25)
+			check(is_instance_valid(enemy) and not enemy.dead and enemy.hp == 1, context + ": survives the first opposite-color normal shot")
+			check(not is_instance_valid(first_shot) and game.score == 0 and game.kills == 0, context + ": first shot is consumed without a kill award")
+			check(game.effects.damage_sequence == 1 and game.effects.damage_numbers[0].amount == 1, context + ": first hit displays integer damage one")
+			game.player.polarity = color
+			var absorbed_shot = game.spawn_bullet(game.player, Vector2.RIGHT)
+			await frames(25)
+			check(is_instance_valid(enemy) and not enemy.dead and enemy.hp == 1 and enemy.gauge == 1, context + ": intervening same-color shot is absorbed without losing HP")
+			check(not is_instance_valid(absorbed_shot) and game.effects.damage_sequence == 1 and game.score == 0, context + ": absorption consumes the shot without damage text or score")
+			game.player.polarity = 1 - color
+			var second_shot = game.spawn_bullet(game.player, Vector2.RIGHT)
+			await frames(25)
+			check(not is_instance_valid(enemy) and not is_instance_valid(second_shot), context + ": second opposite-color normal shot defeats the enemy")
+			check(game.score == T.ENEMY_SCORE and game.kills == 1 and game.defeated_enemies.size() == 1, context + ": defeat awards score exactly once")
+			check(game.effects.damage_sequence == 2 and not game.effects.damage_numbers.is_empty() and game.effects.damage_numbers[-1].amount == 1, context + ": lethal second hit displays one actual damage")
+	var homing_enemy = two_hit_fixture("turret", 1)
+	await frames(3)
+	var guided_shot = game.spawn_bullet(game.player, Vector2.RIGHT, true, homing_enemy)
+	check(guided_shot.homing and guided_shot.damage == T.HOMING_DAMAGE, "normal-enemy overkill uses a real homing projectile")
+	await frames(40)
+	check(not is_instance_valid(homing_enemy), "one homing shot defeats a default two-HP normal enemy")
+	check(game.effects.damage_sequence == 1 and game.effects.damage_numbers.size() == 1 and game.effects.damage_numbers[0].amount == 2, "homing overkill displays only the two HP actually removed")
 
 func verify_guardian_orders() -> void:
 	var orders := [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]
