@@ -11,7 +11,9 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 "tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/tile_test.gd
 if errorlevel 1 goto failed
-"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/room_transition_test.gd
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/seamless_test.gd
+if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/camera_test.gd
 if errorlevel 1 goto failed
 "tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/playthrough.gd
 if errorlevel 1 goto failed

@@ -27,7 +27,7 @@ var settings_button: Button
 var settings_overlay: Control
 var settings_panel: PanelContainer
 var minimap: Control
-var room_label: Label
+var location_label: Label
 var objective_label: Label
 
 func _ready() -> void:
@@ -87,9 +87,9 @@ func _ready() -> void:
 	progress_bar.add_theme_stylebox_override("fill", panel_style(Color("4b7189")))
 	place(progress_bar, Vector2(866, 73), Vector2(366, 5))
 	hud.add_child(progress_bar)
-	room_label = label("", 20, Color("c8decf"))
-	place(room_label, Vector2(44, 118), Vector2(365, 30))
-	hud.add_child(room_label)
+	location_label = label("", 20, Color("c8decf"))
+	place(location_label, Vector2(44, 118), Vector2(365, 30))
+	hud.add_child(location_label)
 	objective_label = label("", 15, Color("a3b4bd"))
 	place(objective_label, Vector2(44, 151), Vector2(365, 28))
 	hud.add_child(objective_label)
@@ -183,10 +183,10 @@ func _ready() -> void:
 
 func refresh_bindings() -> void:
 	var keys: RefCounted = game.key_bindings
-	controls_label.text = "左 %s   右 %s     %s ジャンプ（長押しで高く）    %s 射撃    %s 色切替    %s 誘導弾    %s 部屋移動    %s 一時停止" % [
+	controls_label.text = "左 %s   右 %s     %s ジャンプ（長押しで高く）    %s 射撃    %s 色切替    %s 誘導弾    %s 一時停止" % [
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
-		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
-	hint_label.text = "3つの地域を探索し、中ボスをすべて倒そう。\n矢印の通路に近づいて %s で部屋移動。上の通路へは足場を登る。\n敵と違う色で攻撃。同色の弾は吸収して誘導弾に。" % keys.get_binding_text("interact")
+		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("special"), keys.get_binding_text("pause_game")]
+	hint_label.text = "左右移動とジャンプで3地域を自由に探索。\n足場を登って、3体の中ボスを見つけよう。\n敵と違う色で攻撃。同色の弾は吸収して誘導弾に。"
 
 func update_hud() -> void:
 	var live: bool = is_instance_valid(game.player) and not game.player.dead
@@ -204,15 +204,13 @@ func update_hud() -> void:
 	gauge_bar.modulate = T.COLORS[color_index]
 	gauge_label.text = "%s  誘導弾  %d / %d" % [game.key_bindings.get_binding_text("special"), charge, T.GAUGE_CAPACITY]
 	score_label.text = "SCORE  %06d    %s" % [game.score, game.clock_text()]
-	var room: Dictionary = game.current_room()
-	if room.is_empty():
+	if game.stage.is_empty():
 		return
-	progress_label.text = "探索  %d / %d 部屋   ·   SEED %d" % [game.visited_rooms.size(), game.stage.rooms.size(), game.current_seed]
+	progress_label.text = "探索  %d%%   ·   SEED %d" % [exploration_percent(), game.current_seed]
 	progress_bar.max_value = 3
 	progress_bar.value = game.defeated_bosses.size()
-	room_label.text = room.name
-	if room.id == game.stage.start_room:
-		room_label.text = "分岐の広間  /  START"
+	var at: Vector2 = game.player.position if live else game.stage.start_position
+	location_label.text = T.BIOME_NAMES[game.biome_at(at)]
 	var marks: Array[String] = []
 	for boss_id in range(3):
 		marks.append("◆" if game.defeated_bosses.has(boss_id) else "◇")
@@ -224,7 +222,14 @@ func update_hud() -> void:
 	if boss_visible:
 		boss_hp_label.text = str(game.boss.hp)
 		boss_label.text = "WARDEN %d  /  %s" % [game.boss.boss_id + 1, T.COLOR_NAMES[game.boss.polarity]]
-	hint_label.visible = game.state == "playing" and room.id == game.stage.start_room and game.visited_rooms.size() == 1
+	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0
+
+func exploration_percent() -> int:
+	if game.stage.is_empty():
+		return 0
+	var bounds: Rect2 = game.stage.bounds
+	var cells := ceili(bounds.size.x / 128.0) * ceili(bounds.size.y / 128.0)
+	return clampi(roundi(game.explored_cells.size() * 100.0 / maxi(cells, 1)), 0, 100)
 
 func show_menu(next_state: String) -> void:
 	menu.show()
@@ -235,19 +240,19 @@ func show_menu(next_state: String) -> void:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
 			menu_subtitle.text = "3地域を探索し、3体の中ボスを倒す。"
-			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n矢印の通路で %s → 隣の部屋へ。上へは足場を登る。\n倒れたら全リセット。目標プレイ時間 5〜10分。" % game.key_bindings.get_binding_text("interact")
+			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\nひと続きのマップを歩き、足場を登って探索。\n倒れたら全リセット。目標プレイ時間 5〜10分。"
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":
 			menu_title.text = "PAUSED"
 			menu_subtitle.text = "ひと休み。準備ができたら再開。"
-			menu_detail.text = "SCORE  %06d     /     SEED  %d\n中ボス %d / 3 撃破    ·    探索 %d / %d 部屋" % [game.score, game.current_seed, game.defeated_bosses.size(), game.visited_rooms.size(), game.stage.rooms.size()]
+			menu_detail.text = "SCORE  %06d     /     SEED  %d\n中ボス %d / 3 撃破    ·    探索 %d%%" % [game.score, game.current_seed, game.defeated_bosses.size(), exploration_percent()]
 			primary_button.text = "再開  /  " + game.key_bindings.get_binding_text("pause_game")
 			new_button.text = "同じマップを最初から"
 		"lost", "won":
 			menu_title.text = "STAGE CLEAR" if next_state == "won" else "TRY AGAIN"
 			menu_subtitle.text = "3体の中ボスをすべて撃破。" if next_state == "won" else "再挑戦は同じ地形で最初から。中ボスも復活。"
-			menu_detail.text = "SCORE  %06d     /     TIME  %s\n中ボス %d / 3    ·    通常敵 %d / %d\n探索 %d / %d 部屋    ·    SEED %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, game.total_enemies, game.visited_rooms.size(), game.stage.rooms.size(), game.current_seed]
+			menu_detail.text = "SCORE  %06d     /     TIME  %s\n中ボス %d / 3    ·    通常敵 %d / %d\n探索 %d%%    ·    SEED %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, game.total_enemies, exploration_percent(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
 			new_button.text = "新しいマップで開始"
 	update_hud()

@@ -4,8 +4,8 @@ const Generator := preload("res://scripts/stage_generator.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Bullet := preload("res://scripts/projectile.gd")
-const RoomTerrain := preload("res://scripts/room_terrain.gd")
-const RoomBackdrop := preload("res://scripts/room_backdrop.gd")
+const WorldTerrain := preload("res://scripts/world_terrain.gd")
+const WorldBackdrop := preload("res://scripts/world_backdrop.gd")
 const Effects := preload("res://scripts/effects.gd")
 const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
@@ -28,18 +28,13 @@ var ending := false
 var key_bindings: RefCounted
 var controls_path := "user://controls.cfg"
 var settings_return_state := "title"
-var current_room_id := -1
-var visited_rooms: Dictionary = {}
+var explored_cells: Dictionary = {}
+var discovered_bosses: Dictionary = {}
 var defeated_bosses: Dictionary = {}
 var defeated_enemies: Dictionary = {}
-var travel_cooldown := 0.0
-var travel_pending := false
-var door_font: SystemFont
 
 func _ready() -> void:
 	_register_inputs()
-	door_font = SystemFont.new()
-	door_font.font_names = PackedStringArray(["Yu Gothic UI", "Meiryo", "Noto Sans CJK JP"])
 	camera = Camera2D.new()
 	camera.position = T.VIEW_SIZE / 2
 	add_child(camera)
@@ -68,39 +63,31 @@ func start_run(stage_seed: int) -> void:
 	total_enemies = 0
 	ending = false
 	boss = null
-	current_room_id = -1
-	visited_rooms.clear()
+	explored_cells.clear()
+	discovered_bosses.clear()
 	defeated_bosses.clear()
 	defeated_enemies.clear()
-	travel_pending = false
-	travel_cooldown = 0.0
 	world = Node2D.new()
 	world.name = "Stage"
 	add_child(world)
-	for room: Dictionary in stage.rooms:
-		var background := RoomBackdrop.new()
-		background.room = room
-		background.position = room.origin
-		background.z_index = -2
-		world.add_child(background)
-		var terrain := RoomTerrain.new()
-		terrain.room = room
-		terrain.position = room.origin
-		world.add_child(terrain)
-		for spawn: Dictionary in room.spawns:
-			var enemy := Enemy.new()
-			enemy.game = self
-			enemy.kind = spawn.kind
-			enemy.polarity = spawn.polarity
-			enemy.patrol = spawn.patrol + Vector2(room.origin.x, room.origin.x)
-			enemy.position = room.origin + spawn.position
-			enemy.room_id = room.id
-			enemy.boss_id = spawn.boss_id
-			enemy.spawn_id = spawn.id
-			world.add_child(enemy)
-			enemy.set_physics_process(false)
-			if enemy.kind != "boss":
-				total_enemies += 1
+	var background := WorldBackdrop.new()
+	background.stage = stage
+	world.add_child(background)
+	var terrain := WorldTerrain.new()
+	terrain.stage = stage
+	world.add_child(terrain)
+	for spawn: Dictionary in stage.spawns:
+		var enemy := Enemy.new()
+		enemy.game = self
+		enemy.kind = spawn.kind
+		enemy.polarity = spawn.polarity
+		enemy.patrol = spawn.patrol
+		enemy.position = spawn.position
+		enemy.boss_id = spawn.boss_id
+		enemy.spawn_id = spawn.id
+		world.add_child(enemy)
+		if enemy.kind != "boss":
+			total_enemies += 1
 	projectiles = Node2D.new()
 	projectiles.name = "Projectiles"
 	world.add_child(projectiles)
@@ -109,22 +96,19 @@ func start_run(stage_seed: int) -> void:
 	world.add_child(effects)
 	player = Player.new()
 	player.game = self
-	player.position = stage.rooms[stage.start_room].origin + Vector2(256, T.ROOM_FLOOR_Y - T.PLAYER_SIZE.y / 2)
+	player.position = stage.start_position
 	player.z_index = 2
 	world.add_child(player)
 	state = "playing"
 	ui.menu.hide()
 	ui.settings_overlay.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT
-	_set_current_room(stage.start_room)
+	_update_camera(0.0, true)
+	_update_exploration()
 	get_viewport().gui_release_focus()
 	ui.update_hud()
-	queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if state == "playing" and event.is_action_pressed("interact") and not event.is_echo():
-		try_travel()
-		get_viewport().set_input_as_handled()
 	if event.is_action_pressed("pause_game") and not event.is_echo():
 		if state == "playing":
 			show_menu("paused")
@@ -138,86 +122,63 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if state == "playing" and is_instance_valid(player):
 		elapsed += delta
-		travel_cooldown = maxf(0.0, travel_cooldown - delta)
+		_update_camera(delta)
+		_update_exploration()
 		ui.update_hud()
-	queue_redraw()
 
-func current_room() -> Dictionary:
-	if current_room_id < 0 or stage.is_empty():
-		return {}
-	return stage.rooms[current_room_id]
+func _update_camera(delta: float, snap: bool = false) -> void:
+	if not is_instance_valid(player):
+		return
+	var look := clampf(player.velocity.x / T.MOVE_SPEED, -1.0, 1.0) * T.CAMERA_LOOK_AHEAD
+	var fall_look := clampf(player.velocity.y / T.MAX_FALL_SPEED, 0.0, 1.0) * T.CAMERA_FALL_LOOK_AHEAD
+	var focus := player.position + Vector2(look, -T.CAMERA_VERTICAL_OFFSET + fall_look)
+	var target := camera.position
+	if snap:
+		target = focus
+	else:
+		var difference := focus - camera.position
+		if absf(difference.x) > T.CAMERA_DEAD_ZONE.x:
+			target.x = focus.x - signf(difference.x) * T.CAMERA_DEAD_ZONE.x
+		if absf(difference.y) > T.CAMERA_DEAD_ZONE.y:
+			target.y = focus.y - signf(difference.y) * T.CAMERA_DEAD_ZONE.y
+	var half := T.VIEW_SIZE / 2
+	var bounds: Rect2 = stage.bounds
+	target.x = clampf(target.x, bounds.position.x + half.x, bounds.end.x - half.x)
+	target.y = clampf(target.y, bounds.position.y + half.y, bounds.end.y - half.y)
+	camera.position = target if snap else camera.position.lerp(target, 1.0 - exp(-T.CAMERA_FOLLOW_SPEED * delta))
+	if snap:
+		camera.reset_smoothing()
 
-func nearby_door() -> Dictionary:
+func biome_at(point: Vector2) -> int:
+	for biome: Dictionary in stage.get("biomes", []):
+		if biome.rect.has_point(point):
+			return biome.id
+	return 0
+
+func _update_exploration() -> void:
 	if not is_instance_valid(player) or player.dead:
-		return {}
-	var nearest: Dictionary = {}
-	var distance := T.DOOR_INTERACT_RADIUS
-	for door: Dictionary in current_room().get("doors", []):
-		var separation: float = player.position.distance_to(current_room().origin + door.position)
-		if separation < distance:
-			distance = separation
-			nearest = door
-	return nearest
-
-func try_travel() -> bool:
-	if state != "playing" or travel_pending or travel_cooldown > 0:
-		return false
-	var door := nearby_door()
-	if door.is_empty():
-		return false
-	travel_pending = true
-	call_deferred("_travel", door.target)
-	return true
-
-func _travel(target_id: int) -> void:
-	travel_pending = false
-	if state != "playing" or not is_instance_valid(player) or player.dead:
 		return
-	var linked := false
-	for door: Dictionary in current_room().doors:
-		if door.target == target_id:
-			linked = true
-	if not linked:
-		return
-	var destination: Dictionary = stage.rooms[target_id]
-	for door: Dictionary in destination.doors:
-		if door.target != current_room_id:
-			continue
-		# No projectile or queued jump follows a player through a passage.
-		for bullet in projectiles.get_children():
-			bullet.free()
-		effects.bursts.clear()
-		effects.damage_numbers.clear()
-		player.position = destination.origin + door.arrival
-		player.velocity = Vector2.ZERO
-		player.jump_buffer = 0.0
-		player.coyote = 0.0
-		player.pending_special = false
-		player.jump_cut_requested = false
-		player.facing = -1 if door.direction == "east" else 1
-		_set_current_room(target_id)
-		travel_cooldown = T.ROOM_TRAVEL_COOLDOWN
-		ui.update_hud()
-		return
-
-func _set_current_room(room_id: int) -> void:
-	current_room_id = room_id
-	visited_rooms[room_id] = true
-	camera.position = current_room().rect.get_center()
-	camera.reset_smoothing()
+	var bounds: Rect2 = stage.bounds
+	var radius := T.EXPLORATION_RADIUS
+	var from_cell := Vector2i((player.position - Vector2.ONE * radius) / T.MAP_CELL_SIZE)
+	var to_cell := Vector2i((player.position + Vector2.ONE * radius) / T.MAP_CELL_SIZE)
+	for y in range(from_cell.y, to_cell.y + 1):
+		for x in range(from_cell.x, to_cell.x + 1):
+			var cell := Vector2i(x, y)
+			var center := (Vector2(cell) + Vector2.ONE * 0.5) * T.MAP_CELL_SIZE
+			if bounds.has_point(center) and center.distance_to(player.position) <= radius:
+				explored_cells[cell] = true
 	boss = null
+	var distance := INF
 	for actor in get_tree().get_nodes_in_group("enemies"):
-		if actor.get_parent() != world or actor.is_queued_for_deletion():
+		if actor.get_parent() != world or actor.kind != "boss" or actor.dead or actor.is_queued_for_deletion():
 			continue
-		var active: bool = actor.room_id == room_id and not actor.dead
-		actor.set_physics_process(active)
-		actor.was_visible = false
-		actor.wake_delay = T.ENEMY_WAKE_DELAY
-		actor.action = "idle"
-		actor.velocity = Vector2.ZERO
-		if active and actor.kind == "boss":
-			boss = actor
-	queue_redraw()
+		if is_on_screen(actor.position, 20):
+			discovered_bosses[actor.boss_id] = actor.position
+			var separation := player.position.distance_squared_to(actor.position)
+			if separation < distance:
+				distance = separation
+				boss = actor
 
 func view_rect() -> Rect2:
 	return Rect2(camera.position - T.VIEW_SIZE / 2, T.VIEW_SIZE)
@@ -368,22 +329,3 @@ func new_action() -> void:
 
 func clock_text() -> String:
 	return "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60]
-
-func _draw() -> void:
-	if not is_instance_valid(camera):
-		return
-	if current_room().is_empty():
-		return
-	var near := nearby_door()
-	for door: Dictionary in current_room().doors:
-		var at: Vector2 = current_room().origin + door.position
-		var selected: bool = not near.is_empty() and near.target == door.target
-		var tint := Color("d8e7c6") if selected else Color("7b958a")
-		draw_rect(Rect2(at - Vector2(28, 44), Vector2(56, 88)), Color("102127"))
-		draw_rect(Rect2(at - Vector2(28, 44), Vector2(56, 88)), tint, false, 3 if selected else 1)
-		var symbol: String = {"west": "←", "east": "→", "north": "↑", "south": "↓"}[door.direction]
-		draw_string(door_font, at + Vector2(-16, 8), symbol, HORIZONTAL_ALIGNMENT_LEFT, -1, 32, tint)
-		if selected:
-			var caption: String = "%s 移動" % key_bindings.get_binding_text("interact")
-			var width := door_font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-			draw_string(door_font, at + Vector2(-width / 2, -56), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)

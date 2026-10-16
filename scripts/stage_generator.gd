@@ -1,331 +1,257 @@
 extends RefCounted
-## Seeded, scene-independent generation of a connected three-region room graph.
+## One continuous, seeded world. All terrain and spawn positions use world coordinates.
 const T := preload("res://scripts/tuning.gd")
-const TILE_SIZE := T.TILE_SIZE
-const ROOM_SIZE := T.ROOM_SIZE
-const FLOOR_Y := T.ROOM_FLOOR_Y
-const BIOME_NAMES := T.BIOME_NAMES
-const DIRECTIONS := {"west": Vector2i(-1, 0), "east": Vector2i(1, 0), "north": Vector2i(0, -1), "south": Vector2i(0, 1)}
-const OPPOSITE := {"west": "east", "east": "west", "north": "south", "south": "north"}
-const DOOR_POSITIONS := {"west": Vector2(96, 592), "east": Vector2(1184, 592), "north": Vector2(640, 208), "south": Vector2(960, 592)}
-const ARRIVALS := {"west": Vector2(192, 618), "east": Vector2(1088, 618), "north": Vector2(640, 234), "south": Vector2(832, 618)}
-const SAFE_RADIUS := 192.0
+const WORLD_SIZE := T.WORLD_SIZE
+const GROUND_Y := T.GROUND_Y
+const START_X := T.WORLD_START_X
+const FLOOR_WIDTH := 384.0
+const FLOOR_COUNT := 32
+const CLIMB_STEP := 128.0
+const CLIMB_LEVELS := 12
+const SAFE_RADIUS := 640.0
 
-static func generate(stage_seed: int, room_count_per_biome: int = T.ROOMS_PER_BIOME) -> Dictionary:
-	var count := clampi(room_count_per_biome, 2, 8)
+static func generate(stage_seed: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = stage_seed
 	for attempt in range(T.GENERATION_RETRIES):
-		var stage := _build(stage_seed, count, rng, false)
-		if not stage.is_empty() and validate(stage).is_empty():
+		var stage := _build(stage_seed, rng, false)
+		if validate(stage).is_empty():
 			return stage
-	return generate_fallback(stage_seed, count)
+	return generate_fallback(stage_seed)
 
-static func generate_fallback(stage_seed: int, room_count_per_biome: int = T.ROOMS_PER_BIOME) -> Dictionary:
-	# Exposed so automated checks can exercise the final retry path directly.
+static func generate_fallback(stage_seed: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = stage_seed
-	var stage := _build(stage_seed, clampi(room_count_per_biome, 2, 8), rng, true)
-	assert(validate(stage).is_empty(), "Fallback geometry must remain valid")
+	var stage := _build(stage_seed, rng, true)
+	assert(validate(stage).is_empty(), "Fallback world must remain traversable")
 	return stage
 
-static func _build(stage_seed: int, count: int, rng: RandomNumberGenerator, fallback: bool) -> Dictionary:
-	var rooms: Array[Dictionary] = [_empty_room(0, Vector2i.ZERO, 0)]
-	var occupied := {Vector2i.ZERO: true}
-	for biome in range(3):
-		var first: Vector2i = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP][biome]
-		var path: Array[Vector2i] = [first]
-		occupied[first] = true
-		if fallback:
-			for step in range(2, count + 1):
-				var point := first * step
-				path.append(point)
-				occupied[point] = true
-		elif not _extend_branch(path, occupied, biome, count, rng):
-			return {}
-		var previous := 0
-		for index in range(count):
-			var room := _empty_room(rooms.size(), path[index], biome)
-			room.name = "%s %d" % [BIOME_NAMES[biome], index + 1]
-			if index == count - 1:
-				room.boss_id = biome
-				room.name = BIOME_NAMES[biome] + "・守護者の間"
-			rooms.append(room)
-			_connect(rooms, previous, room.id)
-			previous = room.id
-	var bounds: Rect2 = rooms[0].rect
-	for room: Dictionary in rooms:
-		_finish_room(room, rng, fallback)
-		bounds = bounds.merge(room.rect)
-	return {"seed": stage_seed, "rooms": rooms, "start_room": 0, "fallback": fallback, "bounds": bounds, "room_count_per_biome": count}
+static func _build(stage_seed: int, rng: RandomNumberGenerator, fallback: bool) -> Dictionary:
+	var bounds := Rect2(Vector2.ZERO, WORLD_SIZE)
+	var solids: Array[Rect2] = []
+	var heights: Array[float] = []
+	var previous := GROUND_Y
+	for index in range(FLOOR_COUNT):
+		var safe_plateau: bool = index in [0, 1, 2, 3, 14, 15, 16, 17, 28, 29, 30, 31]
+		var top := GROUND_Y if fallback or safe_plateau else clampf(previous + 32 * rng.randi_range(-1, 1), GROUND_Y - 64, GROUND_Y + 64)
+		heights.append(top)
+		solids.append(Rect2(index * FLOOR_WIDTH, top, FLOOR_WIDTH, WORLD_SIZE.y - top))
+		previous = top
+	# Only the outside boundary is walled; no room shells or loading gates exist.
+	solids.append(Rect2(0, 0, 32, WORLD_SIZE.y))
+	solids.append(Rect2(WORLD_SIZE.x - 32, 0, 32, WORLD_SIZE.y))
+	for level in range(1, CLIMB_LEVELS + 1):
+		var width := 768.0 if level == CLIMB_LEVELS else 384.0
+		var shift := 0.0 if fallback or level == CLIMB_LEVELS else float(rng.randi_range(-2, 2) * T.TILE_SIZE)
+		solids.append(Rect2(START_X - width / 2 + shift, GROUND_Y - level * CLIMB_STEP, width, 16))
+	# Elevated optional paths always have safe ground beneath them.
+	for index: int in [5, 8, 11, 20, 23, 26]:
+		var left := index * FLOOR_WIDTH + 32
+		var width := 320.0 if fallback else float(rng.randi_range(8, 11) * T.TILE_SIZE)
+		solids.append(Rect2(left, heights[index] - CLIMB_STEP, width, 16))
+		if not fallback and rng.randf() < 0.7:
+			solids.append(Rect2(left + 64, heights[index] - CLIMB_STEP * 2, width - 64, 16))
+	var start := Vector2(START_X, GROUND_Y - T.PLAYER_SIZE.y / 2)
+	var spawns: Array[Dictionary] = []
+	var landmarks: Array[Dictionary] = []
+	var boss_xs := [768.0, START_X, 11520.0]
+	for boss_id in range(3):
+		var support_y := GROUND_Y - CLIMB_LEVELS * CLIMB_STEP if boss_id == 1 else GROUND_Y
+		var point := Vector2(boss_xs[boss_id], support_y - T.BOSS_SIZE.y / 2)
+		spawns.append({"id": "guardian_%d" % boss_id, "kind": "boss", "polarity": rng.randi_range(0, 1), "position": point, "patrol": Vector2(point.x, point.x), "boss_id": boss_id})
+		landmarks.append({"id": boss_id, "position": point, "name": T.BIOME_NAMES[boss_id] + "の守護者"})
+	var kinds := ["turret", "walker", "shifter"]
+	for index in range(2, FLOOR_COUNT - 1):
+		var center_x := index * FLOOR_WIDTH + FLOOR_WIDTH / 2
+		if absf(center_x - START_X) < SAFE_RADIUS or absf(center_x - 768) < 384 or absf(center_x - 11520) < 384:
+			continue
+		var offset := 0 if fallback else rng.randi_range(-2, 2) * T.TILE_SIZE
+		var point := Vector2(center_x + offset, heights[index] - T.ENEMY_SIZE.y / 2)
+		var kind: String = kinds[rng.randi_range(0, 2)]
+		var patrol := Vector2(point.x, point.x)
+		if kind == "walker":
+			patrol = Vector2(maxf(index * FLOOR_WIDTH + 48, point.x - 80), minf((index + 1) * FLOOR_WIDTH - 48, point.x + 80))
+		spawns.append({"id": "enemy_%d" % index, "kind": kind, "polarity": rng.randi_range(0, 1), "position": point, "patrol": patrol, "boss_id": -1})
+	var biomes: Array[Dictionary] = []
+	for biome_id in range(3):
+		biomes.append({"id": biome_id, "name": T.BIOME_NAMES[biome_id], "rect": Rect2(biome_id * 4096, 0, 4096, WORLD_SIZE.y)})
+	var routes: Array[Dictionary] = []
+	for boss_id in range(3):
+		var points: Array[Vector2] = [start]
+		if boss_id == 1:
+			for level in range(1, CLIMB_LEVELS + 1):
+				points.append(Vector2(START_X, GROUND_Y - level * CLIMB_STEP - T.PLAYER_SIZE.y / 2))
+		else:
+			var indexes := range(15, 1, -1) if boss_id == 0 else range(16, 30)
+			for index: int in indexes:
+				points.append(Vector2(index * FLOOR_WIDTH + FLOOR_WIDTH / 2, heights[index] - T.PLAYER_SIZE.y / 2))
+			points.append(Vector2(boss_xs[boss_id], GROUND_Y - T.PLAYER_SIZE.y / 2))
+		routes.append({"boss_id": boss_id, "points": points})
+	return {"seed": stage_seed, "bounds": bounds, "start_position": start, "solids": solids, "spawns": spawns, "biomes": biomes, "landmarks": landmarks, "routes": routes, "fallback": fallback}
 
-static func _extend_branch(path: Array[Vector2i], occupied: Dictionary, biome: int, count: int, rng: RandomNumberGenerator) -> bool:
-	if path.size() >= count:
-		return true
-	var options: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
-	# Fisher-Yates uses only the run's private RNG, including during retries.
-	for i in range(options.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var saved := options[i]
-		options[i] = options[j]
-		options[j] = saved
-	# Every map includes at least two successive upward rooms.
-	if biome == 2 and path.size() == 1:
-		options = [Vector2i.UP]
-	for offset: Vector2i in options:
-		var candidate := path[-1] + offset
-		if occupied.has(candidate):
-			continue
-		if (biome == 0 and candidate.x >= 0) or (biome == 1 and candidate.x <= 0) or (biome == 2 and candidate.y >= 0):
-			continue
-		occupied[candidate] = true
-		path.append(candidate)
-		if _extend_branch(path, occupied, biome, count, rng):
+static func _supported(point: Vector2, body_size: Vector2, solids: Array) -> bool:
+	var foot_y := point.y + body_size.y / 2
+	var intervals: Array[Vector2] = []
+	for solid: Rect2 in solids:
+		if is_equal_approx(foot_y, solid.position.y):
+			intervals.append(Vector2(solid.position.x, solid.end.x))
+	intervals.sort_custom(func(a: Vector2, b: Vector2): return a.x < b.x)
+	var covered_x := point.x - body_size.x / 2
+	for interval: Vector2 in intervals:
+		if interval.x <= covered_x and interval.y > covered_x:
+			covered_x = interval.y
+		if covered_x >= point.x + body_size.x / 2:
 			return true
-		path.pop_back()
-		occupied.erase(candidate)
 	return false
 
-static func _empty_room(id: int, grid: Vector2i, biome: int) -> Dictionary:
-	var origin := Vector2(grid) * ROOM_SIZE
-	return {"id": id, "grid": grid, "origin": origin, "rect": Rect2(origin, ROOM_SIZE), "biome": biome, "boss_id": -1, "name": "分岐の広間", "doors": [], "solids": [], "spawns": []}
-
-static func _connect(rooms: Array[Dictionary], a: int, b: int) -> void:
-	var offset: Vector2i = rooms[b].grid - rooms[a].grid
-	for direction: String in DIRECTIONS:
-		if DIRECTIONS[direction] == offset:
-			var reverse: String = OPPOSITE[direction]
-			rooms[a].doors.append({"direction": direction, "target": b, "position": DOOR_POSITIONS[direction], "arrival": ARRIVALS[direction]})
-			rooms[b].doors.append({"direction": reverse, "target": a, "position": DOOR_POSITIONS[reverse], "arrival": ARRIVALS[reverse]})
-			return
-
-static func _finish_room(room: Dictionary, rng: RandomNumberGenerator, fallback: bool) -> void:
-	room.solids = [Rect2(0, FLOOR_Y, 1280, 96), Rect2(0, 0, 32, 736), Rect2(1248, 0, 32, 736), Rect2(0, 0, 1280, 160)]
-	var has_north := false
-	for door: Dictionary in room.doors:
-		has_north = has_north or door.direction == "north"
-	if has_north:
-		var mirrored := false if fallback else rng.randi_range(0, 1) == 1
-		for level in range(3):
-			var left := 448.0 if (level % 2 == 0) != mirrored else 576.0
-			room.solids.append(Rect2(left, 512 - 128 * level, 256, 16))
-	elif room.id != 0:
-		# Optional shelves leave the floor open for normal fire and safe drops.
-		var side := 320.0 if fallback or rng.randi_range(0, 1) == 0 else 800.0
-		room.solids.append(Rect2(side, 512, 192, 16))
-		if not fallback and rng.randf() < 0.5:
-			room.solids.append(Rect2(448 if side == 320 else 640, 384, 256, 16))
-	if room.id == 0:
-		return
-	var sockets: Array[float] = [416.0, 608.0, 800.0, 512.0, 704.0, 896.0]
-	if not fallback:
-		for i in range(sockets.size() - 1, 0, -1):
-			var j := rng.randi_range(0, i)
-			var saved := sockets[i]
-			sockets[i] = sockets[j]
-			sockets[j] = saved
-	var desired := 1 if room.boss_id >= 0 else 2
-	var first_color := rng.randi_range(0, 1)
-	for x: float in sockets:
-		var boss: bool = room.boss_id >= 0
-		var size: Vector2 = T.BOSS_SIZE if boss else T.ENEMY_SIZE
-		var point := Vector2(x, FLOOR_Y - size.y / 2.0)
-		if not _safe_spawn(point, room.doors):
-			continue
-		var clear := true
-		var body := Rect2(point - size / 2.0, size).grow(-0.1)
-		for solid: Rect2 in room.solids:
-			if body.intersects(solid):
-				clear = false
-		if not clear:
-			continue
-		var separated := true
-		for other: Dictionary in room.spawns:
-			if absf(other.position.x - x) < 160.0:
-				separated = false
-		if not separated:
-			continue
-		var kinds := ["turret", "walker", "shifter"]
-		var kind: String = "boss" if boss else kinds[rng.randi_range(0, 2)]
-		if room.id <= 2 and not boss:
-			kind = "walker" if room.spawns.size() == 1 else "turret"
-		var patrol := Vector2(x, x)
-		if kind == "walker":
-			patrol = Vector2(x - 32, x + 32)
-			if not _safe_spawn(Vector2(patrol.x, point.y), room.doors):
-				patrol.x = x
-			if not _safe_spawn(Vector2(patrol.y, point.y), room.doors):
-				patrol.y = x
-		room.spawns.append({"id": "room_%d_enemy_%d" % [room.id, room.spawns.size()], "kind": kind, "polarity": (first_color + room.spawns.size()) % 2, "position": point, "patrol": patrol, "boss_id": room.boss_id if boss else -1})
-		if room.spawns.size() >= desired:
-			break
-
-static func _safe_spawn(point: Vector2, doors: Array) -> bool:
-	for door: Dictionary in doors:
-		if point.distance_to(door.arrival) < SAFE_RADIUS or point.distance_to(door.position) < SAFE_RADIUS:
-			return false
-	return true
+static func _embedded(point: Vector2, body_size: Vector2, solids: Array) -> bool:
+	var body := Rect2(point - body_size / 2, body_size).grow(-0.1)
+	for solid: Rect2 in solids:
+		if body.intersects(solid):
+			return true
+	return false
 
 static func validate(stage: Dictionary) -> Array[String]:
 	var errors: Array[String] = []
-	var rooms: Array = stage.get("rooms", [])
-	if rooms.size() < 7 or stage.get("start_room", -1) != 0:
-		errors.append("Missing start room or three regions")
+	var bounds: Rect2 = stage.get("bounds", Rect2())
+	var solids: Array = stage.get("solids", [])
+	var spawns: Array = stage.get("spawns", [])
+	if bounds != Rect2(Vector2.ZERO, WORLD_SIZE) or solids.is_empty():
+		errors.append("Invalid continuous world bounds or missing terrain")
 		return errors
-	var coordinates := {}
-	var boss_ids := {}
-	var enemy_ids := {}
-	var computed_bounds: Rect2 = rooms[0].rect
-	var biome_counts := [0, 0, 0]
-	if rooms.size() != stage.get("room_count_per_biome", 4) * 3 + 1:
-		errors.append("Unexpected number of rooms")
-	for index in range(rooms.size()):
-		var room: Dictionary = rooms[index]
-		if room.get("id", -1) != index:
-			errors.append("Room IDs must match array indexes")
-		var grid: Vector2i = room.grid
-		if coordinates.has(grid):
-			errors.append("Overlapping rooms")
-		coordinates[grid] = true
-		computed_bounds = computed_bounds.merge(room.rect)
-		if room.origin != Vector2(grid) * ROOM_SIZE or room.rect != Rect2(room.origin, ROOM_SIZE):
-			errors.append("Room grid and world bounds disagree")
-		if room.biome < 0 or room.biome > 2:
-			errors.append("Invalid biome")
-		else:
-			biome_counts[room.biome] += 1
-		_validate_geometry(room, errors)
-		var used_directions := {}
-		for door: Dictionary in room.doors:
-			var direction: String = door.get("direction", "")
-			var target: int = door.get("target", -1)
-			if not DIRECTIONS.has(direction) or target < 0 or target >= rooms.size() or used_directions.has(direction):
-				errors.append("Invalid or duplicate door")
-				continue
-			used_directions[direction] = true
-			if rooms[target].grid != grid + DIRECTIONS[direction]:
-				errors.append("Door destination is not an adjacent room")
-			if door.position != DOOR_POSITIONS[direction] or door.arrival != ARRIVALS[direction]:
-				errors.append("Door has an unsafe connector position")
-			var reciprocal := false
-			for other: Dictionary in rooms[target].doors:
-				if other.target == index and other.direction == OPPOSITE[direction]:
-					reciprocal = true
-			if not reciprocal:
-				errors.append("Door has no return connection")
-		var local_bosses := 0
-		for spawn: Dictionary in room.spawns:
-			if index == 0:
-				errors.append("Enemy in safe starting room")
-			if enemy_ids.has(spawn.id):
-				errors.append("Duplicate enemy ID")
-			enemy_ids[spawn.id] = true
-			if not ["turret", "walker", "shifter", "boss"].has(spawn.kind) or not [0, 1].has(spawn.polarity):
-				errors.append("Invalid enemy kind or color")
-			var size: Vector2 = T.BOSS_SIZE if spawn.kind == "boss" else T.ENEMY_SIZE
-			if not is_equal_approx(spawn.position.y + size.y / 2.0, FLOOR_Y):
-				errors.append("Enemy is not supported by the safety floor")
-			if not _safe_spawn(spawn.position, room.doors):
-				errors.append("Enemy near a door or arrival position")
-			if spawn.patrol.x > spawn.position.x or spawn.patrol.y < spawn.position.x:
-				errors.append("Enemy outside its patrol interval")
-			if not _safe_spawn(Vector2(spawn.patrol.x, spawn.position.y), room.doors) or not _safe_spawn(Vector2(spawn.patrol.y, spawn.position.y), room.doors):
-				errors.append("Patrol crosses a safe arrival area")
-			var body := Rect2(spawn.position - size / 2.0, size).grow(-0.1)
-			for solid: Rect2 in room.solids:
-				if body.intersects(solid):
-					errors.append("Enemy embedded in terrain")
-			if spawn.kind == "boss":
-				local_bosses += 1
-				if spawn.boss_id != room.boss_id or spawn.boss_id != room.biome or boss_ids.has(spawn.boss_id):
-					errors.append("Duplicate or misplaced guardian ID")
-				boss_ids[spawn.boss_id] = true
-		if room.boss_id >= 0 and local_bosses != 1:
-			errors.append("Guardian room needs exactly one guardian")
-		if room.boss_id >= 0 and room.doors.size() != 1:
-			errors.append("Guardian must be at the end of a branch")
-		if room.boss_id < 0 and local_bosses != 0:
-			errors.append("Guardian outside guardian room")
-		if index != 0 and room.spawns.is_empty():
-			errors.append("Combat room has no enemy")
-	if boss_ids.size() != 3 or not boss_ids.has(0) or not boss_ids.has(1) or not boss_ids.has(2):
-		errors.append("Map needs three unique guardians")
-	var expected_count: int = stage.get("room_count_per_biome", 4)
-	if biome_counts != [expected_count + 1, expected_count, expected_count]:
-		errors.append("Uneven region room counts")
-	if computed_bounds != stage.get("bounds", Rect2()):
-		errors.append("Stage bounds do not enclose exactly its rooms")
-	var visited := {0: true}
-	var queue: Array[int] = [0]
-	while not queue.is_empty():
-		var current: int = queue.pop_front()
-		for door: Dictionary in rooms[current].doors:
-			if door.target >= 0 and door.target < rooms.size() and not visited.has(door.target):
-				visited[door.target] = true
-				queue.append(door.target)
-	if visited.size() != rooms.size():
-		errors.append("Room graph is disconnected")
-	return errors
-
-static func _validate_geometry(room: Dictionary, errors: Array[String]) -> void:
-	var solids: Array = room.solids
-	var shell := [Rect2(0, FLOOR_Y, 1280, 96), Rect2(0, 0, 32, 736), Rect2(1248, 0, 32, 736), Rect2(0, 0, 1280, 160)]
-	for required: Rect2 in shell:
-		if not solids.has(required):
-			errors.append("Missing safety floor, wall or ceiling")
-	var surfaces: Array[Rect2] = [Rect2(32, FLOOR_Y, 1216, 0)]
+	var floors: Array[Rect2] = []
+	var platforms: Array[Rect2] = []
 	for solid: Rect2 in solids:
-		if solid.size.x <= 0 or solid.size.y <= 0 or not Rect2(Vector2.ZERO, ROOM_SIZE).encloses(solid):
+		if solid.size.x <= 0 or solid.size.y <= 0 or not bounds.encloses(solid):
 			errors.append("Invalid solid bounds")
-		if fmod(solid.position.x, TILE_SIZE) != 0 or fmod(solid.position.y, TILE_SIZE) != 0 or fmod(solid.size.x, TILE_SIZE) != 0:
-			errors.append("Terrain is not aligned with the 32-pixel grid")
-		if solid.size.y > 20 and not shell.has(solid):
-			errors.append("Unexpected solid blocks the open floor route")
+		if fmod(solid.position.x, T.TILE_SIZE) != 0 or fmod(solid.position.y, T.TILE_SIZE) != 0 or fmod(solid.size.x, T.TILE_SIZE) != 0:
+			errors.append("Terrain must align to the 32 px grid")
 		if solid.size.y <= 20:
-			if solid.size.x < T.PLAYER_SIZE.x + 2 * T.LANDING_MARGIN or solid.position.y < 224:
-				errors.append("Platform is too narrow or has insufficient head room")
-			surfaces.append(Rect2(solid.position, Vector2(solid.size.x, 0)))
-	# Shared landing columns give a collision-free single-jump route between levels.
-	# Downward travel always lands on the continuous safety floor.
-	var reached := {0: true}
+			platforms.append(solid)
+			if solid.size.y != 16 or solid.size.x < T.PLAYER_SIZE.x + T.LANDING_MARGIN * 2 or solid.position.y < T.PLAYER_SIZE.y + 32:
+				errors.append("Platform has insufficient landing or head space")
+		elif solid.end.y == bounds.end.y and solid.size.x >= 128:
+			floors.append(solid)
+		elif solid != Rect2(0, 0, 32, WORLD_SIZE.y) and solid != Rect2(WORLD_SIZE.x - 32, 0, 32, WORLD_SIZE.y):
+			errors.append("Interior solid wall blocks the open world")
+	if not solids.has(Rect2(0, 0, 32, WORLD_SIZE.y)) or not solids.has(Rect2(WORLD_SIZE.x - 32, 0, 32, WORLD_SIZE.y)):
+		errors.append("Missing outer world boundaries")
+	floors.sort_custom(func(a: Rect2, b: Rect2): return a.position.x < b.position.x)
+	var end_x := 0.0
+	var last_y := GROUND_Y
+	for floor_rect: Rect2 in floors:
+		if not is_equal_approx(floor_rect.position.x, end_x):
+			errors.append("Safety floor contains a gap or overlap")
+		if absf(floor_rect.position.y - last_y) > 64 or absf(floor_rect.position.y - GROUND_Y) > 64:
+			errors.append("Ground step exceeds the guaranteed single-jump route")
+		end_x = floor_rect.end.x
+		last_y = floor_rect.position.y
+	if not is_equal_approx(end_x, bounds.end.x):
+		errors.append("Safety floor does not span the whole world")
+	# Reachability uses overlapping landing columns, measured against the player's jump.
+	var reached: Array[Rect2] = floors.duplicate()
+	var pending: Array[Rect2] = platforms.duplicate()
 	var changed := true
 	while changed:
 		changed = false
-		for i in range(surfaces.size()):
-			if reached.has(i):
-				continue
-			for j in reached.keys():
-				var lower: Rect2 = surfaces[j]
-				var upper: Rect2 = surfaces[i]
+		for index in range(pending.size() - 1, -1, -1):
+			var upper: Rect2 = pending[index]
+			for lower: Rect2 in reached:
 				var rise := lower.position.y - upper.position.y
 				var overlap := minf(lower.end.x, upper.end.x) - maxf(lower.position.x, upper.position.x)
-				if rise >= 0 and rise <= T.MAX_STEP_HEIGHT and overlap >= T.PLAYER_SIZE.x + 2 * T.LANDING_MARGIN:
-					reached[i] = true
+				if rise > 0 and rise <= T.MAX_STEP_HEIGHT and overlap >= T.PLAYER_SIZE.x + 2 * T.LANDING_MARGIN:
+					reached.append(upper)
+					pending.remove_at(index)
 					changed = true
 					break
-	if reached.size() != surfaces.size():
-		errors.append("Platform cannot be reached with a single jump per step")
-	for door: Dictionary in room.doors:
-		var body := Rect2(door.arrival - T.PLAYER_SIZE / 2.0, T.PLAYER_SIZE).grow(-0.1)
-		for solid: Rect2 in solids:
-			if body.intersects(solid):
-				errors.append("Door arrival is embedded in terrain")
-		var supported := false
-		for i in reached:
-			var surface: Rect2 = surfaces[i]
-			if is_equal_approx(door.arrival.y + T.PLAYER_SIZE.y / 2.0, surface.position.y) and door.arrival.x >= surface.position.x + T.PLAYER_SIZE.x / 2.0 and door.arrival.x <= surface.end.x - T.PLAYER_SIZE.x / 2.0:
-				supported = true
-		if not supported:
-			errors.append("Door arrival has no reachable landing surface")
+	if not pending.is_empty():
+		errors.append("A shelf is unreachable with normal single jumps")
+	var start: Vector2 = stage.get("start_position", Vector2(-1, -1))
+	if not _supported(start, T.PLAYER_SIZE, solids) or _embedded(start, T.PLAYER_SIZE, solids):
+		errors.append("Start is unsupported or inside terrain")
+	var ids := {}
+	var guardians := {}
+	for spawn: Dictionary in spawns:
+		var id: String = spawn.get("id", "")
+		var kind: String = spawn.get("kind", "")
+		var point: Vector2 = spawn.get("position", Vector2(-1, -1))
+		var size: Vector2 = T.BOSS_SIZE if kind == "boss" else T.ENEMY_SIZE
+		var patrol: Vector2 = spawn.get("patrol", Vector2(-1, -1))
+		if id.is_empty() or ids.has(id):
+			errors.append("Enemy identity must be unique")
+		ids[id] = true
+		if not ["boss", "turret", "walker", "shifter"].has(kind) or not [0, 1].has(spawn.get("polarity", -1)):
+			errors.append("Invalid enemy kind or color")
+		if not _supported(point, size, solids) or _embedded(point, size, solids):
+			errors.append("Enemy is unsupported or embedded in terrain")
+		var patrol_center := Vector2((patrol.x + patrol.y) / 2, point.y)
+		var patrol_body := Vector2(patrol.y - patrol.x + size.x, size.y)
+		if patrol.x > point.x or patrol.y < point.x or not _supported(patrol_center, patrol_body, solids) or _embedded(patrol_center, patrol_body, solids):
+			errors.append("Enemy patrol leaves its supporting surface")
+		if point.distance_to(start) < SAFE_RADIUS:
+			errors.append("Enemy inside the safe starting region")
+		var boss_id: int = spawn.get("boss_id", -1)
+		if kind == "boss":
+			if boss_id < 0 or boss_id > 2 or guardians.has(boss_id):
+				errors.append("Invalid or duplicate guardian ID")
+			if int(point.x / (WORLD_SIZE.x / 3)) != boss_id:
+				errors.append("Each guardian must occupy its own region")
+			guardians[boss_id] = point
+		elif boss_id != -1:
+			errors.append("Normal enemy has a guardian ID")
+	if guardians.size() != 3 or not guardians.has(0) or not guardians.has(1) or not guardians.has(2):
+		errors.append("The world requires three unique guardians")
+	var biomes: Array = stage.get("biomes", [])
+	if biomes.size() != 3:
+		errors.append("The world requires three regions")
+	else:
+		for index in range(3):
+			if biomes[index].get("id", -1) != index or biomes[index].get("rect", Rect2()) != Rect2(index * 4096, 0, 4096, WORLD_SIZE.y):
+				errors.append("Regions must cover the open world without seams")
+	var landmarks: Array = stage.get("landmarks", [])
+	var known_landmarks := {}
+	for landmark: Dictionary in landmarks:
+		var id: int = landmark.get("id", -1)
+		if not guardians.has(id) or known_landmarks.has(id) or landmark.get("position", Vector2(-1, -1)) != guardians.get(id):
+			errors.append("Landmark must identify a unique guardian spawn")
+		known_landmarks[id] = true
+	if known_landmarks.size() != 3:
+		errors.append("Missing guardian landmarks")
+	var route_ids := {}
+	for route: Dictionary in stage.get("routes", []):
+		var id: int = route.get("boss_id", -1)
+		var points: Array = route.get("points", [])
+		if not guardians.has(id) or route_ids.has(id) or points.size() < 2:
+			errors.append("Invalid or duplicate guardian route")
+			continue
+		route_ids[id] = true
+		if points[0] != start:
+			errors.append("Every route must start at the safe starting point")
+		for index in range(points.size()):
+			var point: Vector2 = points[index]
+			if not _supported(point, T.PLAYER_SIZE, solids) or _embedded(point, T.PLAYER_SIZE, solids):
+				errors.append("Route waypoint is unsupported or embedded")
+			if index > 0:
+				var previous: Vector2 = points[index - 1]
+				if absf(point.x - previous.x) > FLOOR_WIDTH or absf(point.y - previous.y) > T.MAX_STEP_HEIGHT:
+					errors.append("Route exceeds walking or single-jump reach")
+		var target: Vector2 = guardians[id] + Vector2(0, T.BOSS_SIZE.y / 2 - T.PLAYER_SIZE.y / 2)
+		if points[-1] != target:
+			errors.append("Route does not reach the guardian supporting surface")
+	if route_ids.size() != 3:
+		errors.append("Every guardian needs a reversible walking and jumping route")
+	return errors
 
 static func signature(stage: Dictionary) -> String:
-	var parts := PackedStringArray([str(stage.seed), str(stage.start_room), str(stage.fallback)])
-	for room: Dictionary in stage.rooms:
-		parts.append("%d:%s:%d:%d" % [room.id, room.grid, room.biome, room.boss_id])
-		for door: Dictionary in room.doors:
-			parts.append("D:%s:%d:%s:%s" % [door.direction, door.target, door.position, door.arrival])
-		for solid: Rect2 in room.solids:
-			parts.append("S:" + str(solid))
-		for spawn: Dictionary in room.spawns:
-			parts.append("E:%s:%s:%d:%s:%s:%d" % [spawn.id, spawn.kind, spawn.polarity, spawn.position, spawn.patrol, spawn.boss_id])
+	var parts := PackedStringArray([str(stage.seed), str(stage.bounds), str(stage.start_position), str(stage.fallback)])
+	for solid: Rect2 in stage.solids:
+		parts.append("S:" + str(solid))
+	for spawn: Dictionary in stage.spawns:
+		parts.append("E:%s:%s:%d:%s:%s:%d" % [spawn.id, spawn.kind, spawn.polarity, spawn.position, spawn.patrol, spawn.boss_id])
+	for biome: Dictionary in stage.biomes:
+		parts.append("B:%d:%s:%s" % [biome.id, biome.name, biome.rect])
+	for landmark: Dictionary in stage.landmarks:
+		parts.append("L:%d:%s:%s" % [landmark.id, landmark.position, landmark.name])
+	for route: Dictionary in stage.routes:
+		parts.append("R:%d:%s" % [route.boss_id, str(route.points)])
 	return "|".join(parts)

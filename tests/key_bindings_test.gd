@@ -59,6 +59,7 @@ func _held_key(key: int, pressed: bool, physical: bool) -> void:
 func run() -> void:
 	var keys := KeyBindings.new()
 	check(_snapshot(keys) == KeyBindings.DEFAULTS, "new settings hold default keys")
+	check(KeyBindings.ACTIONS.interact == "調べる", "interaction action has no room-travel description")
 	var ui_actions := {}
 	for action in InputMap.get_actions():
 		if str(action).begins_with("ui_"):

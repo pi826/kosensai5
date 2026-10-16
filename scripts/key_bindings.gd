@@ -8,7 +8,7 @@ const ACTIONS := {
 	"shoot": "通常射撃",
 	"switch_color": "色を切り替え",
 	"special": "誘導弾",
-	"interact": "調べる / 部屋移動",
+	"interact": "調べる",
 	"pause_game": "一時停止",
 }
 const DEFAULTS := {

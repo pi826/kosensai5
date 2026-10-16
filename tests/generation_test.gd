@@ -1,5 +1,6 @@
 extends SceneTree
 const Generator := preload("res://scripts/stage_generator.gd")
+const T := preload("res://scripts/tuning.gd")
 var checks := 0
 var failures: Array[String] = []
 
@@ -12,6 +13,9 @@ func check(condition: bool, message: String) -> void:
 		failures.append(message)
 		printerr("FAIL: ", message)
 
+func rejected(stage: Dictionary, reason: String) -> void:
+	check(not Generator.validate(stage).is_empty(), reason)
+
 func run() -> void:
 	var fallback_count := 0
 	var layouts := {}
@@ -19,76 +23,91 @@ func run() -> void:
 	for seed_value in range(1000):
 		var stage := Generator.generate(seed_value)
 		var errors := Generator.validate(stage)
-		check(errors.is_empty(), "valid room graph seed %d: %s" % [seed_value, errors])
-		check(Generator.signature(stage) == Generator.signature(Generator.generate(seed_value)), "reproducible seed %d" % seed_value)
-		check(stage.rooms.size() == 13, "three four-room regions plus hub seed %d" % seed_value)
-		var vertical_links := 0
-		var bosses := {}
-		var grids := PackedStringArray()
-		for room: Dictionary in stage.rooms:
-			grids.append(str(room.grid))
-			for door: Dictionary in room.doors:
-				if door.direction == "north":
-					vertical_links += 1
-			for spawn: Dictionary in room.spawns:
-				all_kinds[spawn.kind] = true
-				if spawn.kind == "boss":
-					bosses[spawn.boss_id] = room.id
-		check(vertical_links >= 2, "multiple vertical connections seed %d" % seed_value)
-		check(bosses.size() == 3, "three distinct miniboss rooms seed %d" % seed_value)
-		layouts[";".join(grids)] = true
-		if stage.fallback:
-			fallback_count += 1
-	check(layouts.size() > 100, "seeds vary room graph layouts")
-	check(all_kinds.size() == 4, "all existing enemy kinds appear")
-	check(fallback_count == 0, "ordinary seeds do not need fallback")
-	for count in [2, 3, 5, 6, 8]:
-		var stage := Generator.generate(321, count)
-		check(stage.rooms.size() == count * 3 + 1 and Generator.validate(stage).is_empty(), "configurable room count %d" % count)
+		check(errors.is_empty(), "valid seamless world seed %d: %s" % [seed_value, errors])
+		check(Generator.signature(stage) == Generator.signature(Generator.generate(seed_value)), "reproducible world seed %d" % seed_value)
+		check(not stage.has("rooms") and not stage.has("doors"), "no room graph or door transitions seed %d" % seed_value)
+		check(stage.biomes.size() == 3 and stage.landmarks.size() == 3, "three regions and guardians seed %d" % seed_value)
+		var ids := {}
+		for spawn: Dictionary in stage.spawns:
+			all_kinds[spawn.kind] = true
+			if spawn.kind == "boss":
+				ids[spawn.boss_id] = true
+		check(ids.size() == 3, "three unique guardian IDs seed %d" % seed_value)
+		var highest_y := float(stage.start_position.y)
+		for route: Dictionary in stage.routes:
+			for point: Vector2 in route.points:
+				highest_y = minf(highest_y, point.y)
+		check(stage.start_position.y - highest_y >= 1536, "twelve normal-jump levels of vertical exploration seed %d" % seed_value)
+		layouts[str(stage.solids)] = true
+		fallback_count += int(stage.fallback)
+	check(layouts.size() > 990, "seeds vary actual terrain geometry")
+	check(all_kinds.size() == 4, "all three ordinary enemy types and guardian appear")
+	check(fallback_count == 0, "ordinary seeds pass without fallback")
 	for seed_value in range(10):
 		var stage := Generator.generate_fallback(seed_value)
-		check(stage.fallback and Generator.validate(stage).is_empty(), "verified fallback seed %d" % seed_value)
+		check(stage.fallback and Generator.validate(stage).is_empty(), "verified continuous fallback seed %d" % seed_value)
 		check(Generator.signature(stage) == Generator.signature(Generator.generate_fallback(seed_value)), "deterministic fallback seed %d" % seed_value)
 	var broken := Generator.generate(1)
-	broken.rooms[0].doors[0].target = 12
-	check(not Generator.validate(broken).is_empty(), "nonadjacent door rejected")
+	broken.solids.remove_at(5)
+	rejected(broken, "gap in safety floor rejected")
 	broken = Generator.generate(1)
-	broken.rooms[1].doors.pop_front()
-	check(not Generator.validate(broken).is_empty(), "one-way connection rejected")
+	broken.solids.append(Rect2(2000, 1024, 32, 1280))
+	rejected(broken, "interior room-like dividing wall rejected")
 	broken = Generator.generate(1)
-	broken.rooms[0].solids.pop_front()
-	check(not Generator.validate(broken).is_empty(), "missing safety floor rejected")
+	broken.solids.remove_at(32)
+	rejected(broken, "missing outer boundary rejected")
 	broken = Generator.generate(1)
-	for i in range(broken.rooms[0].solids.size() - 1, -1, -1):
-		if broken.rooms[0].solids[i].size.y <= 20:
-			broken.rooms[0].solids.remove_at(i)
-	check(not Generator.validate(broken).is_empty(), "unreachable northern entrance rejected")
+	broken.solids.remove_at(34)
+	rejected(broken, "missing first climbing shelf rejected")
 	broken = Generator.generate(1)
-	broken.rooms[1].spawns[0].position = broken.rooms[1].doors[0].arrival
-	check(not Generator.validate(broken).is_empty(), "spawn at room arrival rejected")
+	broken.solids.append(Rect2(3200, 128, 128, 16))
+	rejected(broken, "unreachable shelf rejected")
 	broken = Generator.generate(1)
-	broken.rooms[4].spawns[0].boss_id = 1
-	check(not Generator.validate(broken).is_empty(), "duplicate or misplaced guardian ID rejected")
+	broken.spawns[3].position = broken.start_position
+	rejected(broken, "enemy inside safe starting region rejected")
 	broken = Generator.generate(1)
-	broken.rooms[2].grid = broken.rooms[1].grid
-	check(not Generator.validate(broken).is_empty(), "overlapping rooms rejected")
+	broken.spawns[1].boss_id = 0
+	rejected(broken, "duplicate guardian ID rejected")
 	broken = Generator.generate(1)
-	broken.rooms[1].spawns[0].position.y = 300
-	check(not Generator.validate(broken).is_empty(), "unsupported enemy socket rejected")
+	broken.spawns[0].boss_id = 2
+	broken.spawns[2].boss_id = 0
+	rejected(broken, "guardians swapped into the wrong regions rejected")
 	broken = Generator.generate(1)
-	broken.rooms[2].solids.append(Rect2(640, 160, 32, 480))
-	check(not Generator.validate(broken).is_empty(), "floor-blocking wall rejected")
+	broken.spawns[4].id = broken.spawns[3].id
+	rejected(broken, "duplicate ordinary enemy ID rejected")
 	broken = Generator.generate(1)
-	broken.bounds = Rect2(0, 0, 1280, 736)
-	check(not Generator.validate(broken).is_empty(), "incorrect world bounds rejected")
+	broken.spawns[3].position.y -= 64
+	rejected(broken, "unsupported enemy rejected")
 	broken = Generator.generate(1)
-	broken.rooms[1].spawns[0].id = broken.rooms[2].spawns[0].id
-	check(not Generator.validate(broken).is_empty(), "duplicate enemy identity rejected")
+	broken.spawns[3].patrol = Vector2(32, 12000)
+	rejected(broken, "patrol leaving its supporting ground height rejected")
 	broken = Generator.generate(1)
-	broken.rooms[0].solids.append(Rect2(448, 128, 256, 16))
-	check(not Generator.validate(broken).is_empty(), "insufficient platform headroom rejected")
+	broken.bounds = Rect2(0, 0, 4096, 3072)
+	rejected(broken, "incorrect world bounds rejected")
+	broken = Generator.generate(1)
+	broken.routes[1].points.remove_at(1)
+	rejected(broken, "jump route exceeding single-jump rise rejected")
+	broken = Generator.generate(1)
+	broken.routes[0].points[-1] = broken.start_position
+	rejected(broken, "route missing its actual guardian rejected")
+	broken = Generator.generate(1)
+	broken.biomes[1].rect = broken.biomes[0].rect
+	rejected(broken, "overlapping region extents rejected")
+	broken = Generator.generate(1)
+	broken.landmarks[0].position += Vector2(32, 0)
+	rejected(broken, "landmark inconsistent with actual guardian rejected")
+	broken = Generator.generate(1)
+	var changed_geometry := broken.duplicate(true)
+	changed_geometry.solids.append(Rect2(4096, 1536, 128, 16))
+	check(Generator.signature(broken) != Generator.signature(changed_geometry), "signature covers terrain rather than only seed")
+	var changed_color := broken.duplicate(true)
+	changed_color.spawns[0].polarity = 1 - changed_color.spawns[0].polarity
+	check(Generator.signature(broken) != Generator.signature(changed_color), "signature covers enemy colors")
+	var changed_position := broken.duplicate(true)
+	changed_position.spawns[3].position.x += 32
+	check(Generator.signature(broken) != Generator.signature(changed_position), "signature covers enemy positions")
 	for seed_value in [-2147483648, -1, 2147483647, 9223372036854775807]:
 		var stage := Generator.generate(seed_value)
 		check(Generator.validate(stage).is_empty() and Generator.signature(stage) == Generator.signature(Generator.generate(seed_value)), "signed and large seed %d" % seed_value)
-	print("ROOM GENERATION TEST: ", checks, " checks, ", failures.size(), " failures; 1000 seeds, ", layouts.size(), " layouts, fallback=", fallback_count)
+	print("SEAMLESS GENERATION TEST: ", checks, " checks, ", failures.size(), " failures; 1000 seeds, ", layouts.size(), " geometries, fallback=", fallback_count)
 	quit(0 if failures.is_empty() else 1)

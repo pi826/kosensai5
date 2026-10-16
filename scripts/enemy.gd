@@ -6,7 +6,6 @@ var switch_clock := T.SWITCH_INTERVAL
 var wake_delay := T.ENEMY_WAKE_DELAY
 var was_visible := false
 var pattern := 0
-var room_id := -1
 var boss_id := -1
 var spawn_id := ""
 
@@ -19,7 +18,7 @@ func _ready() -> void:
 	super._ready()
 
 func _physics_process(delta: float) -> void:
-	if dead or not is_instance_valid(game.player) or room_id != game.current_room_id:
+	if dead or not is_instance_valid(game.player):
 		return
 	tick_visuals(delta)
 	velocity.y += T.GRAVITY * delta

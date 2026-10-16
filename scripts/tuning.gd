@@ -50,11 +50,16 @@ const GENERATION_RETRIES := 12
 const LANDING_MARGIN := 12.0
 const MAX_STEP_HEIGHT := JUMP_SPEED * JUMP_SPEED / (2.0 * GRAVITY) - LANDING_MARGIN
 
-# Exploration layout and room travel (stage 2).
+# One continuous world. All positions use the same world coordinate system.
 const TILE_SIZE := 32
-const ROOM_SIZE := Vector2(1280, 736)
-const ROOM_FLOOR_Y := 640.0
-const ROOMS_PER_BIOME := 4
-const DOOR_INTERACT_RADIUS := 84.0
-const ROOM_TRAVEL_COOLDOWN := 0.45
+const WORLD_SIZE := Vector2(12288, 3072)
+const GROUND_Y := 2304.0
+const WORLD_START_X := 6144.0
+const MAP_CELL_SIZE := 128
+const EXPLORATION_RADIUS := 384.0
+const CAMERA_FOLLOW_SPEED := 8.0
+const CAMERA_LOOK_AHEAD := 96.0
+const CAMERA_VERTICAL_OFFSET := 180.0
+const CAMERA_FALL_LOOK_AHEAD := 140.0
+const CAMERA_DEAD_ZONE := Vector2(120, 64)
 const BIOME_NAMES := ["翠の水路", "紫晶の回廊", "灰燼の遺構"]

@@ -1,7 +1,7 @@
 extends SceneTree
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
-const OUTPUT := "res://builds/qa/phase2/"
+const OUTPUT := "res://builds/qa/seamless/"
 var game: Node2D
 
 func _initialize() -> void:
@@ -16,13 +16,21 @@ func capture(name: String) -> void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(OUTPUT + name + ".png")
 
-func show_room(room: Dictionary, local: Vector2 = Vector2(288, 618)) -> void:
-	game._set_current_room(room.id)
-	game.player.position = room.origin + local
+func floor_position(x: float) -> Vector2:
+	var ground_y := T.WORLD_SIZE.y
+	for solid: Rect2 in game.stage.solids:
+		if solid.size.y > 20 and solid.position.x <= x and solid.end.x > x and solid.position.y > 32:
+			ground_y = minf(ground_y, solid.position.y)
+	return Vector2(x, ground_y - T.PLAYER_SIZE.y / 2)
+
+func show_position(point: Vector2) -> void:
+	game.player.position = point
 	game.player.velocity = Vector2.ZERO
 	game.player.set_physics_process(false)
 	for actor in get_nodes_in_group("enemies"):
 		actor.set_physics_process(false)
+	game._update_camera(0.0, true)
+	game._update_exploration()
 	game.ui.update_hud()
 
 func run() -> void:
@@ -44,21 +52,27 @@ func run() -> void:
 	game.start_run(37)
 	await frames(6)
 	await capture("start")
-	show_room(game.current_room(), Vector2(640, 234))
+	show_position(Vector2(5888, 768 - T.PLAYER_SIZE.y / 2))
 	await frames(3)
-	await capture("upper_passage")
+	await capture("upper_path")
 	for biome in range(3):
-		var rooms: Array = game.stage.rooms.filter(func(room): return room.biome == biome and room.id != 0 and room.boss_id < 0)
-		show_room(rooms[0])
+		var point := floor_position(2304 + biome * 3840)
+		show_position(point)
 		game.player.gauge = 5
 		game.player.hp = 88
-		var actor = get_nodes_in_group("enemies").filter(func(enemy): return enemy.room_id == game.current_room_id)[0]
+		var normals: Array = get_nodes_in_group("enemies").filter(func(enemy): return enemy.kind != "boss" and not enemy.dead)
+		var actor = normals[biome]
+		actor.position = point + Vector2(220, 0)
 		actor.receive_hit(1 - actor.polarity, T.NORMAL_DAMAGE)
 		actor.tick_visuals(0.2)
 		await frames(8)
 		await capture("biome_%d" % (biome + 1))
+	for boundary in [4096.0, 8192.0]:
+		show_position(floor_position(boundary))
+		await frames(3)
+		await capture("boundary_%d" % int(boundary))
 	var bosses: Array = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "boss")
-	show_room(game.stage.rooms[bosses[0].room_id])
+	show_position(floor_position(bosses[0].position.x + 220))
 	bosses[0].receive_hit(1 - bosses[0].polarity, 4)
 	bosses[0].tick_visuals(0.2)
 	await frames(8)
@@ -67,9 +81,8 @@ func run() -> void:
 	await frames(3)
 	await capture("paused")
 	game.resume_run()
-	for room: Dictionary in game.stage.rooms:
-		game.visited_rooms[room.id] = true
 	for actor in bosses:
+		game.discovered_bosses[actor.boss_id] = actor.position
 		actor.receive_hit(1 - actor.polarity, 1000)
 	await frames(3)
 	await capture("clear")
@@ -78,7 +91,7 @@ func run() -> void:
 	game.player.receive_hit(1 - game.player.polarity, T.PLAYER_HP)
 	await frames(3)
 	await capture("retry")
-	print("VISUAL CAPTURES: builds/qa/phase2/")
+	print("VISUAL CAPTURES: builds/qa/seamless/")
 	game.queue_free()
 	await frames(2)
 	quit()

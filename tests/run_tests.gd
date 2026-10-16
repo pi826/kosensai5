@@ -2,6 +2,8 @@ extends SceneTree
 const T := preload("res://scripts/tuning.gd")
 const Actor := preload("res://scripts/combatant.gd")
 const Enemy := preload("res://scripts/enemy.gd")
+const Terrain := preload("res://scripts/terrain.gd")
+const FIXTURE_ORIGIN := Vector2(5800, 1600)
 
 class ObservedMain extends "res://scripts/main.gd":
 	var result_menu_count := 0
@@ -13,6 +15,7 @@ class ObservedMain extends "res://scripts/main.gd":
 var checks := 0
 var failures: Array[String] = []
 var game: Node2D
+var initial_exploration: Dictionary
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -78,13 +81,12 @@ func run() -> void:
 	check(game.player.polarity == 1, "short logical-key tap changes color before next physics tick")
 	game.player.polarity = 0
 	var initial_layout: Dictionary = game.stage.duplicate(true)
+	initial_exploration = game.explored_cells.duplicate()
+	prepare_fixture()
 	var fixture_enemies := normal_enemies().slice(0, 3)
 	var enemy = fixture_enemies[0]
-	for actor in get_nodes_in_group("enemies"):
-		actor.set_physics_process(false)
 	for index in range(fixture_enemies.size()):
-		fixture_enemies[index].room_id = 0
-		fixture_enemies[index].position = Vector2([400, 640, 520][index], 618)
+		fixture_enemies[index].position = at([400, 640, 520][index], 618)
 	enemy.polarity = 1
 	game.player.polarity = 0
 	var bullet = game.spawn_bullet(game.player, Vector2.RIGHT)
@@ -123,9 +125,9 @@ func run() -> void:
 	clear_bullets()
 	var second = fixture_enemies[1]
 	var third = fixture_enemies[2]
-	enemy.position = Vector2(430, 618)
-	second.position = Vector2(640, 618)
-	third.position = Vector2(520, 618)
+	enemy.position = at(430, 618)
+	second.position = at(640, 618)
+	third.position = at(520, 618)
 	enemy.polarity = 1
 	second.polarity = 1
 	third.polarity = 0
@@ -154,19 +156,19 @@ func run() -> void:
 	check(second.hp == friendly_hp and second.gauge == friendly_gauge, "enemy projectiles neither damage nor charge other enemies")
 	clear_bullets()
 	# Charge-loop behaviour uses the actual enemy windup and actual guided projectiles.
-	second.position.x = 2500
-	third.position.x = 2700
-	enemy.position = Vector2(430, 618)
+	second.position.x = FIXTURE_ORIGIN.x + 2500
+	third.position.x = FIXTURE_ORIGIN.x + 2700
+	enemy.position = at(430, 618)
 	enemy.polarity = 0
 	game.fire_special(game.player, 1)
 	check(game.projectiles.get_child(0).target == enemy, "homing falls back to a same-color enemy when no opposite is visible")
 	clear_bullets()
-	enemy.position.x = 2500
+	enemy.position.x = FIXTURE_ORIGIN.x + 2500
 	game.fire_special(game.player, 1)
 	var untargeted = game.projectiles.get_child(0)
 	check(untargeted.target == null and untargeted.direction.is_equal_approx(Vector2(game.player.facing, 0)), "special flies forward when no enemy is visible")
 	clear_bullets()
-	enemy.position.x = 430
+	enemy.position.x = FIXTURE_ORIGIN.x + 430
 	enemy.kind = "turret"
 	enemy.gauge = 8
 	enemy.wake_delay = 0
@@ -211,13 +213,16 @@ func run() -> void:
 	Input.action_release("switch_color")
 	Input.action_release("shoot")
 	check(game.player.polarity == 1 - old_color, "can switch color in air while firing")
-	# The hub's first upward platform remains reachable from its safety floor.
-	game.player.position = Vector2(640, T.ROOM_FLOOR_Y - T.PLAYER_SIZE.y / 2)
+	# One-way shelves remain usable anywhere in the continuous world.
+	game.player.position = at(640, 618)
 	game.player.velocity = Vector2.ZERO
+	var shelf := Terrain.new()
+	shelf.bounds = Rect2(at(512, 512), Vector2(256, 16))
+	game.world.add_child(shelf)
 	await frames(3)
 	tap("jump")
 	await frames(38)
-	check(game.player.is_on_floor() and absf(game.player.position.y - (512 - T.PLAYER_SIZE.y / 2)) < 0.5, "jump through underside and land on first vertical platform")
+	check(game.player.is_on_floor() and absf(game.player.position.y - at(0, 490).y) < 0.5, "jump through underside and land on a vertical platform")
 	game.start_run(37)
 	await frames(3)
 	check(game.stage == initial_layout and game.player.hp == T.PLAYER_HP and game.player.gauge == 0 and game.score == 0, "same-seed retry resets whole run")
@@ -225,14 +230,19 @@ func run() -> void:
 	check(game.total_enemies == normal_enemies().size() and game.total_enemies >= 6, "all generated normal enemies are instantiated")
 	check(boss_enemies().size() == 3, "all three biome guardians are instantiated")
 	var hidden = normal_enemies()[0]
-	await frames(180)
-	check(game.projectiles.get_child_count() == 0 and hidden.action == "idle" and not hidden.is_physics_processing(), "enemies in other rooms do not fire")
+	for actor in get_nodes_in_group("enemies"):
+		actor.set_physics_process(false)
+	hidden.set_physics_process(true)
+	hidden.position = game.player.position + Vector2(3000, 0)
+	await frames(120)
+	check(game.projectiles.get_child_count() == 0 and hidden.action == "idle" and not hidden.was_visible, "offscreen enemies keep physics but do not attack")
 	# A boss warning retains the old collision color until it completes.
+	prepare_fixture()
 	var guardian = boss_enemies()[0]
-	guardian.room_id = 0
-	guardian.position = Vector2(780, 582)
-	game._set_current_room(0)
-	game.player.position = Vector2(560, 618)
+	guardian.position = at(780, 582)
+	guardian.set_physics_process(true)
+	game.player.position = at(560, 618)
+	game._update_camera(1.0, true)
 	await frames(3)
 	game.boss.wake_delay = 0
 	game.boss.switch_clock = 0
@@ -249,7 +259,7 @@ func run() -> void:
 		actor.set_physics_process(false)
 	game.boss.polarity = 1
 	game.player.polarity = 0
-	game.player.position = Vector2(game.boss.position.x + 220, 618)
+	game.player.position = Vector2(game.boss.position.x + 220, at(0, 618).y)
 	game.player.facing = 1
 	await frames(2)
 	clear_bullets()
@@ -276,9 +286,7 @@ func run() -> void:
 	remaining.sort_custom(func(a, b): return a.boss_id > b.boss_id)
 	for index in range(remaining.size()):
 		var next_guardian = remaining[index]
-		next_guardian.room_id = 0
-		next_guardian.position = Vector2(780, 582)
-		game._set_current_room(0)
+		next_guardian.position = at(780, 582)
 		for actor in get_nodes_in_group("enemies"):
 			actor.set_physics_process(false)
 		next_guardian.receive_hit(1 - next_guardian.polarity, T.BOSS_HP)
@@ -291,16 +299,17 @@ func run() -> void:
 	await frames(3)
 	check(game.state == "playing" and game.score == 0 and game.kills == 0 and game.player.hp == T.PLAYER_HP and game.player.gauge == 0, "clear retry resets player and score")
 	check(game.stage == initial_layout and game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty(), "clear retry preserves seeded map and clears defeat records")
-	check(game.visited_rooms.size() == 1 and game.visited_rooms.has(0), "clear retry resets exploration to the hub")
+	check(game.explored_cells == initial_exploration and game.discovered_bosses.is_empty(), "clear retry resets explored map cells and hidden guardians")
 	check(boss_enemies().size() == 3 and boss_enemies().all(func(actor): return actor.hp == T.BOSS_HP and not actor.dead), "clear retry revives all three guardians at full HP")
 	var defeated_before_death = boss_enemies()[0]
-	game._set_current_room(defeated_before_death.room_id)
-	game.player.position = game.current_room().origin + Vector2(560, 618)
+	game.player.position = Vector2(T.WORLD_SIZE.x - 1400, 1800)
+	game._update_camera(1.0, true)
+	game._update_exploration()
 	for actor in get_nodes_in_group("enemies"):
 		actor.set_physics_process(false)
 	defeated_before_death.receive_hit(1 - defeated_before_death.polarity, T.BOSS_HP)
 	await frames(3)
-	check(game.defeated_bosses.size() == 1 and game.visited_rooms.size() == 2 and game.state == "playing", "death retry fixture includes a defeated guardian and explored room")
+	check(game.defeated_bosses.size() == 1 and game.explored_cells.size() > initial_exploration.size() and game.state == "playing", "death retry fixture includes a defeated guardian and explored map cells")
 	game.player.gauge = 5
 	game.effects.damage_numbers.clear()
 	game.player.receive_hit(1 - game.player.polarity, T.PLAYER_HP)
@@ -310,17 +319,37 @@ func run() -> void:
 	game.primary_action()
 	await frames(3)
 	check(game.state == "playing" and game.current_seed == 37 and game.player.hp == T.PLAYER_HP and game.player.gauge == 0 and game.score == 0, "death retry resets player and reuses seed")
-	check(boss_enemies().size() == 3 and game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty() and game.visited_rooms.size() == 1 and game.visited_rooms.has(0), "death retry revives guardians and resets exploration")
+	check(boss_enemies().size() == 3 and game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty() and game.explored_cells == initial_exploration and game.discovered_bosses.is_empty(), "death retry revives guardians and resets exploration")
 	await verify_two_hit_enemies()
 	await verify_guardian_orders()
 	game.queue_free()
 	await frames(2)
 	var report := {"checks": checks, "failures": failures, "elapsed_ms": Time.get_ticks_msec() - begun}
-	DirAccess.make_dir_recursive_absolute("res://builds/qa/phase2")
-	var file := FileAccess.open("res://builds/qa/phase2/combat_results.json", FileAccess.WRITE)
+	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")
+	var file := FileAccess.open("res://builds/qa/seamless/combat_results.json", FileAccess.WRITE)
 	file.store_string(JSON.stringify(report, "\t"))
 	print("TEST RESULT: ", checks, " checks, ", failures.size(), " failures (", report.elapsed_ms, " ms)")
 	quit(0 if failures.is_empty() else 1)
+
+func at(x: float, y: float) -> Vector2:
+	return FIXTURE_ORIGIN + Vector2(x, y)
+
+func prepare_fixture() -> void:
+	# Combat checks use a flat, clear piece of the same continuous physics world.
+	# Procedural terrain traversal is checked separately by the exploration bot.
+	for child in game.world.get_children():
+		if child != game.player and child != game.projectiles and child != game.effects and not child.is_in_group("enemies"):
+			child.free()
+	for actor in get_nodes_in_group("enemies"):
+		actor.set_physics_process(false)
+		actor.position = Vector2(11000, 2500)
+	var floor_block := Terrain.new()
+	floor_block.bounds = Rect2(at(0, 640), Vector2(4000, 160))
+	game.world.add_child(floor_block)
+	game.player.position = at(210, 618)
+	game.player.velocity = Vector2.ZERO
+	game.player.facing = 1
+	game._update_camera(1.0, true)
 
 func normal_enemies() -> Array:
 	return get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss" and actor.get_parent() == game.world)
@@ -334,16 +363,14 @@ func clear_bullets() -> void:
 
 func two_hit_fixture(kind: String, color: int):
 	game.start_run(37)
+	prepare_fixture()
 	game.player.set_physics_process(false)
-	for actor in get_nodes_in_group("enemies"):
-		actor.set_physics_process(false)
 	var enemy := Enemy.new()
 	enemy.game = game
 	enemy.kind = kind
 	enemy.polarity = color
-	enemy.room_id = game.current_room_id
 	enemy.spawn_id = "two_hit_%s_%d" % [kind, color]
-	enemy.position = Vector2(400, T.ROOM_FLOOR_Y - T.ENEMY_SIZE.y / 2)
+	enemy.position = at(400, 618)
 	game.world.add_child(enemy)
 	enemy.set_physics_process(false)
 	game.player.polarity = 1 - color
