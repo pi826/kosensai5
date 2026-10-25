@@ -45,7 +45,7 @@ func clip_path() -> void:
 				elif chord[axis] < 0:
 					fraction = minf(fraction, (bounds.position[axis] - start[axis]) / chord[axis])
 			end = start + chord * fraction
-		var ray := PhysicsRayQueryParameters2D.create(start, end, 1)
+		var ray := PhysicsRayQueryParameters2D.create(start, end, 1 | T.PLATFORM_LAYER)
 		ray.hit_from_inside = true
 		var hit := get_world_2d().direct_space_state.intersect_ray(ray)
 		path.append(hit.position if not hit.is_empty() else end)

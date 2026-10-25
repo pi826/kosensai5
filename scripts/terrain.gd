@@ -1,9 +1,10 @@
 extends StaticBody2D
+const T := preload("res://scripts/tuning.gd")
 
 var bounds := Rect2()
 
 func _ready() -> void:
-	collision_layer = 1
+	collision_layer = T.PLATFORM_LAYER if bounds.size.y <= 20.0 else 1
 	collision_mask = 0
 	var shape := RectangleShape2D.new()
 	shape.size = bounds.size

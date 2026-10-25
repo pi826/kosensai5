@@ -29,6 +29,7 @@ var settings_panel: PanelContainer
 var minimap: Control
 var location_label: Label
 var objective_label: Label
+var angle_label: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -64,6 +65,9 @@ func _ready() -> void:
 	color_label = label("", 22)
 	place(color_label, Vector2(362, 27), Vector2(135, 32))
 	hud.add_child(color_label)
+	angle_label = label("", 16)
+	place(angle_label, Vector2(362, 61), Vector2(155, 24))
+	hud.add_child(angle_label)
 	gauge_label = label("", 17)
 	place(gauge_label, Vector2(522, 26), Vector2(320, 28))
 	hud.add_child(gauge_label)
@@ -106,7 +110,7 @@ func _ready() -> void:
 	place(boss_hp_label, Vector2(420, 148), Vector2(440, 40))
 	boss_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(boss_hp_label)
-	hint_label = label("敵と違う色で撃つとダメージ。飛んでくる弾と同じ色なら吸収。\nZ  射撃     X  色切替     C  吸収ゲージで誘導弾", 22)
+	hint_label = label("", 22)
 	place(hint_label, Vector2(190, 280), Vector2(800, 120))
 	hint_label.add_theme_font_size_override("font_size", 20)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -183,10 +187,13 @@ func _ready() -> void:
 
 func refresh_bindings() -> void:
 	var keys: RefCounted = game.key_bindings
-	controls_label.text = "左 %s   右 %s     %s ジャンプ（長押しで高く）    %s 射撃    %s 色切替    %s 誘導弾    %s 一時停止" % [
+	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 角度切替   %s 誘導弾   %s 調べる   %s 一時停止" % [
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
-		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("special"), keys.get_binding_text("pause_game")]
-	hint_label.text = "左右移動とジャンプで3地域を自由に探索。\n足場を登って、3体の中ボスを見つけよう。\n敵と違う色で攻撃。同色の弾は吸収して誘導弾に。"
+		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
+		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
+	hint_label.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n%s 射撃 / %s 色切替 / %s 角度 0° → 60° → -60°\n%s 薄い足場を降りる / %s 複数の敵へ誘導弾" % [
+		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
+		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
 
 func update_hud() -> void:
 	var live: bool = is_instance_valid(game.player) and not game.player.dead
@@ -199,6 +206,7 @@ func update_hud() -> void:
 	var color_index: int = game.player.polarity if live else 0
 	color_label.text = T.COLOR_NAMES[color_index]
 	color_label.modulate = T.COLORS[color_index]
+	angle_label.text = "角度 %d°" % (game.player.aim_angle() if live else 0.0)
 	var charge: int = game.player.gauge if live else 0
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]

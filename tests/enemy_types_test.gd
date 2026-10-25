@@ -78,7 +78,7 @@ func verify_flyer() -> void:
 		var query := PhysicsShapeQueryParameters2D.new()
 		query.shape = flyer.get_child(0).shape
 		query.transform = flyer.global_transform
-		query.collision_mask = 1
+		query.collision_mask = 1 | T.PLATFORM_LAYER
 		clear = clear and flyer.get_world_2d().direct_space_state.intersect_shape(query).is_empty()
 	check(in_lane and max_x - min_x > 280, "flyer reverses within its horizontal lane over eight seconds")
 	check(min_y >= center - T.FLYER_BOB_AMPLITUDE - 0.1 and max_y <= center + T.FLYER_BOB_AMPLITUDE + 0.1 and max_y - min_y > 31, "flyer bobs without falling")

@@ -19,14 +19,14 @@ func _physics_process(delta: float) -> void:
 		return
 	if homing:
 		if not is_instance_valid(target) or target.dead or target.is_queued_for_deletion():
-			target = game.choose_homing_target(faction, polarity, global_position)
+			target = game.choose_homing_target(faction, polarity, global_position, self)
 		if is_instance_valid(target):
 			var desired := (target.global_position - global_position).angle()
 			var turn := clampf(angle_difference(direction.angle(), desired), -T.HOMING_TURN_RATE * delta, T.HOMING_TURN_RATE * delta)
 			direction = direction.rotated(turn).normalized()
 	var next_position := global_position + direction * speed * delta
 	# Swept collision prevents fast shots tunnelling through a thin body or shelf.
-	var mask := 1 | (4 | T.WALL_LAYER if faction == 0 else 2)
+	var mask := 1 | T.PLATFORM_LAYER | (4 | T.WALL_LAYER if faction == 0 else 2)
 	var ray := PhysicsRayQueryParameters2D.create(global_position, next_position, mask)
 	ray.hit_from_inside = true
 	var hit := get_world_2d().direct_space_state.intersect_ray(ray)

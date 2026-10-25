@@ -59,6 +59,17 @@ func _held_key(key: int, pressed: bool, physical: bool) -> void:
 func run() -> void:
 	var keys := KeyBindings.new()
 	check(_snapshot(keys) == KeyBindings.DEFAULTS, "new settings hold default keys")
+	var expected := {
+		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
+		"jump": [KEY_SPACE, KEY_W], "move_down": [KEY_S, KEY_DOWN],
+		"shoot": [KEY_J, KEY_NONE], "switch_color": [KEY_K, KEY_NONE],
+		"aim_cycle": [KEY_L, KEY_NONE], "special": [KEY_SEMICOLON, KEY_NONE],
+		"interact": [KEY_E, KEY_NONE], "pause_game": [KEY_ESCAPE, KEY_NONE],
+	}
+	for action: String in expected:
+		check([keys.get_key(action, 0), keys.get_key(action, 1)] == expected[action], "two-hand default keys: " + action)
+	check(KeyBindings.ACTIONS.move_down == "下へ降りる" and KeyBindings.ACTIONS.aim_cycle == "射撃角度を切り替え", "new actions have Japanese names")
+	check(KeyBindings.key_text(KEY_SEMICOLON) == ";", "semicolon is displayed literally")
 	check(KeyBindings.ACTIONS.interact == "調べる", "interaction action has no room-travel description")
 	var ui_actions := {}
 	for action in InputMap.get_actions():
@@ -78,9 +89,11 @@ func run() -> void:
 		var input_events := InputMap.action_get_events(action)
 		check(input_events.any(func(event): return event is InputEventKey and event.physical_keycode == keys.get_key(action, 0)), "physical key registered: %s" % action)
 		check(input_events.any(func(event): return event is InputEventKey and event.keycode == keys.get_key(action, 0) and event.physical_keycode == 0), "logical key registered: %s" % action)
-	check(not keys.try_bind("jump", 1, KEY_Z).is_empty(), "different-action duplicate rejected")
+	check(not keys.try_bind("jump", 1, KEY_J).is_empty(), "different-action duplicate rejected")
+	check(not keys.try_bind("aim_cycle", 0, KEY_S).is_empty(), "aim cannot duplicate move_down")
+	check(not keys.try_bind("move_down", 1, KEY_L).is_empty(), "move_down cannot duplicate aim_cycle")
 	check(not keys.try_bind("move_left", 1, KEY_A).is_empty(), "same-action duplicate rejected")
-	check(not keys.try_bind("jump", 0, KEY_NONE).is_empty(), "last key cannot be removed")
+	check(not keys.try_bind("shoot", 0, KEY_NONE).is_empty(), "last key cannot be removed")
 	check(not keys.try_bind("jump", 1, KEY_ESCAPE).is_empty(), "Esc reserved for pause")
 	check(not keys.try_bind("jump", 1, KEY_META).is_empty(), "Meta key rejected")
 	check(not keys.try_bind("jump", 1, KEY_A | KEY_MASK_SHIFT).is_empty(), "modifier combinations rejected")
@@ -96,6 +109,9 @@ func run() -> void:
 	var saved := _snapshot(keys)
 	var path := _new_path()
 	check(keys.save_settings(path) == OK, "settings save succeeds")
+	var config := ConfigFile.new()
+	config.load(path)
+	check(config.get_value("controls", "version") == 3, "saved controls version is three")
 	var reloaded := KeyBindings.new()
 	reloaded.load_settings(path)
 	check(_snapshot(reloaded) == saved, "saved settings round-trip")
@@ -111,48 +127,28 @@ func run() -> void:
 		check(still_held, "releasing first jump key preserves held second key (physical=%s)" % physical)
 		_held_key(KEY_Q, false, physical)
 		check(not Input.is_action_pressed("jump"), "releasing both jump keys releases action (physical=%s)" % physical)
-	# Version 1 files predate interaction. New defaults must not erase old custom
-	# controls just because the player's preferred shooting key happened to be E.
-	var legacy := ConfigFile.new()
-	legacy.set_value("controls", "version", 1)
-	for action: String in KeyBindings.ACTIONS:
-		if action != "interact":
-			legacy.set_value("bindings", action, KeyBindings.DEFAULTS[action].duplicate())
-	path = _new_path()
-	legacy.save(path)
-	reloaded.load_settings(path)
-	check(reloaded.get_key("interact", 0) == KEY_E, "legacy file gets default interaction key when free")
-	legacy.set_value("bindings", "shoot", [KEY_E, KEY_NONE])
-	legacy.set_value("bindings", "pause_game", [KEY_P, KEY_NONE])
-	legacy.save(path)
-	reloaded.load_settings(path)
-	check(reloaded.get_key("interact", 0) == KEY_F, "legacy E collision gives new interaction an unused nearby key")
-	for action: String in KeyBindings.ACTIONS:
-		if action != "interact":
-			check([reloaded.get_key(action, 0), reloaded.get_key(action, 1)] == legacy.get_value("bindings", action), "legacy custom binding survives migration: %s" % action)
-	check(reloaded.get_key("pause_game", 0) == KEY_P, "legacy custom pause key survives migration")
-	var migrated := _snapshot(reloaded)
-	check(reloaded.save_settings(path) == OK, "migrated bindings can be saved")
-	var upgraded := ConfigFile.new()
-	upgraded.load(path)
-	check(upgraded.get_value("controls", "version") == 2, "saved migration writes current controls version")
-	reloaded.load_settings(path)
-	check(_snapshot(reloaded) == migrated, "migrated interaction and old bindings survive reload")
-	# Exhaust all preferred migration keys and verify that a later free key is
-	# selected without dropping any of the two-slot bindings.
-	legacy.set_value("bindings", "jump", [KEY_F, KEY_R])
-	legacy.set_value("bindings", "special", [KEY_V, KEY_NONE])
-	legacy.save(path)
-	reloaded.load_settings(path)
-	check(reloaded.get_key("interact", 0) == KEY_B, "migration finds a free letter after E F R V are occupied")
-	for action: String in KeyBindings.ACTIONS:
-		if action != "interact":
-			check([reloaded.get_key(action, 0), reloaded.get_key(action, 1)] == legacy.get_value("bindings", action), "crowded legacy binding survives migration: %s" % action)
-	_held_key(KEY_B, true, true)
-	check(Input.is_action_pressed("interact"), "migrated interaction key registers in InputMap")
-	_held_key(KEY_B, false, true)
-	check(not Input.is_action_pressed("interact"), "migrated interaction releases correctly")
+	# The new hand layout deliberately ignores old files without rewriting them.
+	for version in [0, 1, 2]:
+		var legacy := ConfigFile.new()
+		if version > 0:
+			legacy.set_value("controls", "version", version)
+		legacy.set_value("bindings", "shoot", [KEY_Z, KEY_NONE])
+		legacy.set_value("bindings", "pause_game", [KEY_P, KEY_NONE])
+		legacy.set_value("bindings", "aim_cycle", [KEY_Q, KEY_NONE])
+		path = _new_path()
+		legacy.save(path)
+		var original := FileAccess.get_file_as_bytes(path)
+		reloaded.load_settings(path)
+		check(_snapshot(reloaded) == KeyBindings.DEFAULTS, "legacy version %d uses new defaults" % version)
+		check(FileAccess.get_file_as_bytes(path) == original, "legacy version %d file is untouched on load" % version)
+		check(reloaded.save_settings(path) == OK, "legacy defaults save explicitly")
+		var upgraded := ConfigFile.new()
+		upgraded.load(path)
+		check(upgraded.get_value("controls", "version") == 3, "explicit save upgrades version to three")
+		reloaded.load_settings(path)
+		check(_snapshot(reloaded) == KeyBindings.DEFAULTS, "upgraded defaults round-trip")
 	var partial := ConfigFile.new()
+	partial.set_value("controls", "version", 3)
 	partial.set_value("bindings", "jump", [KEY_Q, KEY_NONE])
 	partial.set_value("bindings", "shoot", "broken")
 	partial.set_value("bindings", "special", [KEY_NONE, KEY_NONE])
@@ -161,9 +157,9 @@ func run() -> void:
 	partial.save(path)
 	reloaded.load_settings(path)
 	check(reloaded.get_key("jump", 0) == KEY_Q, "valid row retained beside corrupted settings")
-	check(reloaded.get_key("shoot", 0) == KEY_Z, "invalid row falls back to default")
-	check(reloaded.get_key("special", 0) == KEY_C, "empty row falls back to playable default")
-	check(reloaded.get_key("switch_color", 0) == KEY_X, "unsafe key falls back to default")
+	check(reloaded.get_key("shoot", 0) == KEY_J, "invalid row falls back to default")
+	check(reloaded.get_key("special", 0) == KEY_SEMICOLON, "empty row falls back to playable default")
+	check(reloaded.get_key("switch_color", 0) == KEY_K, "unsafe key falls back to default")
 	check(reloaded.get_key("move_left", 0) == KEY_A, "missing row falls back to default")
 	partial.set_value("bindings", "move_right", [KEY_A, KEY_NONE])
 	partial.save(path)
@@ -188,7 +184,17 @@ func run() -> void:
 	await process_frame
 	check(panel.visible and panel.get_rect().end.x <= 1280 and panel.get_rect().end.y <= 720, "settings panel fits 1280 by 720")
 	check(panel._buttons.has("interact"), "settings panel includes interaction action")
-	check(panel._list_scroll.size.y < panel._list_scroll.get_child(0).size.y, "eight action rows scroll inside a fixed-height panel")
+	for action in ["move_down", "aim_cycle"]:
+		check(panel._buttons.has(action), "panel includes new action: " + action)
+		panel._begin_wait(action, 1)
+		_tap(KEY_Q)
+		var saved_new := KeyBindings.new()
+		saved_new.load_settings(panel.settings_path)
+		check(reloaded.get_key(action, 1) == KEY_Q and saved_new.get_key(action, 1) == KEY_Q, "panel edits and saves new action: " + action)
+		panel._begin_wait(action, 1)
+		_tap(KEY_BACKSPACE)
+	panel._reset()
+	check(panel._list_scroll.size.y < panel._list_scroll.get_child(0).size.y, "ten action rows scroll inside a fixed-height panel")
 	panel._buttons["pause_game"][0].grab_focus()
 	await process_frame
 	await process_frame

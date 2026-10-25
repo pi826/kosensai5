@@ -28,7 +28,7 @@ func _physics_process(delta: float) -> void:
 	elif phase == "flight" and not exploded:
 		var next := global_position + velocity * delta + Vector2(0, T.BOMB_GRAVITY * delta * delta / 2)
 		velocity.y += T.BOMB_GRAVITY * delta
-		var ray := PhysicsRayQueryParameters2D.create(global_position, next, 1 | 2)
+		var ray := PhysicsRayQueryParameters2D.create(global_position, next, 1 | 2 | T.PLATFORM_LAYER)
 		ray.hit_from_inside = true
 		var hit := get_world_2d().direct_space_state.intersect_ray(ray)
 		if not hit.is_empty():

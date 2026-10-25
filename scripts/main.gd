@@ -127,6 +127,7 @@ func _physics_process(delta: float) -> void:
 		elapsed += delta
 		_update_camera(delta)
 		_update_exploration()
+		_update_lock_marks()
 		ui.update_hud()
 
 func _update_camera(delta: float, snap: bool = false) -> void:
@@ -199,11 +200,53 @@ func targets_for(side: int, color: int, origin: Vector2) -> Array:
 		if (a.polarity != color) != (b.polarity != color):
 			return a.polarity != color
 		return origin.distance_squared_to(a.global_position) < origin.distance_squared_to(b.global_position))
+	if side == 0:
+		var opposite := candidates.filter(func(actor): return actor.polarity != color)
+		if not opposite.is_empty():
+			return opposite
 	return candidates
 
-func choose_homing_target(side: int, color: int, origin: Vector2) -> Node2D:
+func choose_homing_target(side: int, color: int, origin: Vector2, seeking: Node2D = null) -> Node2D:
 	var candidates := targets_for(side, color, origin)
-	return candidates[0] if not candidates.is_empty() else null
+	if candidates.is_empty():
+		return null
+	if side != 0:
+		return candidates[0] # Enemy missiles still target only the player.
+	var selected: Node2D = null
+	var least := 2147483647
+	for candidate in candidates:
+		var count := 0
+		for missile in projectiles.get_children():
+			if missile == seeking or not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion():
+				continue
+			if missile.target == candidate:
+				count += 1
+		if count < least:
+			selected = candidate
+			least = count
+	return selected
+
+func lock_on_targets() -> Array:
+	var marked: Array = []
+	if not is_instance_valid(player) or player.dead:
+		return marked
+	var candidates := targets_for(0, player.polarity, player.global_position)
+	for index in range(mini(player.gauge, candidates.size())):
+		marked.append(candidates[index])
+	for missile in projectiles.get_children():
+		if not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion():
+			continue
+		var target: Node2D = missile.target
+		if is_instance_valid(target) and not target.dead and not target.is_queued_for_deletion() and not marked.has(target):
+			marked.append(target)
+	return marked
+
+func _update_lock_marks() -> void:
+	var marked := lock_on_targets()
+	for actor in get_tree().get_nodes_in_group("enemies"):
+		if actor.get_parent() == world:
+			actor.lock_marked = marked.has(actor)
+			actor.queue_redraw()
 
 func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
 	var bullet := Bullet.new()
@@ -221,8 +264,11 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 		bullet.speed = T.PLAYER_HOMING_SPEED if actor.faction == 0 else T.ENEMY_HOMING_SPEED
 	else:
 		bullet.speed = T.PLAYER_BULLET_SPEED if actor.faction == 0 else T.ENEMY_BULLET_SPEED
-	var launch_side: float = signf(direction.x) if guided else float(actor.facing)
-	bullet.position = actor.position + Vector2(launch_side * (actor.body_size.x / 2 + 9), -4)
+	if actor.faction == 0 and not guided:
+		bullet.position = actor.position + actor.muzzle_offset(bullet.direction)
+	else:
+		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
+		bullet.position = actor.position + Vector2(launch_side * (actor.body_size.x / 2 + 9), -4)
 	projectiles.add_child(bullet)
 	return bullet
 

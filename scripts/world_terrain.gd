@@ -383,7 +383,7 @@ func _chunk(key: Vector2i) -> DrawChunk:
 
 func _add_collision(bounds: Rect2, layer: int = 1) -> StaticBody2D:
 	var body := StaticBody2D.new()
-	body.collision_layer = layer
+	body.collision_layer = T.PLATFORM_LAYER if bounds.size.y <= 20.0 else layer
 	body.collision_mask = 0
 	var shape := RectangleShape2D.new()
 	shape.size = bounds.size

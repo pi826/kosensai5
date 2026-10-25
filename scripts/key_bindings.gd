@@ -5,8 +5,10 @@ const ACTIONS := {
 	"move_left": "左へ移動",
 	"move_right": "右へ移動",
 	"jump": "ジャンプ",
+	"move_down": "下へ降りる",
 	"shoot": "通常射撃",
 	"switch_color": "色を切り替え",
+	"aim_cycle": "射撃角度を切り替え",
 	"special": "誘導弾",
 	"interact": "調べる",
 	"pause_game": "一時停止",
@@ -14,10 +16,12 @@ const ACTIONS := {
 const DEFAULTS := {
 	"move_left": [KEY_A, KEY_LEFT],
 	"move_right": [KEY_D, KEY_RIGHT],
-	"jump": [KEY_SPACE, KEY_NONE],
-	"shoot": [KEY_Z, KEY_NONE],
-	"switch_color": [KEY_X, KEY_NONE],
-	"special": [KEY_C, KEY_NONE],
+	"jump": [KEY_SPACE, KEY_W],
+	"move_down": [KEY_S, KEY_DOWN],
+	"shoot": [KEY_J, KEY_NONE],
+	"switch_color": [KEY_K, KEY_NONE],
+	"aim_cycle": [KEY_L, KEY_NONE],
+	"special": [KEY_SEMICOLON, KEY_NONE],
 	"interact": [KEY_E, KEY_NONE],
 	"pause_game": [KEY_ESCAPE, KEY_NONE],
 }
@@ -27,7 +31,7 @@ var _bindings: Dictionary = DEFAULTS.duplicate(true)
 func load_settings(path: String = "user://controls.cfg") -> void:
 	var config := ConfigFile.new()
 	_bindings = DEFAULTS.duplicate(true)
-	if config.load(path) == OK:
+	if config.load(path) == OK and config.get_value("controls", "version", 0) == 3:
 		for action: String in ACTIONS:
 			if not config.has_section_key("bindings", action):
 				continue
@@ -35,11 +39,6 @@ func load_settings(path: String = "user://controls.cfg") -> void:
 			# Recover a damaged or missing action without discarding other valid rows.
 			if _valid_pair(action, stored):
 				_bindings[action] = [int(stored[0]), int(stored[1])]
-		# Older files have no interaction row. Preserve their custom bindings even
-		# when E was already assigned, and give the new action an unused key.
-		var stored_interact: Variant = config.get_value("bindings", "interact", [])
-		if not _valid_pair("interact", stored_interact):
-			_bindings["interact"] = [_unused_interaction_key(), KEY_NONE]
 		# A damaged row can restore a default key already used by another row.
 		# In that case the complete default set is the safe, conflict-free recovery.
 		if not _has_unique_keys():
@@ -86,6 +85,7 @@ static func key_text(key: int) -> String:
 		KEY_RIGHT: return "→"
 		KEY_UP: return "↑"
 		KEY_DOWN: return "↓"
+		KEY_SEMICOLON: return ";"
 		_: return OS.get_keycode_string(key)
 
 func try_bind(action: String, slot: int, key: int) -> String:
@@ -117,27 +117,10 @@ func reset_defaults() -> void:
 
 func save_settings(path: String = "user://controls.cfg") -> Error:
 	var config := ConfigFile.new()
-	config.set_value("controls", "version", 2)
+	config.set_value("controls", "version", 3)
 	for action: String in ACTIONS:
 		config.set_value("bindings", action, _bindings[action].duplicate())
 	return config.save(path)
-
-func _unused_interaction_key() -> int:
-	var used := {}
-	for action: String in ACTIONS:
-		if action == "interact":
-			continue
-		for key: int in _bindings[action]:
-			used[key] = true
-	# Favor nearby letter keys, then the rest of the alphabet. At most fourteen
-	# keys belong to the seven old actions, so an unused letter always exists.
-	var candidates := [KEY_E, KEY_F, KEY_R, KEY_V]
-	for key in range(KEY_A, KEY_Z + 1):
-		candidates.append(key)
-	for key: int in candidates:
-		if not used.has(key):
-			return key
-	return KEY_E
 
 func _valid_pair(action: String, value: Variant) -> bool:
 	if not value is Array or value.size() != 2:

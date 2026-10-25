@@ -1,6 +1,7 @@
 extends SceneTree
 const Main := preload("res://scripts/main.gd")
 const Terrain := preload("res://scripts/terrain.gd")
+const WorldTerrain := preload("res://scripts/world_terrain.gd")
 const T := preload("res://scripts/tuning.gd")
 var game: Node2D
 var checks := 0
@@ -39,7 +40,7 @@ func key_event(key: int, pressed: bool) -> void:
 	Input.flush_buffered_events()
 
 func reset_player() -> void:
-	for action in ["move_left", "move_right", "jump", "shoot", "switch_color", "special"]:
+	for action in ["move_left", "move_right", "jump", "move_down", "shoot", "switch_color", "aim_cycle", "special"]:
 		input_action(action, false)
 	game.start_run(37)
 	for enemy in get_nodes_in_group("enemies"):
@@ -205,6 +206,7 @@ func run() -> void:
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
 	check(game.player.polarity == 1, "remapped key performs gameplay action")
+	await verify_drop_through()
 	game.queue_free()
 	await frames(2)
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")
@@ -213,3 +215,85 @@ func run() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	print("MOVEMENT RESULT: ", checks, " checks, ", failures.size(), " failures; ", measurements)
 	quit(0 if failures.is_empty() else 1)
+
+func drop_fixture(world_terrain: bool) -> CharacterBody2D:
+	await reset_player()
+	var shelves: Array[Rect2] = [
+		Rect2(FIXTURE_ORIGIN + Vector2(80, 384), Vector2(360, 16)),
+		Rect2(FIXTURE_ORIGIN + Vector2(80, 512), Vector2(360, 16)),
+	]
+	if world_terrain:
+		var terrain := WorldTerrain.new()
+		terrain.stage = {"bounds": game.stage.bounds, "solids": shelves}
+		game.world.add_child(terrain)
+		game.terrain = terrain
+	else:
+		for shelf in shelves:
+			fixture(Rect2(shelf.position - FIXTURE_ORIGIN, shelf.size))
+	game.player.position = FIXTURE_ORIGIN + Vector2(210, 362)
+	game.player.velocity = Vector2.ZERO
+	var enemy: CharacterBody2D = get_nodes_in_group("enemies").filter(func(actor): return actor.get_parent() == game.world and actor.kind != "boss")[0]
+	enemy.kind = "turret"
+	enemy.position = FIXTURE_ORIGIN + Vector2(350, 362)
+	enemy.velocity = Vector2.ZERO
+	enemy.shot_clock = 100
+	enemy.set_physics_process(true)
+	await frames(4)
+	check(game.player.is_on_floor() and enemy.is_on_floor(), "player and enemy stand on shelf (world=%s)" % world_terrain)
+	return enemy
+
+func verify_drop_through() -> void:
+	for use_world in [false, true]:
+		var context := " (world=%s)" % use_world
+		var enemy := await drop_fixture(use_world)
+		var initial_x: float = game.player.position.x
+		var enemy_y := enemy.position.y
+		# A tap descends to the next shelf rather than walking off its edge.
+		key_event(KEY_S, true)
+		await frames(1)
+		key_event(KEY_S, false)
+		check(game.player.drop_remaining > 0 and not game.player.collision_mask & T.PLATFORM_LAYER, "drop temporarily removes only player shelf collision" + context)
+		check(game.player.collision_mask & 1 and game.player.collision_mask & T.WALL_LAYER, "solid terrain and walls stay in the player mask" + context)
+		key_event(KEY_SPACE, true)
+		await frames(1)
+		key_event(KEY_SPACE, false)
+		check(game.player.velocity.y > 0 and game.player.coyote == 0, "jump immediately after dropping cannot use coyote time" + context)
+		var enemy_stayed := true
+		for index in range(30):
+			await frames(1)
+			enemy_stayed = enemy_stayed and enemy.is_on_floor() and absf(enemy.position.y - enemy_y) < 0.2
+		check(game.player.is_on_floor() and absf(game.player.position.y - (FIXTURE_ORIGIN.y + 490)) < 0.2 and absf(game.player.position.x - initial_x) < 0.1, "tap drops vertically to the next shelf" + context)
+		check(game.player.drop_remaining == 0 and game.player.collision_mask & T.PLATFORM_LAYER, "shelf collision returns after the whole body clears" + context)
+		check(enemy_stayed, "enemy stays grounded throughout and after player's drop" + context)
+		enemy = await drop_fixture(use_world)
+		enemy_y = enemy.position.y
+		key_event(KEY_DOWN, true)
+		enemy_stayed = true
+		for index in range(55):
+			await frames(1)
+			enemy_stayed = enemy_stayed and enemy.is_on_floor() and absf(enemy.position.y - enemy_y) < 0.2
+		key_event(KEY_DOWN, false)
+		check(game.player.is_on_floor() and absf(game.player.position.y - (FIXTURE_ORIGIN.y + FLOOR_CENTER)) < 0.2, "held down passes through stacked shelves and lands on solid floor" + context)
+		check(enemy_stayed, "held down does not change enemy shelf collision" + context)
+		key_event(KEY_S, true)
+		await frames(12)
+		key_event(KEY_S, false)
+		check(game.player.is_on_floor() and game.player.drop_remaining == 0 and absf(game.player.position.y - (FIXTURE_ORIGIN.y + FLOOR_CENTER)) < 0.2, "down does nothing on a thick floor" + context)
+		# Re-use the same physical shelves from below, with down released.
+		input_action("jump", true)
+		await frames(38)
+		input_action("jump", false)
+		check(game.player.is_on_floor() and absf(game.player.position.y - (FIXTURE_ORIGIN.y + 490)) < 0.2, "jump still crosses the shelf underside and lands on top" + context)
+		check(game.player.collision_mask & T.PLATFORM_LAYER, "normal collision remains enabled after jumping through" + context)
+	# Thick blocks and temporary walls use their original solid layers.
+	for layer in [1, T.WALL_LAYER]:
+		await reset_player()
+		fixture(Rect2(80, 512, 360, 64))
+		var block: StaticBody2D = game.world.get_child(game.world.get_child_count() - 1)
+		block.collision_layer = layer
+		game.player.position = FIXTURE_ORIGIN + Vector2(210, 490)
+		await frames(4)
+		input_action("move_down", true)
+		await frames(15)
+		input_action("move_down", false)
+		check(game.player.is_on_floor() and game.player.drop_remaining == 0 and absf(game.player.position.y - (FIXTURE_ORIGIN.y + 490)) < 0.2, "down cannot bypass a block/wall on layer %d" % layer)

@@ -3,6 +3,9 @@ const T := preload("res://scripts/tuning.gd")
 const Actor := preload("res://scripts/combatant.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Terrain := preload("res://scripts/terrain.gd")
+const WorldTerrain := preload("res://scripts/world_terrain.gd")
+const Laser := preload("res://scripts/laser_beam.gd")
+const Bomb := preload("res://scripts/bomb.gd")
 const FIXTURE_ORIGIN := Vector2(5800, 1600)
 
 class ObservedMain extends "res://scripts/main.gd":
@@ -70,11 +73,11 @@ func run() -> void:
 	await frames(3)
 	check(game.player.is_on_floor(), "player grounded on start floor")
 	var raw_key := InputEventKey.new()
-	raw_key.keycode = KEY_X
+	raw_key.keycode = KEY_K
 	raw_key.pressed = true
 	Input.parse_input_event(raw_key)
 	raw_key = InputEventKey.new()
-	raw_key.keycode = KEY_X
+	raw_key.keycode = KEY_K
 	raw_key.pressed = false
 	Input.parse_input_event(raw_key)
 	Input.flush_buffered_events()
@@ -322,6 +325,9 @@ func run() -> void:
 	check(boss_enemies().size() == 3 and game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty() and game.explored_cells == initial_exploration and game.discovered_bosses.is_empty(), "death retry revives guardians and resets exploration")
 	await verify_two_hit_enemies()
 	await verify_guardian_orders()
+	await verify_aim_controls()
+	await verify_platform_attacks()
+	await verify_multi_lock()
 	game.queue_free()
 	await frames(2)
 	var report := {"checks": checks, "failures": failures, "elapsed_ms": Time.get_ticks_msec() - begun}
@@ -333,6 +339,190 @@ func run() -> void:
 
 func at(x: float, y: float) -> Vector2:
 	return FIXTURE_ORIGIN + Vector2(x, y)
+
+func action_tap(action_name: String) -> void:
+	for pressed in [true, false]:
+		var event := InputEventAction.new()
+		event.action = action_name
+		event.pressed = pressed
+		Input.parse_input_event(event)
+	Input.flush_buffered_events()
+
+func verify_aim_controls() -> void:
+	game.start_run(37)
+	prepare_fixture()
+	await frames(3)
+	check(game.player.aim_angle() == 0, "a new run starts at zero elevation")
+	for angle in [60.0, -60.0, 0.0]:
+		action_tap("aim_cycle")
+		check(game.player.aim_angle() == angle, "aim cycle advances to %d degrees" % angle)
+		game.ui.update_hud()
+		check(game.ui.angle_label.text == "角度 %d°" % angle, "HUD shows the current elevation")
+	game.player.set_physics_process(false)
+	for index in range(3):
+		var angle: float = [0.0, 60.0, -60.0][index]
+		for facing in [-1, 1]:
+			game.player.facing = facing
+			game.player.shot_cooldown = 0
+			game.player.set_physics_process(true)
+			Input.action_press("shoot")
+			await frames(1)
+			Input.action_release("shoot")
+			game.player.set_physics_process(false)
+			check(game.projectiles.get_child_count() == 1, "held shooting produces one real shot")
+			var bullet = game.projectiles.get_child(0)
+			var expected := Vector2(facing * cos(deg_to_rad(angle)), -sin(deg_to_rad(angle)))
+			check(bullet.direction.is_equal_approx(expected), "shot direction for facing %d at %d degrees" % [facing, angle])
+			var offset: Vector2 = bullet.position - game.player.position
+			check(offset.normalized().is_equal_approx(expected) and not Rect2(-T.PLAYER_SIZE / 2, T.PLAYER_SIZE).has_point(offset), "muzzle is outside the body along the firing direction")
+			check(bullet.speed == T.PLAYER_BULLET_SPEED and bullet.damage == T.NORMAL_DAMAGE and is_equal_approx(game.player.shot_cooldown, T.SHOT_INTERVAL), "normal shot speed, damage and interval stay unchanged")
+			clear_bullets()
+		action_tap("aim_cycle")
+	# Actual movement flips facing without resetting the selected elevation.
+	action_tap("aim_cycle")
+	game.player.set_physics_process(true)
+	for action_name in ["move_left", "move_right"]:
+		Input.action_press(action_name)
+		await frames(6)
+		Input.action_release(action_name)
+		check(game.player.facing == (-1 if action_name == "move_left" else 1) and game.player.aim_angle() == 60, "movement changes facing and keeps elevation")
+	game.show_menu("paused")
+	action_tap("aim_cycle")
+	check(game.player.aim_angle() == 60, "pause blocks angle changes")
+	game.open_key_settings()
+	action_tap("aim_cycle")
+	check(game.player.aim_angle() == 60, "key settings block angle changes")
+	game.close_key_settings()
+	game.new_action()
+	check(game.player.aim_angle() == 0, "restarting from pause resets elevation")
+	action_tap("aim_cycle")
+	game.player.receive_hit(1 - game.player.polarity, T.PLAYER_HP)
+	await frames(3)
+	game.primary_action()
+	check(game.player.aim_angle() == 0, "death retry resets elevation")
+	check(game.ui.controls_label.text.contains("L 角度切替") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with(";"), "HUD help and gauge use the new controls")
+
+func verify_platform_attacks() -> void:
+	for use_world in [false, true]:
+		game.start_run(37)
+		prepare_fixture()
+		game.player.set_physics_process(false)
+		var bounds := Rect2(at(512, 512), Vector2(256, 16))
+		if use_world:
+			var terrain := WorldTerrain.new()
+			terrain.stage = {"bounds": game.stage.bounds, "solids": [bounds]}
+			game.world.add_child(terrain)
+			game.terrain = terrain
+			check(terrain.collision_root.get_child(0).collision_layer == T.PLATFORM_LAYER, "world shelf uses dedicated layer")
+		else:
+			var terrain := Terrain.new()
+			terrain.bounds = bounds
+			game.world.add_child(terrain)
+			check(terrain.collision_layer == T.PLATFORM_LAYER, "standalone shelf uses dedicated layer")
+		await frames(3)
+		var enemy = normal_enemies()[0]
+		enemy.position = at(430, 618)
+		for actor in [game.player, enemy]:
+			for vertical in [-1, 1]:
+				var direction := Vector2(0, vertical)
+				var bullet = game.spawn_bullet(actor, direction)
+				bullet.position = at(700, 472 if vertical == 1 else 568)
+				await frames(12)
+				check(not is_instance_valid(bullet), "faction %d shot is stopped by shelf from direction %d (world=%s)" % [actor.faction, vertical, use_world])
+		for vertical in [-1, 1]:
+			var beam := Laser.new()
+			beam.game = game
+			beam.source = enemy
+			beam.curve = PackedVector2Array([at(700, 472 if vertical == 1 else 568), at(700, 568 if vertical == 1 else 472)])
+			game.projectiles.add_child(beam)
+			beam.set_physics_process(false)
+			beam.clip_path()
+			check(beam.path.size() == 2 and absf(beam.path[-1].y - at(0, 512 if vertical == 1 else 528).y) < 0.1, "laser warning stops at the shelf surface")
+			beam.fire()
+			check(absf(beam.path[-1].y - at(0, 512 if vertical == 1 else 528).y) < 0.1, "laser beam still stops at the shelf surface")
+			beam.free()
+		var bomb := Bomb.new()
+		bomb.game = game
+		bomb.source = enemy
+		bomb.phase = "flight"
+		bomb.position = at(700, 472)
+		bomb.velocity = Vector2(0, 200)
+		game.projectiles.add_child(bomb)
+		var impact := [Vector2.ZERO]
+		bomb.tree_exiting.connect(func(): impact[0] = bomb.position)
+		await frames(20)
+		check(not is_instance_valid(bomb) and absf(impact[0].y - at(0, 512).y) < 0.1, "breaker shell detonates on the thin shelf (world=%s)" % use_world)
+
+func verify_multi_lock() -> void:
+	game.start_run(37)
+	prepare_fixture()
+	await frames(3)
+	var enemies := normal_enemies().slice(0, 3)
+	for index in range(3):
+		enemies[index].position = at([430, 520, 640][index], 618)
+		enemies[index].polarity = 1
+		enemies[index].hp = 100
+	game.player.polarity = 0
+	for amount in [0, 1, 2, 3, 5, 8]:
+		game.player.gauge = amount
+		game._update_lock_marks()
+		var marked: Array = game.lock_on_targets()
+		check(marked.size() == mini(amount, 3), "preview mark count equals min(gauge=%d, candidates=3)" % amount)
+		check(enemies.filter(func(actor): return actor.lock_marked).size() == marked.size(), "actual drawn mark flags match the preview")
+		check(marked == enemies.slice(0, mini(amount, 3)), "preview follows distance priority")
+	game.player.gauge = 5
+	action_tap("special")
+	await frames(1)
+	check(game.player.gauge == 0 and game.projectiles.get_child_count() == 5, "five charges fire exactly five homing missiles")
+	var counts := [0, 0, 0]
+	for missile in game.projectiles.get_children():
+		var index := enemies.find(missile.target)
+		check(index >= 0, "each missile selects a visible opposite enemy")
+		if index >= 0:
+			counts[index] += 1
+	check(counts == [2, 2, 1], "five missiles cover three enemies with assignment difference at most one")
+	game._update_lock_marks()
+	check(game.lock_on_targets().size() == 3 and enemies.all(func(actor): return actor.lock_marked), "in-flight missiles keep marks after the gauge is spent")
+	# All missiles at enemy 0 must rebalance using current live counts (2 and 1).
+	enemies[0].dead = true
+	var first_missile = game.projectiles.get_child(0)
+	await frames(1)
+	check(first_missile.target == enemies[2], "defeated target reacquires the least-targeted live enemy")
+	counts = [0, 0, 0]
+	for missile in game.projectiles.get_children():
+		var index := enemies.find(missile.target)
+		if index >= 0:
+			counts[index] += 1
+	check(counts == [0, 3, 2], "simultaneous retargets update counts and break ties by distance")
+	enemies[0].dead = false
+	clear_bullets()
+	game._update_lock_marks()
+	check(game.lock_on_targets().is_empty() and enemies.all(func(actor): return not actor.lock_marked), "marks clear after missiles disappear with empty gauge")
+	enemies[2].polarity = 0
+	game.player.gauge = 5
+	check(game.lock_on_targets() == enemies.slice(0, 2), "same-color enemy is excluded from preview when opposites exist")
+	game.fire_special(game.player, game.player.take_gauge())
+	check(game.projectiles.get_children().all(func(missile): return missile.target != enemies[2]), "two opposites and one same-color enemy never assign to the same-color enemy")
+	clear_bullets()
+	for enemy in enemies:
+		enemy.polarity = 0
+	game.player.gauge = 2
+	check(game.lock_on_targets() == enemies.slice(0, 2), "same-color candidates are available when no opposites exist")
+	enemies[0].dead = true
+	enemies[1].position.x += 3000
+	check(game.lock_on_targets() == [enemies[2]], "dead and offscreen enemies are excluded")
+	enemies[0].dead = false
+	# The enemy path retains its speed, damage, spread and single player target.
+	clear_bullets()
+	game.fire_special(enemies[2], T.GAUGE_CAPACITY)
+	check(game.projectiles.get_child_count() == T.GAUGE_CAPACITY, "enemy still launches its full gauge")
+	for missile in game.projectiles.get_children():
+		check(missile.target == game.player and missile.speed == T.ENEMY_HOMING_SPEED and missile.damage == T.ENEMY_HOMING_DAMAGE and missile.life == T.BULLET_LIFETIME, "enemy missile keeps its player target and combat values")
+	var missile = game.projectiles.get_child(0)
+	missile.target = null
+	await frames(1)
+	check(missile.target == game.player, "enemy reacquisition still selects only the player")
+	clear_bullets()
 
 func prepare_fixture() -> void:
 	# Combat checks use a flat, clear piece of the same continuous physics world.

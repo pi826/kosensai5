@@ -18,10 +18,11 @@ var action := "idle"
 var action_remaining := 0.0
 var next_polarity := 0
 var visual_scale := Vector2.ONE
+var lock_marked := false
 
 func _ready() -> void:
 	collision_layer = 2 if faction == 0 else 4
-	collision_mask = 1 | T.WALL_LAYER
+	collision_mask = 1 | T.WALL_LAYER | T.PLATFORM_LAYER
 	var shape := RectangleShape2D.new()
 	shape.size = body_size
 	var collider := CollisionShape2D.new()
@@ -71,6 +72,15 @@ func take_gauge() -> int:
 	gauge = 0
 	return amount
 
+func shot_direction() -> Vector2:
+	return Vector2(facing, 0)
+
+func muzzle_offset(direction: Vector2) -> Vector2:
+	# Intersection of the firing ray with the rectangular body, plus clearance.
+	var half := body_size / 2
+	var extent := minf(half.x / maxf(absf(direction.x), 0.0001), half.y / maxf(absf(direction.y), 0.0001))
+	return direction * (extent + T.MUZZLE_CLEARANCE)
+
 func _draw() -> void:
 	var tint: Color = T.COLORS[polarity]
 	if invulnerability > 0 and int(invulnerability * 16) % 2 == 0:
@@ -83,7 +93,8 @@ func _draw() -> void:
 		draw_rect(Rect2(-18, 19, 36, 5), Color(0, 0, 0, 0.25))
 		draw_style_box(_body_style(tint), rect)
 		draw_rect(Rect2(-11, -13, 22, 9), Color("102533"))
-		draw_line(Vector2(facing * 12, -4), Vector2(facing * 26, -4), tint, 8)
+		var direction := shot_direction()
+		draw_line(direction * 10, muzzle_offset(direction), tint, 8)
 		draw_line(Vector2(-8, 15), Vector2(-8, 24), tint, 5)
 		draw_line(Vector2(8, 15), Vector2(8, 24), tint, 5)
 	elif kind == "boss":
@@ -128,6 +139,15 @@ func _draw() -> void:
 	var mark := "A" if polarity == 0 else "B"
 	draw_string(ThemeDB.fallback_font, Vector2(-6, 9), mark, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, tint if faction == 1 else Color("102533"))
 	draw_set_transform(Vector2.ZERO)
+	if lock_marked:
+		# White corner brackets with dark outlines differ from both bullet colors.
+		var center := Vector2(0, -body_size.y / 2 - 56)
+		for x in [-1, 1]:
+			for y in [-1, 1]:
+				var corner := center + Vector2(x, y) * T.LOCK_MARK_SIZE
+				var points := PackedVector2Array([corner - Vector2(x * 6, 0), corner, corner - Vector2(0, y * 6)])
+				draw_polyline(points, Color("07111d"), 5, true)
+				draw_polyline(points, Color.WHITE, 2, true)
 	if absorb_flash > 0:
 		draw_arc(Vector2.ZERO, body_size.x * 0.65 + (0.28 - absorb_flash) * 55, 0, TAU, 32, Color(tint, absorb_flash * 3), 3, true)
 	if faction == 1:

@@ -113,7 +113,7 @@ func verify_surface() -> void:
 		check(game.terrain.occupied.has(cell), "protected floor survives blast x=%d" % x)
 	game.terrain.explode(Vector2(3104, FLOOR_Y - 128), 120)
 	await frames(2)
-	check(not ray(Vector2(3104, FLOOR_Y - 150), Vector2(3104, FLOOR_Y - 100), 1).is_empty(), "thin optional shelf cannot be destroyed")
+	check(not ray(Vector2(3104, FLOOR_Y - 150), Vector2(3104, FLOOR_Y - 100), T.PLATFORM_LAYER).is_empty(), "thin optional shelf cannot be destroyed")
 	game.terrain.explode(Vector2(16, 800), 120)
 	await frames(2)
 	check(not ray(Vector2(80, 800), Vector2(0, 800), 1).is_empty(), "outer wall cannot be destroyed")

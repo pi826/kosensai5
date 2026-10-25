@@ -17,6 +17,7 @@ window/size/window_height_override=720
 2d_physics/layer_2="Player"
 2d_physics/layer_3="Enemies"
 2d_physics/layer_4="Builder walls"
+2d_physics/layer_5="One-way platforms"
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
