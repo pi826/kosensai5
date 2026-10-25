@@ -2,6 +2,7 @@ extends Node2D
 ## One collision world. Rendering is split into spatial batches for canvas culling.
 
 const T := preload("res://scripts/tuning.gd")
+const Generator := preload("res://scripts/stage_generator.gd")
 const TILE_SIZE := 32
 const DRAW_CHUNK_SIZE := 512
 const NORTH := 1
@@ -80,13 +81,14 @@ func rebuild() -> void:
 	for bounds: Rect2 in stage.get("solids", []):
 		if bounds.size.x <= 0 or bounds.size.y <= 0:
 			continue
-		var is_floor: bool = stage.has("surface_exclusions") and bounds.size.x >= 128 and bounds.end.y == stage.bounds.end.y
+		var is_floor: bool = stage.get("floors", []).has(bounds)
 		if is_floor:
 			_add_collision(Rect2(bounds.position + Vector2(0, T.SURFACE_DEPTH), bounds.size - Vector2(0, T.SURFACE_DEPTH)))
 		else:
 			_add_collision(bounds)
 		if bounds.size.y <= 20.0:
-			shelves.append(bounds)
+			if not stage.get("bridges", []).any(func(bridge): return bridge.rect == bounds):
+				shelves.append(bounds)
 			continue
 		for y in range(floori(bounds.position.y / TILE_SIZE), ceili(bounds.end.y / TILE_SIZE)):
 			for x in range(floori(bounds.position.x / TILE_SIZE), ceili(bounds.end.x / TILE_SIZE)):
@@ -269,16 +271,22 @@ func can_place_wall(bounds: Rect2, owner_id: int) -> bool:
 	for value in [bounds.position.x, bounds.position.y, bounds.size.y]:
 		if fmod(value, TILE_SIZE) != 0:
 			return false
-	if not stage.bounds.encloses(bounds) or _protected(bounds.position.x, bounds.end.x) or not _actors_clear(bounds):
+	if not stage.bounds.encloses(bounds) or _protected(bounds.position.x, bounds.end.x) or not Generator.doorway_clearance(stage, bounds) or not _actors_clear(bounds):
 		return false
 	for cell: Vector2i in _cells_in(bounds):
 		if is_cell_solid(cell):
 			return false
 	var support := Vector2i(floori(bounds.position.x / TILE_SIZE), floori(bounds.end.y / TILE_SIZE))
-	# Shelves and temporary walls cannot support another wall.
-	if not occupied.has(support):
+	# Permanent thin platforms support walls; temporary walls cannot stack.
+	if not _wall_support(support):
 		return false
 	return true
+
+func _wall_support(cell: Vector2i) -> bool:
+	if occupied.has(cell): return true
+	for solid: Rect2 in stage.get("solids", []):
+		if solid.size.y <= 20 and solid.position.y == cell.y * TILE_SIZE and solid.position.x <= cell.x * TILE_SIZE and solid.end.x >= (cell.x + 1) * TILE_SIZE: return true
+	return false
 
 func find_wall_plan(builder: CharacterBody2D, player: CharacterBody2D) -> Rect2:
 	var direction := signf(player.position.x - builder.position.x)
@@ -292,7 +300,7 @@ func find_wall_plan(builder: CharacterBody2D, player: CharacterBody2D) -> Rect2:
 		if direction < 0 and (left + TILE_SIZE >= builder.position.x or left < player_body.end.x + T.WALL_MIN_DISTANCE):
 			continue
 		for row in range(floori((floor_y - T.BUILD_SUPPORT_RANGE) / TILE_SIZE), floori((floor_y + T.BUILD_SUPPORT_RANGE) / TILE_SIZE) + 1):
-			if not occupied.has(Vector2i(column, row)):
+			if not _wall_support(Vector2i(column, row)):
 				continue
 			for height in [T.WALL_MAX_HEIGHT, T.WALL_MIN_HEIGHT]:
 				var bounds := Rect2(left, row * TILE_SIZE - height, TILE_SIZE, height)
@@ -450,6 +458,10 @@ func draw_tile(canvas: Node2D, cell: Vector2i, mask: int) -> void:
 	_draw_corner(canvas, at + Vector2(32, 32), Vector2(-1, -1), mask, EAST, SOUTH, SOUTH_EAST, theme)
 	_draw_corner(canvas, at + Vector2(0, 32), Vector2(1, -1), mask, SOUTH, WEST, SOUTH_WEST, theme)
 	_draw_corner(canvas, at, Vector2(1, 1), mask, WEST, NORTH, NORTH_WEST, theme)
+	if stage.get("towers", []).any(func(t): return t.outer.has_point(world_at + Vector2(16, 16)) and not t.interior.has_point(world_at + Vector2(16, 16))) or stage.get("inner_walls", []).any(func(w): return w.has_point(world_at + Vector2(16, 16))):
+		canvas.draw_line(at + Vector2(0, 16), at + Vector2(32, 16), theme.shadow, 2)
+		var joint := 8.0 if cell.y % 2 == 0 else 24.0
+		canvas.draw_line(at + Vector2(joint, 0), at + Vector2(joint, 16), theme.shadow, 2)
 	if block_cells.has(cell):
 		canvas.draw_rect(Rect2(at + Vector2(3, 3), Vector2(26, 26)), Color("aa9474"), false, 2)
 		canvas.draw_line(at + Vector2(8, 8), at + Vector2(24, 24), Color("aa9474"), 2)
@@ -470,3 +482,22 @@ func draw_shelf(canvas: Node2D, world_shelf: Rect2) -> void:
 	canvas.draw_line(shelf.position + Vector2(0, 1), Vector2(shelf.end.x, shelf.position.y + 1), theme.edge, 3.0)
 	for x in range(int(shelf.position.x), int(shelf.end.x) - 24, TILE_SIZE):
 		canvas.draw_line(Vector2(x + 16, shelf.position.y + 8), Vector2(x + 24, shelf.end.y - 2), theme.accent, 1.0)
+
+func _draw() -> void:
+	for bridge: Dictionary in stage.get("bridges", []):
+		var deck: Rect2 = bridge.rect
+		var tint := theme_at_x(deck.get_center().x)
+		# Collision and planks share the same horizontal top. Only rope sags.
+		draw_rect(deck, Color("71624f"))
+		draw_line(deck.position, Vector2(deck.end.x, deck.position.y), tint.edge, 2)
+		for x in range(int(deck.position.x), int(deck.end.x), 16):
+			draw_line(Vector2(x, deck.position.y + 3), Vector2(x, deck.end.y), Color("302c2a"), 2)
+		for x in [deck.position.x, deck.end.x]:
+			draw_line(Vector2(x, deck.position.y + 12), Vector2(x, deck.position.y - T.BRIDGE_POST_HEIGHT), tint.accent, 6)
+		var previous := Vector2(deck.position.x, deck.position.y - T.BRIDGE_POST_HEIGHT)
+		for index in range(1, int(deck.size.x / 16) + 1):
+			var u := index * 16.0 / deck.size.x
+			var point := Vector2(deck.position.x + u * deck.size.x, deck.position.y - T.BRIDGE_POST_HEIGHT + 4 * u * (1 - u) * T.BRIDGE_ROPE_SAG)
+			draw_line(previous, point, Color("b5a38a"), 3, true)
+			if index % 2 == 0: draw_line(point, Vector2(point.x, deck.position.y), Color("8c7c65"), 2)
+			previous = point

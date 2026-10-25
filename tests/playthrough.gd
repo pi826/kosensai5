@@ -103,14 +103,22 @@ func jump_one_level(target: Vector2) -> bool:
 	await frame()
 	if not check(left_floor and landed, "Normal jump leaves its supporting surface and lands"):
 		return false
-	return check(game.player.position.y <= before_y - 100 and absf(game.player.position.y - target.y) < 2, "One normal jump reaches shelf %s, actual %s" % [target, game.player.position])
+	return check(game.player.position.y < before_y - 1 and absf(game.player.position.y - target.y) < 2, "One normal jump reaches shelf %s from y=%.2f, actual %s" % [target, before_y, game.player.position])
 
-func follow_ground(points: Array) -> bool:
-	for point: Vector2 in points:
-		if not await walk_to(point.x):
-			return false
-	return await wait_for_floor()
-
+func follow_steps(steps: Array) -> bool:
+	for step: Dictionary in steps:
+		match step.action:
+			"walk":
+				if not await walk_to(step.x, 8): return false
+			"jump":
+				if not await jump_one_level(step.target): return false
+			"drop":
+				if not await walk_to(step.x, 8): return false
+				for tick in range(180):
+					await frame()
+					if game.player.is_on_floor() and absf(game.player.position.y - step.target.y) < 2: break
+				if not check(absf(game.player.position.y - step.target.y) < 2, "Drop lands on the first real surface: %s actual %s" % [step.target, game.player.position]): return false
+	return true
 func check_map() -> void:
 	var shown: Array = game.ui.minimap.get_explored_cells()
 	check(shown.size() == game.explored_cells.size(), "Minimap draws exactly the explored cells")
@@ -144,36 +152,28 @@ func run_seed(stage_seed: int, damaged: bool = false) -> bool:
 	await frame()
 	check(game.discovered_bosses.is_empty(), "No distant guardian is revealed at the starting point")
 	check_map()
+	var routes: Array = game.stage.routes
+	if damaged:
+		var generator = load("res://scripts/stage_generator.gd")
+		var graph: Dictionary = generator.navigation_graph(game.stage, true)
+		var origin: int = generator.node_at(graph, game.stage.start_position)
+		routes = []
+		for landmark: Dictionary in game.stage.landmarks:
+			var destination: Vector2 = landmark.position + Vector2(0, T.BOSS_SIZE.y / 2 - T.PLAYER_SIZE.y / 2)
+			var target: int = generator.node_at(graph, destination)
+			routes.append({"boss_id": landmark.id,"points":[game.stage.start_position,destination],"outward":generator.path_steps(graph,origin,target,destination),"return":generator.path_steps(graph,target,origin,game.stage.start_position)})
 	var reached := {}
-	for route: Dictionary in game.stage.routes:
+	for route: Dictionary in routes:
 		var id := int(route.boss_id)
 		var points: Array = route.points
-		if id == 1:
-			for index in range(1, points.size()):
-				if not await jump_one_level(points[index]):
-					return false
-		else:
-			if not await follow_ground(points):
-				return false
+		if not await follow_steps(route.outward): return false
 		var destination: Vector2 = points[-1]
 		if not check(game.player.position.distance_to(destination) < 16, "Guardian %d is reached by walking and single jumps" % id):
 			return false
 		reached[id] = true
 		check(game.discovered_bosses.has(id), "Reaching guardian %d discovers its map marker" % id)
 		check_map()
-		if id == 1:
-			# Step off the highest shelf, then fall naturally onto the continuous floor.
-			if not await walk_to(6784) or not await wait_for_floor():
-				return false
-			var landing_y: float = game.stage.start_position.y + (T.SURFACE_DEPTH if damaged else 0)
-			check(absf(game.player.position.y - landing_y) < 2, "A fall from the upper guardian safely reaches the actual remaining ground")
-			if not await walk_to(game.stage.start_position.x):
-				return false
-		else:
-			var returning: Array = points.duplicate()
-			returning.reverse()
-			if not await follow_ground(returning):
-				return false
+		if not await follow_steps(route["return"]): return false
 		if not await wait_for_floor():
 			return false
 		check(game.player.position.distance_to(game.stage.start_position) < 16, "Guardian %d route allows a natural return to the starting point" % id)
@@ -198,9 +198,9 @@ func run_seed(stage_seed: int, damaged: bool = false) -> bool:
 	return failures.size() == initial_failures
 
 func run() -> void:
-	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")
+	DirAccess.make_dir_recursive_absolute("res://builds/qa/towers")
 	game = Main.new()
-	game.controls_path = "res://builds/qa/seamless/traversal_controls.cfg"
+	game.controls_path = "res://builds/qa/towers/traversal_controls.cfg"
 	root.add_child(game)
 	game.key_bindings.reset_defaults()
 	await frame()
@@ -211,7 +211,7 @@ func run() -> void:
 	if failures.is_empty():
 		await run_seed(37, true)
 	release_inputs()
-	var file := FileAccess.open("res://builds/qa/seamless/traversal_results.json", FileAccess.WRITE)
+	var file := FileAccess.open("res://builds/qa/towers/traversal_results.json", FileAccess.WRITE)
 	file.store_string(JSON.stringify({"checks": checks, "failures": failures, "runs": reports}, "\t"))
 	game.queue_free()
 	await physics_frame

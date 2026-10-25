@@ -46,6 +46,12 @@ func fixture(blocks: bool = false, step: bool = false) -> void:
 	for index in range(32):
 		var top := FLOOR_Y - (64 if step and index == 7 else 0)
 		game.stage.solids.append(Rect2(index * 384, top, 384, T.WORLD_SIZE.y - top))
+	# Isolated destruction/combat fixture. Its explicit floors and exclusions do
+	# not depend on any generated tower coordinates.
+	game.stage.floors = game.stage.solids.duplicate()
+	game.stage.towers = []
+	game.stage.bridges = []
+	game.stage.surface_exclusions = [Vector2(0,96),Vector2(384,1152),Vector2(5696,6592),Vector2(11136,11904),Vector2(12192,12288)]
 	game.stage.solids.append(Rect2(0, 0, 32, T.WORLD_SIZE.y))
 	game.stage.solids.append(Rect2(T.WORLD_SIZE.x - 32, 0, 32, T.WORLD_SIZE.y))
 	game.stage.solids.append(Rect2(3008, FLOOR_Y - 128, 192, 16))
@@ -495,11 +501,10 @@ func verify_map_retry_performance() -> void:
 	var pristine_masks: Dictionary = game.terrain.tile_masks.duplicate()
 	var pristine_blocks: Dictionary = game.terrain.breakables.duplicate(true)
 	var pristine_map: Array = game.terrain.map_geometry(Rect2(0, 0, T.WORLD_SIZE.x, T.WORLD_SIZE.y))
-	game.terrain.explode(Vector2(2496, FLOOR_Y + 32), 160)
-	var plan := Rect2(4000, 0, 32, 96)
-	for solid: Rect2 in game.stage.solids:
-		if solid.position.x <= 4000 and solid.end.x > 4000 and solid.size.x == 384:
-			plan.position.y = solid.position.y - 96
+	var mutable_floor: Rect2 = game.stage.floors.filter(func(f): return not game.terrain._protected(f.position.x, f.end.x))[0]
+	game.terrain.explode(Vector2(mutable_floor.get_center().x, FLOOR_Y + 32), 160)
+	var bridge: Rect2 = game.stage.bridges[0].rect
+	var plan := Rect2(floorf(bridge.get_center().x / 32) * 32, bridge.position.y - 96, 32, 96)
 	var wall: int = game.terrain.place_wall(plan, 99)
 	check(wall >= 0, "retry fixture contains installed wall")
 	var source = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "breaker")[0]
