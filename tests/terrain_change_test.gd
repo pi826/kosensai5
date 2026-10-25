@@ -49,6 +49,15 @@ func fixture(blocks: bool = false, step: bool = false) -> void:
 	game.stage.solids.append(Rect2(0, 0, 32, T.WORLD_SIZE.y))
 	game.stage.solids.append(Rect2(T.WORLD_SIZE.x - 32, 0, 32, T.WORLD_SIZE.y))
 	game.stage.solids.append(Rect2(3008, FLOOR_Y - 128, 192, 16))
+	game.stage.protected_rects = []
+	for interval: Vector2 in [Vector2(0,96),Vector2(384,1152),Vector2(5696,6592),Vector2(11136,11904),Vector2(12192,12288)]:
+		game.stage.protected_rects.append(Rect2(interval.x,FLOOR_Y-200,interval.y-interval.x,264))
+	game.stage.erodible_surfaces = []
+	for solid: Rect2 in game.stage.solids:
+		if solid.size.x != 384: continue
+		for x in range(int(solid.position.x),int(solid.end.x),32):
+			var surface := Rect2(x,solid.position.y,32,64)
+			if not Generator.protected_rect(surface,game.stage): game.stage.erodible_surfaces.append(surface)
 	game.stage.breakables = [Rect2(2496, FLOOR_Y - 64, 64, 64)] if blocks else []
 	game.terrain = Terrain.new()
 	game.terrain.stage = game.stage
@@ -495,12 +504,14 @@ func verify_map_retry_performance() -> void:
 	var pristine_masks: Dictionary = game.terrain.tile_masks.duplicate()
 	var pristine_blocks: Dictionary = game.terrain.breakables.duplicate(true)
 	var pristine_map: Array = game.terrain.map_geometry(Rect2(0, 0, T.WORLD_SIZE.x, T.WORLD_SIZE.y))
-	game.terrain.explode(Vector2(2496, FLOOR_Y + 32), 160)
-	var plan := Rect2(4000, 0, 32, 96)
-	for solid: Rect2 in game.stage.solids:
-		if solid.position.x <= 4000 and solid.end.x > 4000 and solid.size.x == 384:
-			plan.position.y = solid.position.y - 96
-	var wall: int = game.terrain.place_wall(plan, 99)
+	var surface: Rect2 = game.stage.erodible_surfaces[0]
+	game.terrain.explode(surface.get_center(),60)
+	var wall := -1
+	for floor_surface: Rect2 in game.stage.erodible_surfaces:
+		for x in range(int(floor_surface.position.x),int(floor_surface.end.x),32):
+			wall=game.terrain.place_wall(Rect2(x,floor_surface.position.y-96,32,96),99)
+			if wall>=0: break
+		if wall>=0: break
 	check(wall >= 0, "retry fixture contains installed wall")
 	var source = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "breaker")[0]
 	var flying = game.spawn_bomb_warning(source)
@@ -525,6 +536,7 @@ func run() -> void:
 	game.controls_path = "res://builds/qa/phase3/terrain_controls.cfg"
 	root.add_child(game)
 	game.key_bindings.reset_defaults()
+	await verify_cave_protection()
 	await verify_surface()
 	await verify_jump_and_walk()
 	await verify_blocks()
@@ -540,3 +552,46 @@ func run() -> void:
 	await frames(2)
 	print("TERRAIN CHANGE TEST: ", checks, " checks, ", failures.size(), " failures")
 	quit(0 if failures.is_empty() else 1)
+
+func verify_cave_protection() -> void:
+	game.start_run(37)
+	game.set_physics_process(false)
+	for actor in get_nodes_in_group("enemies"): actor.set_physics_process(false)
+	var pristine: Dictionary = game.terrain.occupied.duplicate()
+	var allowed := {}
+	for rect: Rect2 in game.stage.erodible_surfaces:
+		for cell: Vector2i in game.terrain._cells_in(rect): allowed[cell]=true
+	for rect: Rect2 in game.stage.solids:
+		game.terrain.explode(rect.position+Vector2(16,16),60)
+	for protection: Rect2 in game.stage.protected_rects:
+		game.terrain.explode(protection.get_center(),160)
+	check(game.terrain.destroyed_cells.keys().all(func(c): return allowed.has(c)),"cave blasts only excavate declared floor surfaces")
+	# Shafts can open anywhere in a floor, so compare every floor cell that existed before the blasts.
+	for chamber: Dictionary in game.stage.chambers:
+		if chamber.kind != "normal":
+			var floor_cells := 0
+			var kept := true
+			for column in range(int(chamber.rect.position.x / 32), int(chamber.rect.end.x / 32)):
+				for row in [int(chamber.rect.end.y / 32), int(chamber.rect.end.y / 32) + 1]:
+					var cell := Vector2i(column, row)
+					if not pristine.has(cell): continue
+					floor_cells += 1
+					kept = kept and game.terrain.occupied.has(cell)
+			check(floor_cells > 0 and kept,"start/boss chamber floor protected")
+	var shelf: Rect2 = game.stage.shafts[0].platforms[0]
+	game.terrain.explode(shelf.get_center(),200)
+	await frames(2)
+	check(not ray(shelf.get_center()-Vector2(0,30),shelf.get_center()+Vector2(0,30),T.PLATFORM_LAYER).is_empty(),"shaft mouth lid remains physical after blast")
+	var room: Rect2 = game.stage.chambers[1].rect
+	var ceiling := Vector2(room.get_center().x+256,room.position.y-16)
+	var wall := Vector2(room.position.x-16,room.position.y+96)
+	for point: Vector2 in [ceiling,wall]:
+		game.terrain.explode(point,60)
+		check(game.terrain.occupied.has(Vector2i(floori(point.x/32),floori(point.y/32))),"actual cave ceiling/wall cell survives blast")
+	await frames(2)
+	check(not ray(ceiling+Vector2(0,40),ceiling-Vector2(0,40),1).is_empty(),"cave ceiling collision survives")
+	check(not ray(wall+Vector2(40,0),wall-Vector2(40,0),1).is_empty(),"cave wall collision survives")
+	var walls_before := 0
+	for cell: Vector2i in pristine:
+		if not allowed.has(cell) and not game.terrain.block_cells.has(cell) and game.terrain.occupied.has(cell): walls_before+=1
+	check(walls_before>10000,"cave ceilings, walls and deep bedrock survive")

@@ -13,6 +13,7 @@ const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
 
 var stage: Dictionary = {}
+var last_start_metrics: Dictionary = {}
 var current_seed := 1
 var state := "title"
 var score := 0
@@ -55,10 +56,13 @@ func _random_seed() -> int:
 	return int(Time.get_ticks_usec() % 2147483647)
 
 func start_run(stage_seed: int) -> void:
+	var started := Time.get_ticks_usec()
 	if is_instance_valid(world):
 		remove_child(world)
 		world.queue_free()
+	var generation_started := Time.get_ticks_usec()
 	stage = Generator.generate(stage_seed)
+	var generation_ms := (Time.get_ticks_usec() - generation_started) / 1000.0
 	current_seed = stage_seed
 	score = 0
 	elapsed = 0.0
@@ -110,6 +114,7 @@ func start_run(stage_seed: int) -> void:
 	_update_exploration()
 	get_viewport().gui_release_focus()
 	ui.update_hud()
+	last_start_metrics = {"seed": stage_seed, "generation_ms": generation_ms, "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_root.get_child_count(), "actors": stage.spawns.size() + 1}
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_game") and not event.is_echo():

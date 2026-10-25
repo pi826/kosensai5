@@ -63,24 +63,28 @@ func run() -> void:
 	game.controls_path = "res://builds/qa/camera_controls.cfg"
 	root.add_child(game)
 	game.key_bindings.reset_defaults()
-	# The real highest central platform has its top at y=768. Moving this single
-	# initial fixture to x=6900 clears every central shelf, leaving the generated
-	# continuous floor beneath a 1,536-pixel fall. No coordinates change in flight.
-	await prepare(Vector2(6900, 768 - T.PLAYER_SIZE.y / 2))
+	# Descend a generated shaft with a clear long fall, using down input on its shelves.
+	game.start_run(37)
+	var fixture: Dictionary = preload('res://tests/cave_driver.gd').shaft_fixture(game.stage,true)
+	var shaft: Dictionary = fixture.shaft
+	var fall_x: float = fixture.x
+	await prepare(Vector2(fall_x, shaft.rect.position.y - 22))
+	Input.action_press("move_down")
 	var sample := new_sample()
 	var landed := false
 	for index in range(240):
 		var previous: Vector2 = game.camera.position
 		await frames()
 		observe(sample, previous)
-		if game.player.is_on_floor():
+		if game.player.is_on_floor() and game.player.position.y + 22 > shaft.rect.end.y - 1:
 			landed = true
 			break
-	assert_sample(sample, "long free fall")
+	Input.action_release("move_down")
+	assert_sample(sample, "long shaft descent")
 	check(landed, "long free fall lands on the generated continuous floor")
 	check(sample.max_fall_speed >= T.MAX_FALL_SPEED - 0.1, "fall exercises the configured maximum fall speed")
-	check(absf(game.player.position.x - 6900) < 0.1, "free fall never teleports or changes horizontal position")
-	check(absf(game.player.position.y + T.PLAYER_SIZE.y / 2 - T.GROUND_Y) < 0.5, "landing uses the generated y=2304 floor")
+	check(absf(game.player.position.x - fall_x) < 0.1, "free fall never teleports or changes horizontal position")
+	check(absf(game.player.position.y + T.PLAYER_SIZE.y / 2 - shaft.rect.end.y) < 0.5, "landing uses the generated shaft bottom")
 	var landing_position: Vector2 = game.player.position
 	var stable_positions: Array[float] = []
 	var settle_max_step := 0.0
@@ -107,9 +111,9 @@ func run() -> void:
 	sample["landing_direction_changes"] = direction_changes
 	sample["final_jitter"] = final_jitter
 	measurements.long_fall = sample
-	# The upward test starts on the real central floor. A single full jump passes
-	# through the real one-way shelf at y=2176 and lands on its upper surface.
-	await prepare(game.stage.start_position)
+	# Jump from the generated shaft bottom to its lowest one-way shelf.
+	var shelf: Rect2 = shaft.platforms[-1]
+	await prepare(Vector2(shelf.get_center().x,shaft.rect.end.y-22))
 	var start_y: float = game.player.position.y
 	var minimum_y := start_y
 	var jump_sample := new_sample()
@@ -126,7 +130,7 @@ func run() -> void:
 	Input.action_release("jump")
 	assert_sample(jump_sample, "upward platform jump")
 	check(start_y - minimum_y > 160, "upward camera test exercises a full-height physical jump")
-	check(game.player.is_on_floor() and absf(game.player.position.y + T.PLAYER_SIZE.y / 2 - (T.GROUND_Y - 128)) < 0.5, "jump lands on the first generated central shelf")
+	check(game.player.is_on_floor() and absf(game.player.position.y + T.PLAYER_SIZE.y / 2 - shelf.position.y) < 0.5, "jump lands on the lowest generated shaft shelf")
 	measurements.upward_jump = jump_sample
 	game.queue_free()
 	await frames(2)

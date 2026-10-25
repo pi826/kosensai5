@@ -1,5 +1,5 @@
 extends Node2D
-## Continuous low-contrast scenery. Draw batches never create gameplay boundaries.
+## Continuous regional scenery behind carved cave air. Draw batches create no gameplay boundaries.
 
 const Terrain := preload("res://scripts/world_terrain.gd")
 const CHUNK_SIZE := 512

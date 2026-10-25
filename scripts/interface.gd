@@ -248,7 +248,7 @@ func show_menu(next_state: String) -> void:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
 			menu_subtitle.text = "3地域を探索し、3体の中ボスを倒す。"
-			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\nひと続きのマップを歩き、足場を登って探索。\n倒れたら全リセット。目標プレイ時間 5〜10分。"
+			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n開けた洞窟を通路と縦穴で探索。\n倒れたら全リセット。目標プレイ時間 5〜10分。"
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":

@@ -41,19 +41,17 @@ func silence_enemies() -> void:
 	for actor in get_nodes_in_group("enemies"):
 		actor.set_physics_process(false)
 
-func ground_at(x: float) -> float:
-	var ground := INF
-	for solid: Rect2 in game.stage.solids:
-		if solid.size.y > 20 and solid.size.x > 64 and x >= solid.position.x and x < solid.end.x:
-			ground = minf(ground, solid.position.y)
-	return ground
-
 func cross_region(boundary: float) -> void:
 	game.start_run(37)
 	silence_enemies()
-	var floor_y := ground_at(boundary - 72)
+	var graph := preload('res://scripts/stage_generator.gd').navigation_graph(game.stage)
+	var thick: Array = game.stage.solids.filter(func(r):return r.size.y!=16)
+	var surface_choices: Array = graph.nodes.filter(func(n):return n.position.x<=boundary-96 and n.end.x>=boundary and preload('res://scripts/stage_generator.gd')._supported(Vector2(boundary-56,n.position.y-22),T.PLAYER_SIZE,thick) and not thick.any(func(r):return r.intersects(Rect2(boundary-87,n.position.y-224,119,224).grow(-0.1))))
+	check(not surface_choices.is_empty(),'generated standing surface crosses boundary')
+	var crossing: Rect2 = surface_choices[0]
+	var floor_y := crossing.position.y
 	check(is_finite(floor_y), "Ground exists under region boundary %.0f" % boundary)
-	game.player.position = Vector2(boundary - 72, floor_y - T.PLAYER_SIZE.y / 2)
+	game.player.position = Vector2(maxf(boundary-56,crossing.position.x+24), floor_y - T.PLAYER_SIZE.y / 2)
 	game.player.velocity = Vector2.ZERO
 	game.player.hp = 88
 	game.player.gauge = 5
@@ -64,20 +62,23 @@ func cross_region(boundary: float) -> void:
 	var player_id: int = game.player.get_instance_id()
 	var projectile_container_id: int = game.projectiles.get_instance_id()
 	var terrain = game.world.get_children().filter(func(child): return child.has_method("mask_for_cell"))[0]
-	terrain.explode(Vector2(boundary - 500, ground_at(boundary - 500) + 32), 60)
+	var surface: Rect2 = game.stage.erodible_surfaces.filter(func(r):return absf(r.get_center().x-boundary)>256)[0]
+	terrain.explode(surface.get_center(), 60)
 	var damaged: Dictionary = terrain.destroyed_cells.duplicate()
 	var wall_id := -1
-	for column in range(int(boundary + 320) / 32, int(boundary + 640) / 32):
-		var x := float(column * 32)
-		wall_id = terrain.place_wall(Rect2(x, ground_at(x) - 96, 32, 96), 123)
-		if wall_id >= 0:
-			break
+	for floor_surface: Rect2 in game.stage.erodible_surfaces:
+		for x in range(int(floor_surface.position.x),int(floor_surface.end.x),32):
+			if absf(x-boundary)<256: continue
+			wall_id = terrain.place_wall(Rect2(x,floor_surface.position.y-96,32,96),123)
+			if wall_id>=0: break
+		if wall_id>=0: break
 	check(not damaged.is_empty() and wall_id >= 0, "Boundary fixture includes destroyed floor and installed wall")
 	var wall_cells: Array = terrain.walls[wall_id].cells.duplicate()
 	var wall_remaining: float = terrain.walls[wall_id].remaining
 	var collision_id: int = terrain.collision_root.get_instance_id()
 	var shapes: int = terrain.collision_root.get_child_count()
-	var witness = get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss")[0]
+	# The live flyer and laser sources below are separate fixtures and get relocated.
+	var witness = get_nodes_in_group("enemies").filter(func(actor): return actor.kind not in ["boss", "flyer", "laser"])[0]
 	witness.hp = 1
 	witness.gauge = 3
 	witness.action = "windup_special"
@@ -90,6 +91,20 @@ func cross_region(boundary: float) -> void:
 	action("jump", true)
 	await frames(6)
 	var bullet = game.spawn_bullet(game.player, Vector2.RIGHT)
+	# Leave clearance from rock edges: a ray exactly along a rectangle's excluded
+	# bottom edge can look clear in geometry but touch it in the physics engine.
+	var flight_y := floor_y-32
+	var found_flight := false
+	for candidate_y in range(96,2976,16):
+		var corridor := Rect2(boundary-49,candidate_y-1,178,2)
+		var ray := PhysicsRayQueryParameters2D.create(Vector2(boundary-48,candidate_y),Vector2(boundary+128,candidate_y),1|4|T.WALL_LAYER|T.PLATFORM_LAYER)
+		ray.hit_from_inside = true
+		if not preload("res://scripts/stage_generator.gd")._any_intersects(game.stage.solids+game.stage.breakables,corridor) and game.get_world_2d().direct_space_state.intersect_ray(ray).is_empty():
+			flight_y=candidate_y
+			found_flight=true
+			break
+	check(found_flight,"projectile fixture has a clear generated boundary crossing")
+	bullet.position = Vector2(boundary-48,flight_y)
 	var bullet_id: int = bullet.get_instance_id()
 	# Keep both warning and irradiation alive during actual boundary traversal.
 	var flyer = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "flyer")[0]
@@ -119,6 +134,8 @@ func cross_region(boundary: float) -> void:
 	var bomb = game.spawn_bomb_warning(source)
 	bomb.target = Vector2(boundary + 600, floor_y)
 	bomb.fire()
+	bomb.position = game.stage.start_position+Vector2(0,-40)
+	bomb.velocity = Vector2(200,-100)
 	var bomb_id: int = bomb.get_instance_id()
 	var bomb_position: Vector2 = bomb.position
 	game.show_damage(game.player.position - Vector2(0, 60), 1)
@@ -164,7 +181,10 @@ func warnings_and_map() -> void:
 	await frames(3)
 	check(game.discovered_bosses.is_empty() and game.ui.minimap.get_visible_bosses().is_empty(), "The map initially hides all undiscovered guardians")
 	var enemy = get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss")[0]
-	enemy.position = game.player.position + Vector2(400, 0)
+	var start_room: Rect2 = game.stage.chambers.filter(func(r):return r.kind=='start')[0].rect
+	game.player.position=Vector2(start_room.position.x+96,start_room.end.y-22)
+	enemy.position=game.player.position+Vector2(400,0)
+	game.camera.position=(game.player.position+enemy.position)/2-Vector2(0,160)
 	enemy.kind = "turret"
 	enemy.patrol = Vector2(enemy.position.x, enemy.position.x)
 	enemy.gauge = 0

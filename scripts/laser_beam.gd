@@ -13,6 +13,10 @@ var remaining := T.LASER_DURATION
 var contacted := false
 
 func build_curve(start: Vector2, target: Vector2, facing: int) -> void:
+	curve = curve_points(start, target, facing)
+
+# Shared with stage generation so sight checks need no node instance.
+static func curve_points(start: Vector2, target: Vector2, facing: int) -> PackedVector2Array:
 	var chord := target - start
 	var normal := Vector2(chord.y, -chord.x).normalized()
 	if absf(chord.x) <= chord.length() * T.LASER_VERTICAL_EPSILON:
@@ -20,10 +24,11 @@ func build_curve(start: Vector2, target: Vector2, facing: int) -> void:
 	elif normal.y > 0:
 		normal = -normal
 	var control := (start + target) / 2 + normal * clampf(chord.length() * T.LASER_CURVE_RATIO, T.LASER_CURVE_MIN, T.LASER_CURVE_MAX)
-	curve.clear()
+	var points := PackedVector2Array()
 	for index in range(T.LASER_SEGMENTS + 1):
 		var t := float(index) / T.LASER_SEGMENTS
-		curve.append((1 - t) * (1 - t) * start + 2 * (1 - t) * t * control + t * t * target)
+		points.append((1 - t) * (1 - t) * start + 2 * (1 - t) * t * control + t * t * target)
+	return points
 
 func clip_path() -> void:
 	path.clear()

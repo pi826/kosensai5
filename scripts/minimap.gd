@@ -76,7 +76,7 @@ func _draw() -> void:
 			continue
 		var biome: int = game.biome_at(cell_box.get_center())
 		var theme: Dictionary = Terrain.THEMES[clampi(biome, 0, 2)]
-		var explored: Color = theme.body
+		var explored: Color = theme.back
 		explored.a = 0.85
 		draw_rect(Rect2(origin + cell_box.position * scale_factor, cell_box.size * scale_factor), explored)
 		for fragment: Rect2 in _geometry_for_cell(cell):

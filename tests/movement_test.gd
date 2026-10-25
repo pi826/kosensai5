@@ -207,6 +207,7 @@ func run() -> void:
 	Input.flush_buffered_events()
 	check(game.player.polarity == 1, "remapped key performs gameplay action")
 	await verify_drop_through()
+	await verify_cave_hops()
 	game.queue_free()
 	await frames(2)
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")
@@ -215,6 +216,65 @@ func run() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	print("MOVEMENT RESULT: ", checks, " checks, ", failures.size(), " failures; ", measurements)
 	quit(0 if failures.is_empty() else 1)
+
+func verify_cave_hops() -> void:
+	# Measure the actual player, including acceleration from rest and release timing.
+	var profiles: Array = []
+	for profile: Array in T.HOP_PROFILES:
+		await reset_player()
+		var start: Vector2 = game.player.position
+		var minimum := start.y
+		input_action("move_right", true)
+		input_action("jump", true)
+		var landed := false
+		for index in range(60):
+			if index == profile[0]: input_action("jump", false)
+			await frames()
+			minimum = minf(minimum, game.player.position.y)
+			if index > 0 and game.player.is_on_floor():
+				landed = true
+				break
+		var rise := start.y - minimum
+		var reach: float = game.player.position.x - start.x
+		profiles.append({"hold_frames":profile[0], "rise":rise, "reach":reach})
+		check(landed and absf(rise-profile[1]) < 0.2, "hop profile %d rise matches actual physics" % profile[0])
+		check(landed and absf(reach-profile[2]) < 0.3, "hop profile %d reach matches actual physics" % profile[0])
+	measurements.hop_profiles = profiles
+	var generator := preload("res://scripts/stage_generator.gd")
+	var driver := preload("res://tests/cave_driver.gd").new()
+	driver.tree = self
+	driver.game = game
+	# Cross a 32px hole below a shelf 96px above, in both directions.
+	for direction in [1,-1]:
+		await reset_player()
+		for child in game.world.get_children():
+			if child is Terrain: child.free()
+		var solids: Array = [Rect2(0,640,256,160),Rect2(288,640,736,160),Rect2(224,544,160,16)]
+		for index in range(solids.size()):
+			var rect: Rect2 = solids[index]
+			solids[index] = Rect2(rect.position+FIXTURE_ORIGIN,rect.size)
+		var terrain := WorldTerrain.new()
+		terrain.stage = {"bounds":game.stage.bounds,"solids":solids}
+		game.world.add_child(terrain)
+		game.terrain = terrain
+		var lower := Rect2(FIXTURE_ORIGIN+Vector2(0 if direction>0 else 288,640),Vector2(256 if direction>0 else 736,0))
+		var upper := Rect2(FIXTURE_ORIGIN+Vector2(288 if direction>0 else 0,640),Vector2(736 if direction>0 else 256,0))
+		var edges: Array = []
+		generator._add_hop(edges,0,lower,upper,direction,[solids[2]])
+		check(edges.size()==1 and edges[0].hold_frames==1,"lowest hop chosen under a shelf, direction %d" % direction)
+		if edges.is_empty(): continue
+		game.player.position = edges[0].position
+		game.player.velocity = Vector2.ZERO
+		await frames(3)
+		check(await driver.step(edges[0]),"actual hop lands below the shelf, direction %d: %s" % [direction,driver.error])
+		driver.release()
+		var blocked: Array = []
+		generator._add_hop(blocked,0,lower,upper,direction,[Rect2(FIXTURE_ORIGIN+Vector2(224,544),Vector2(160,32))])
+		check(blocked.is_empty(),"solid roof rejects the same hop, direction %d" % direction)
+		blocked.clear()
+		var farther := Rect2(upper.position+Vector2(direction*32,0),upper.size)
+		generator._add_hop(blocked,0,lower,farther,direction,[solids[2]])
+		check(blocked.is_empty(),"higher hop that lands on the overhead shelf is rejected, direction %d" % direction)
 
 func drop_fixture(world_terrain: bool) -> CharacterBody2D:
 	await reset_player()

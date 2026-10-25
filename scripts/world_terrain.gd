@@ -2,6 +2,7 @@ extends Node2D
 ## One collision world. Rendering is split into spatial batches for canvas culling.
 
 const T := preload("res://scripts/tuning.gd")
+const Generator := preload("res://scripts/stage_generator.gd")
 const TILE_SIZE := 32
 const DRAW_CHUNK_SIZE := 512
 const NORTH := 1
@@ -77,25 +78,19 @@ func rebuild() -> void:
 	render_root.name = "TileBatches"
 	add_child(render_root)
 	var shelves: Array[Rect2] = []
+	# Excavation rectangles are explicit and can occur on any cave floor.
+	for bounds: Rect2 in Generator.subtract_rects(stage.get("solids", []), stage.get("erodible_surfaces", [])):
+		_add_collision(bounds)
 	for bounds: Rect2 in stage.get("solids", []):
-		if bounds.size.x <= 0 or bounds.size.y <= 0:
-			continue
-		var is_floor: bool = stage.has("surface_exclusions") and bounds.size.x >= 128 and bounds.end.y == stage.bounds.end.y
-		if is_floor:
-			_add_collision(Rect2(bounds.position + Vector2(0, T.SURFACE_DEPTH), bounds.size - Vector2(0, T.SURFACE_DEPTH)))
-		else:
-			_add_collision(bounds)
-		if bounds.size.y <= 20.0:
+		if bounds.size.y == 16:
 			shelves.append(bounds)
 			continue
-		for y in range(floori(bounds.position.y / TILE_SIZE), ceili(bounds.end.y / TILE_SIZE)):
-			for x in range(floori(bounds.position.x / TILE_SIZE), ceili(bounds.end.x / TILE_SIZE)):
-				var cell := Vector2i(x, y)
-				occupied[cell] = true
-				if is_floor and y * TILE_SIZE < bounds.position.y + T.SURFACE_DEPTH:
-					_set_row_cell(cell, 1, true)
-					if not _protected(x * TILE_SIZE, (x + 1) * TILE_SIZE):
-						surface_cells[cell] = true
+		for cell: Vector2i in _cells_in(bounds): occupied[cell] = true
+	for bounds: Rect2 in stage.get("erodible_surfaces", []):
+		for cell: Vector2i in _cells_in(bounds):
+			if occupied.has(cell) and not _protected(Rect2(Vector2(cell) * TILE_SIZE, Vector2.ONE * TILE_SIZE)):
+				surface_cells[cell] = true
+				_set_row_cell(cell, 1, true)
 	for bounds: Rect2 in stage.get("breakables", []):
 		var id := breakables.size()
 		var cells := _cells_in(bounds)
@@ -120,12 +115,8 @@ func rebuild() -> void:
 		chunk.queue_redraw()
 	queue_redraw()
 
-func _protected(left: float, right: float) -> bool:
-	for interval: Vector2 in stage.get("surface_exclusions", []):
-		if left < interval.y and right > interval.x:
-			return true
-	return false
-
+func _protected(bounds: Rect2) -> bool:
+	return stage.get("protected_rects", []).any(func(rect): return rect.intersects(bounds))
 func _cells_in(bounds: Rect2) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	for y in range(floori(bounds.position.y / TILE_SIZE), ceili(bounds.end.y / TILE_SIZE)):
@@ -269,7 +260,7 @@ func can_place_wall(bounds: Rect2, owner_id: int) -> bool:
 	for value in [bounds.position.x, bounds.position.y, bounds.size.y]:
 		if fmod(value, TILE_SIZE) != 0:
 			return false
-	if not stage.bounds.encloses(bounds) or _protected(bounds.position.x, bounds.end.x) or not _actors_clear(bounds):
+	if not stage.bounds.encloses(bounds) or _protected(bounds) or not _actors_clear(bounds):
 		return false
 	for cell: Vector2i in _cells_in(bounds):
 		if is_cell_solid(cell):
@@ -434,6 +425,7 @@ func draw_tile(canvas: Node2D, cell: Vector2i, mask: int) -> void:
 	var at := world_at - canvas.position
 	var theme := theme_at_x(world_at.x + TILE_SIZE / 2.0)
 	canvas.draw_rect(Rect2(at, Vector2.ONE * TILE_SIZE), theme.body)
+	if mask == 255 and not block_cells.has(cell): return
 	canvas.draw_line(at + Vector2(0, 31), at + Vector2(32, 31), theme.shadow, 1.0)
 	if (cell.x + cell.y) % 3 == 0:
 		canvas.draw_line(at + Vector2(13, 12), at + Vector2(20, 12), theme.inner, 1.0)
