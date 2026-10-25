@@ -105,22 +105,6 @@ func run() -> void:
 		var after: Color = terrain.theme_at_x(boundary + 0.01).body
 		check(before.is_equal_approx(after), "Terrain color does not create a hard region seam")
 	await process_frame
-	# New building geometry uses the same eight-neighbour tiles and map cache.
-	var generated: Dictionary = load("res://scripts/stage_generator.gd").generate(37)
-	terrain.stage = generated
-	terrain.rebuild()
-	check(not terrain.surface_cells.is_empty(), "Only eligible tower bottoms expose destructible surface cells")
-	for cell: Vector2i in terrain.surface_cells:
-		check(generated.floors.any(func(f): return f.has_point(Vector2(cell) * 32 + Vector2(16, 16))), "Destructible cells belong to tower floors")
-	for bridge: Dictionary in generated.bridges:
-		var deck: Rect2 = bridge.rect
-		check(terrain.map_geometry(deck).any(func(r): return r == deck), "Actual bridge deck appears as thin minimap geometry")
-		var previous_geometry: Array = terrain.map_geometry(deck)
-		terrain.explode(deck.get_center(), 64)
-		check(terrain.map_geometry(deck) == previous_geometry, "Bridge remains on map after an explosion")
-	for tower: Dictionary in generated.towers:
-		var wall_area := Rect2(tower.outer.position.x, tower.roof_y - 96, 64, 32)
-		check(not terrain.map_geometry(wall_area).is_empty(), "Stone parapet appears on map")
 	minimap.queue_free()
 	fixture.player.queue_free()
 	terrain.free()

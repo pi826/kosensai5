@@ -10,7 +10,6 @@ class BackdropChunk extends Node2D:
 	var bounds: Rect2
 	func _draw() -> void:
 		backdrop.draw_chunk(self, bounds)
-		backdrop.draw_interiors(self, bounds)
 
 func _ready() -> void:
 	z_index = -20
@@ -54,21 +53,3 @@ func draw_chunk(canvas: Node2D, bounds: Rect2) -> void:
 		for wy in range(ceili(bounds.position.y / 256.0) * 256, int(bounds.end.y), 256):
 			var y := wy - canvas.position.y
 			canvas.draw_line(Vector2(x + 58, y + 16), Vector2(minf(x + 116, local.end.x), y + 16), edge, 1)
-
-func draw_interiors(canvas: Node2D, bounds: Rect2) -> void:
-	for tower: Dictionary in stage.get("towers", []):
-		var interior: Rect2 = tower.interior
-		var clip := interior.intersection(bounds)
-		if not clip.has_area(): continue
-		canvas.draw_rect(Rect2(clip.position - canvas.position, clip.size), color_at(clip.get_center().x, "body").darkened(0.55))
-		for y in range(ceili(clip.position.y / 64) * 64, int(clip.end.y), 64):
-			canvas.draw_line(Vector2(clip.position.x, y) - canvas.position, Vector2(clip.end.x, y) - canvas.position, color_at(clip.get_center().x, "shadow"), 1)
-		for x in range(ceili(clip.position.x / 96) * 96, int(clip.end.x), 96):
-			canvas.draw_line(Vector2(x, clip.position.y) - canvas.position, Vector2(x, clip.end.y) - canvas.position, color_at(x, "shadow"), 1)
-	for valley: Rect2 in stage.get("valleys", []):
-		var top := -INF
-		for bridge: Dictionary in stage.get("bridges", []):
-			if bridge.rect.position.x == valley.position.x: top = maxf(top, bridge.rect.position.y)
-		if not is_finite(top): top = valley.position.y
-		var area := Rect2(valley.position.x, top, valley.size.x, stage.bounds.end.y - top).intersection(bounds)
-		if area.has_area(): canvas.draw_rect(Rect2(area.position - canvas.position, area.size), Color("080c14", 0.72))

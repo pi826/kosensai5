@@ -51,8 +51,7 @@ func ground_at(x: float) -> float:
 func cross_region(boundary: float) -> void:
 	game.start_run(37)
 	silence_enemies()
-	var bridge: Rect2 = game.stage.bridges.filter(func(b): return b.rect.position.x < boundary - 72 and b.rect.end.x > boundary + 72)[0].rect
-	var floor_y := bridge.position.y
+	var floor_y := ground_at(boundary - 72)
 	check(is_finite(floor_y), "Ground exists under region boundary %.0f" % boundary)
 	game.player.position = Vector2(boundary - 72, floor_y - T.PLAYER_SIZE.y / 2)
 	game.player.velocity = Vector2.ZERO
@@ -65,23 +64,20 @@ func cross_region(boundary: float) -> void:
 	var player_id: int = game.player.get_instance_id()
 	var projectile_container_id: int = game.projectiles.get_instance_id()
 	var terrain = game.world.get_children().filter(func(child): return child.has_method("mask_for_cell"))[0]
-	var mutable_floor: Rect2 = game.stage.floors.filter(func(f): return not terrain._protected(f.position.x, f.end.x))[0]
-	terrain.explode(Vector2(mutable_floor.get_center().x, T.GROUND_Y + 32), 60)
+	terrain.explode(Vector2(boundary - 500, ground_at(boundary - 500) + 32), 60)
 	var damaged: Dictionary = terrain.destroyed_cells.duplicate()
 	var wall_id := -1
-	for link: Dictionary in game.stage.bridges:
-		var deck: Rect2 = link.rect
-		for offset in [0,64,-64]:
-			var x := floorf((deck.get_center().x + offset) / 32) * 32
-			wall_id = terrain.place_wall(Rect2(x, deck.position.y - 96,32,96),123)
-			if wall_id >= 0: break
-		if wall_id >= 0: break
+	for column in range(int(boundary + 320) / 32, int(boundary + 640) / 32):
+		var x := float(column * 32)
+		wall_id = terrain.place_wall(Rect2(x, ground_at(x) - 96, 32, 96), 123)
+		if wall_id >= 0:
+			break
 	check(not damaged.is_empty() and wall_id >= 0, "Boundary fixture includes destroyed floor and installed wall")
 	var wall_cells: Array = terrain.walls[wall_id].cells.duplicate()
 	var wall_remaining: float = terrain.walls[wall_id].remaining
 	var collision_id: int = terrain.collision_root.get_instance_id()
 	var shapes: int = terrain.collision_root.get_child_count()
-	var witness = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "turret")[0]
+	var witness = get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss")[0]
 	witness.hp = 1
 	witness.gauge = 3
 	witness.action = "windup_special"
@@ -121,11 +117,8 @@ func cross_region(boundary: float) -> void:
 	var active_id: int = active.get_instance_id()
 	var fixed_curve: PackedVector2Array = warning.curve.duplicate()
 	var bomb = game.spawn_bomb_warning(source)
-	bomb.position = Vector2(boundary + 200, 240)
-	bomb.target = Vector2(boundary + 600, 240)
+	bomb.target = Vector2(boundary + 600, floor_y)
 	bomb.fire()
-	bomb.position = Vector2(boundary + 200, 240)
-	bomb.velocity = Vector2(400, -200)
 	var bomb_id: int = bomb.get_instance_id()
 	var bomb_position: Vector2 = bomb.position
 	game.show_damage(game.player.position - Vector2(0, 60), 1)
@@ -170,7 +163,7 @@ func warnings_and_map() -> void:
 	silence_enemies()
 	await frames(3)
 	check(game.discovered_bosses.is_empty() and game.ui.minimap.get_visible_bosses().is_empty(), "The map initially hides all undiscovered guardians")
-	var enemy = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "turret")[0]
+	var enemy = get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss")[0]
 	enemy.position = game.player.position + Vector2(400, 0)
 	enemy.kind = "turret"
 	enemy.patrol = Vector2(enemy.position.x, enemy.position.x)
