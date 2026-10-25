@@ -28,11 +28,30 @@ func run() -> void:
 		check(not stage.has("rooms") and not stage.has("doors"), "no room graph or door transitions seed %d" % seed_value)
 		check(stage.biomes.size() == 3 and stage.landmarks.size() == 3, "three regions and guardians seed %d" % seed_value)
 		var ids := {}
+		var counts := {}
 		for spawn: Dictionary in stage.spawns:
 			all_kinds[spawn.kind] = true
+			counts[spawn.kind] = int(counts.get(spawn.kind, 0)) + 1
+			if spawn.kind == "flyer":
+				# Derive the swept body independently from its actual spawn/patrol data.
+				var envelope := Rect2(Vector2(spawn.patrol.x - T.ENEMY_SIZE.x / 2, spawn.position.y - T.ENEMY_SIZE.y / 2 - T.FLYER_BOB_AMPLITUDE), Vector2(spawn.patrol.y - spawn.patrol.x + T.ENEMY_SIZE.x, T.ENEMY_SIZE.y + 2 * T.FLYER_BOB_AMPLITUDE)).grow(T.FLYER_CLEARANCE)
+				check(stage.solids.all(func(solid): return not envelope.intersects(solid)), "clear flyer lane seed %d" % seed_value)
+				check(spawn.position.y == stage.solids[spawn.floor_index].position.y - T.FLYER_ALTITUDE and spawn.patrol == Vector2(spawn.floor_index * Generator.FLOOR_WIDTH + T.FLYER_LANE_MARGIN, (spawn.floor_index + 1) * Generator.FLOOR_WIDTH - T.FLYER_LANE_MARGIN), "flyer altitude and patrol seed %d" % seed_value)
 			if spawn.kind == "boss":
 				ids[spawn.boss_id] = true
 		check(ids.size() == 3, "three unique guardian IDs seed %d" % seed_value)
+		check(counts.has("flyer") and counts.has("laser"), "both new enemy roles guaranteed seed %d" % seed_value)
+		check(counts.has("breaker") and counts.has("builder"), "terrain enemy roles guaranteed seed %d" % seed_value)
+		check(stage.breakables.size() >= 4, "at least four breakables seed %d" % seed_value)
+		for block: Rect2 in stage.breakables:
+			var fixture := stage.duplicate(false)
+			fixture.breakables = stage.breakables.filter(func(other): return other != block)
+			check(Generator.block_is_valid(block, fixture), "valid supported breakable seed %d" % seed_value)
+		for spawn: Dictionary in stage.spawns:
+			if spawn.kind == "flyer":
+				var lane := Generator.flight_lane(stage.solids[spawn.floor_index])
+				check(stage.solids.all(func(solid): return solid.size.y > 20 or solid.end.x <= lane.position.x or solid.position.x >= lane.end.x or solid.position.y < lane.end.y or solid.position.y - lane.end.y >= T.PLAYER_SIZE.y + 8), "player space below flyer seed %d" % seed_value)
+				check(stage.breakables.all(func(block): return not lane.intersects(block)), "no breakable in flyer lane seed %d" % seed_value)
 		var highest_y := float(stage.start_position.y)
 		for route: Dictionary in stage.routes:
 			for point: Vector2 in route.points:
@@ -41,7 +60,7 @@ func run() -> void:
 		layouts[str(stage.solids)] = true
 		fallback_count += int(stage.fallback)
 	check(layouts.size() > 990, "seeds vary actual terrain geometry")
-	check(all_kinds.size() == 4, "all three ordinary enemy types and guardian appear")
+	check(all_kinds.size() == 8, "all seven ordinary enemy types and guardian appear")
 	check(fallback_count == 0, "ordinary seeds pass without fallback")
 	for seed_value in range(10):
 		var stage := Generator.generate_fallback(seed_value)
@@ -106,6 +125,42 @@ func run() -> void:
 	var changed_position := broken.duplicate(true)
 	changed_position.spawns[3].position.x += 32
 	check(Generator.signature(broken) != Generator.signature(changed_position), "signature covers enemy positions")
+	for missing: String in Generator.REQUIRED_KINDS:
+		broken = Generator.generate(1)
+		broken.spawns = broken.spawns.filter(func(spawn): return spawn.kind != missing)
+		rejected(broken, "missing required role rejected: " + missing)
+	broken = Generator.generate(1)
+	var flyer: Dictionary = broken.spawns.filter(func(spawn): return spawn.kind == "flyer")[0]
+	broken.solids.append(Rect2(flyer.floor_index * Generator.FLOOR_WIDTH + 32, flyer.position.y, 320, 16))
+	rejected(broken, "terrain crossing flyer lane rejected")
+	broken = Generator.generate(1)
+	flyer = broken.spawns.filter(func(spawn): return spawn.kind == "flyer")[0]
+	var floor_rect: Rect2 = broken.solids[flyer.floor_index]
+	broken.solids.append(Rect2(floor_rect.position.x + 32, floor_rect.position.y - 128, 320, 16))
+	rejected(broken, "insufficient player clearance below flyer rejected")
+	for invalid in [Rect2(0, 2272, 32, 32), Rect2(2304, 2208, 96, 96), Rect2(2304, 1920, 32, 32)]:
+		broken = Generator.generate(1)
+		broken.breakables.append(invalid)
+		rejected(broken, "invalid protected/oversized/floating block rejected")
+	broken = Generator.generate(1)
+	var point: Vector2 = broken.routes[0].points[2]
+	broken.breakables.append(Rect2(point.x - 32, point.y + T.PLAYER_SIZE.y / 2 - 32, 32, 32))
+	rejected(broken, "block covering route waypoint rejected")
+	broken = Generator.generate(1)
+	broken.surface_exclusions = []
+	rejected(broken, "missing protected climb and guardian ranges rejected")
+	var altered := Generator.generate(1)
+	var sig := Generator.signature(altered)
+	altered.breakables.pop_back()
+	check(sig != Generator.signature(altered), "signature includes breakables")
+	altered = Generator.generate(1)
+	sig = Generator.signature(altered)
+	altered.surface_exclusions.pop_back()
+	check(sig != Generator.signature(altered), "signature includes protection ranges")
+	var changed_lane := Generator.generate(1)
+	var original_signature := Generator.signature(changed_lane)
+	changed_lane.spawns.filter(func(spawn): return spawn.kind == "flyer")[0].patrol.x += 1
+	check(original_signature != Generator.signature(changed_lane), "signature covers flight lane")
 	for seed_value in [-2147483648, -1, 2147483647, 9223372036854775807]:
 		var stage := Generator.generate(seed_value)
 		check(Generator.validate(stage).is_empty() and Generator.signature(stage) == Generator.signature(Generator.generate(seed_value)), "signed and large seed %d" % seed_value)

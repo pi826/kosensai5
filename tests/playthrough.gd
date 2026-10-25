@@ -121,9 +121,16 @@ func check_map() -> void:
 	check(not unvisited_found, "Minimap never reveals an unexplored cell")
 	check(game.ui.minimap.get_visible_bosses().size() == game.discovered_bosses.size(), "Minimap reveals only discovered guardians")
 
-func run_seed(stage_seed: int) -> bool:
+func run_seed(stage_seed: int, damaged: bool = false) -> bool:
 	release_inputs()
 	game.start_run(stage_seed)
+	check(game.terrain.breakables.size() >= 4, "Traversal includes generated breakable obstacles")
+	var blocks_before: Dictionary = game.terrain.breakables.duplicate(true)
+	if damaged:
+		# Dense overlapping blasts excavate the surface and any blocks in their radius.
+		for x in range(80, int(T.WORLD_SIZE.x) - 64, 64):
+			game.terrain.explode(Vector2(x, T.GROUND_Y + 32), 160)
+		check(not game.terrain.destroyed_cells.is_empty(), "Damaged traversal contains extensive surface excavation")
 	largest_camera_step = 0
 	largest_player_step = 0
 	var initial_frames := frames
@@ -158,7 +165,8 @@ func run_seed(stage_seed: int) -> bool:
 			# Step off the highest shelf, then fall naturally onto the continuous floor.
 			if not await walk_to(6784) or not await wait_for_floor():
 				return false
-			check(absf(game.player.position.y - game.stage.start_position.y) < 2, "A fall from the upper guardian safely reaches the ground")
+			var landing_y: float = game.stage.start_position.y + (T.SURFACE_DEPTH if damaged else 0)
+			check(absf(game.player.position.y - landing_y) < 2, "A fall from the upper guardian safely reaches the actual remaining ground")
 			if not await walk_to(game.stage.start_position.x):
 				return false
 		else:
@@ -175,9 +183,11 @@ func run_seed(stage_seed: int) -> bool:
 	check(reached.size() == 3 and game.discovered_bosses.size() == 3, "All three guardians are reached and discovered")
 	check(game.player.hp == T.PLAYER_HP, "Exploration and ordinary falls do not require taking damage")
 	check(game.defeated_bosses.is_empty() and game.defeated_enemies.is_empty(), "Navigation never counts as defeating an enemy")
+	if not damaged:
+		check(game.terrain.breakables == blocks_before, "Traversal succeeds with breakable obstacles intact and no shooting")
 	check(largest_player_step < 25, "Player position changes only through continuous physics, max step %.2f" % largest_player_step)
 	check(largest_camera_step < 25, "Camera follows continuously in both axes, max step %.2f" % largest_camera_step)
-	var result := {"seed": stage_seed, "passed": failures.size() == initial_failures,
+	var result := {"seed": stage_seed, "damaged_terrain": damaged, "passed": failures.size() == initial_failures,
 		"physics_frames": frames - initial_frames, "simulated_seconds": game.elapsed,
 		"normal_jumps": jumps - initial_jumps, "explored_cells": game.explored_cells.size(),
 		"guardians_reached_and_returned": reached.size(), "world_instance_preserved": game.world.get_instance_id() == world_id,
@@ -198,6 +208,8 @@ func run() -> void:
 		if not await run_seed(stage_seed):
 			printerr("Traversal stopped early for seed ", stage_seed)
 			break
+	if failures.is_empty():
+		await run_seed(37, true)
 	release_inputs()
 	var file := FileAccess.open("res://builds/qa/seamless/traversal_results.json", FileAccess.WRITE)
 	file.store_string(JSON.stringify({"checks": checks, "failures": failures, "runs": reports}, "\t"))

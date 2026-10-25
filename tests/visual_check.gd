@@ -91,7 +91,79 @@ func run() -> void:
 	game.player.receive_hit(1 - game.player.polarity, T.PLAYER_HP)
 	await frames(3)
 	await capture("retry")
+	await capture_phase3_enemies()
+	await capture_changing_terrain()
 	print("VISUAL CAPTURES: builds/qa/seamless/")
 	game.queue_free()
 	await frames(2)
 	quit()
+
+func capture_phase3_enemies() -> void:
+	game.start_run(37)
+	await frames(3)
+	var flyer = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "flyer")[0]
+	show_position(floor_position(flyer.position.x - 160))
+	await frames(3)
+	await capture("phase3_flyer")
+	# A clear floor section keeps both the complete arc and the lens in view.
+	show_position(floor_position(9600))
+	var laser = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "laser")[0]
+	laser.position = floor_position(9984)
+	laser.polarity = 1
+	laser.facing = -1
+	laser.action = "windup_laser"
+	laser.action_remaining = T.LASER_WARNING
+	laser.queue_redraw()
+	var beam = game.spawn_laser(laser)
+	beam.set_physics_process(false)
+	await frames(3)
+	await capture("phase3_laser_warning")
+	laser.action = "firing_laser"
+	laser.queue_redraw()
+	beam.fire()
+	await frames(3)
+	await capture("phase3_laser_beam")
+
+func capture_changing_terrain() -> void:
+	game.start_run(37)
+	await frames(3)
+	var block: Rect2 = game.stage.breakables[0]
+	show_position(floor_position(block.position.x - 180))
+	for actor in get_nodes_in_group("enemies"):
+		actor.hide()
+	await frames(3)
+	await capture("phase3_breakable")
+	# Keep a natural floor section and relocate actors for a readable QA fixture.
+	show_position(floor_position(4224))
+	var breaker = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "breaker")[0]
+	var builder = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "builder")[0]
+	breaker.show()
+	builder.show()
+	breaker.position = floor_position(3952)
+	breaker.polarity = 1
+	breaker.action = "windup_bomb"
+	breaker.queue_redraw()
+	builder.position = floor_position(4576)
+	builder.action = "windup_build"
+	builder.wall_plan = game.terrain.find_wall_plan(builder, game.player)
+	builder.queue_redraw()
+	var warning = game.spawn_bomb_warning(breaker)
+	warning.set_physics_process(false)
+	await frames(3)
+	await capture("phase3_terrain_warning")
+	var planned: Rect2 = builder.wall_plan
+	if planned.has_area():
+		game.terrain.place_wall(planned, builder.get_instance_id())
+	builder.action = "idle"
+	builder.queue_redraw()
+	breaker.action = "idle"
+	breaker.queue_redraw()
+	warning.fire()
+	warning.set_physics_process(true)
+	await frames(22)
+	warning.set_physics_process(false)
+	# A separate, nearby crater shows both surface rows and refreshed tile edges.
+	var ground := floor_position(4096).y + T.PLAYER_SIZE.y / 2
+	game.terrain.explode(Vector2(4096, ground + 32), 64)
+	await frames(3)
+	await capture("phase3_terrain_changed")

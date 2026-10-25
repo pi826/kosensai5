@@ -1,4 +1,5 @@
 extends Node2D
+const T := preload("res://scripts/tuning.gd")
 
 var bursts: Array = []
 var damage_numbers: Array = []
@@ -34,6 +35,9 @@ func _draw() -> void:
 		var tint: Color = burst.color
 		tint.a = 1.0 - fraction
 		var radius := 8.0 + fraction * (54.0 if burst.kind == "defeat" else 26.0)
+		if burst.kind == "bomb":
+			draw_circle(burst.at, T.BOMB_RADIUS * (1 - fraction), Color(tint, tint.a * 0.15))
+			draw_arc(burst.at, T.BOMB_RADIUS, 0, TAU, 32, tint, 3, true)
 		if burst.kind == "land" or burst.kind == "jump":
 			for i in range(6):
 				var side := -1.0 if i < 3 else 1.0

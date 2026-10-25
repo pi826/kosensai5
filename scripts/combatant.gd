@@ -21,7 +21,7 @@ var visual_scale := Vector2.ONE
 
 func _ready() -> void:
 	collision_layer = 2 if faction == 0 else 4
-	collision_mask = 1
+	collision_mask = 1 | T.WALL_LAYER
 	var shape := RectangleShape2D.new()
 	shape.size = body_size
 	var collider := CollisionShape2D.new()
@@ -95,6 +95,24 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, 29, 0, TAU, 36, tint, 3, true)
 		draw_line(Vector2(-58, -12), Vector2(-30, -12), tint, 10)
 		draw_line(Vector2(-58, 22), Vector2(-30, 22), tint, 10)
+	elif kind == "flyer":
+		draw_colored_polygon(PackedVector2Array([Vector2(-19, 6), Vector2(-34, -18), Vector2(-10, -9), Vector2(0, -20), Vector2(10, -9), Vector2(34, -18), Vector2(19, 6), Vector2(0, 22)]), tint.darkened(0.65))
+		draw_polyline(PackedVector2Array([Vector2(-34, -18), Vector2(-19, 6), Vector2(0, 22), Vector2(19, 6), Vector2(34, -18)]), tint, 3, true)
+		draw_arc(Vector2(0, 25), 11, 0.2, PI - 0.2, 16, tint, 2, true)
+	elif kind == "laser":
+		draw_style_box(_body_style(tint.darkened(0.7)), rect)
+		draw_line(Vector2(-24, 22), Vector2(24, 22), tint, 5)
+		draw_arc(Vector2(facing * 14, -4), 13, 0, TAU, 24, tint, 4, true)
+		draw_circle(Vector2(facing * 22, -4), 5, Color.WHITE)
+	elif kind == "breaker":
+		draw_colored_polygon(PackedVector2Array([Vector2(-19, 20), Vector2(-19, 0), Vector2(-10, -20), Vector2(10, -20), Vector2(19, 0), Vector2(19, 20)]), tint.darkened(0.65))
+		draw_arc(Vector2(0, -10), 14, PI, TAU, 20, tint, 5)
+		draw_line(Vector2(-24, 21), Vector2(24, 21), tint, 5)
+	elif kind == "builder":
+		draw_rect(rect, tint.darkened(0.7))
+		for y in [-18, -4, 10]:
+			draw_rect(Rect2(-19, y, 38, 12), tint, false, 2)
+		draw_line(Vector2(0, -25), Vector2(0, 20), tint, 3)
 	elif kind == "shifter":
 		var diamond := PackedVector2Array([Vector2(0, -25), Vector2(23, 0), Vector2(0, 23), Vector2(-23, 0)])
 		draw_colored_polygon(diamond, tint.darkened(0.7))

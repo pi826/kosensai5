@@ -6,12 +6,18 @@ const CELL_SIZE := 128
 var game
 var _cached_seed := -9223372036854775807
 var _cell_geometry: Dictionary = {}
+var _terrain_version: Array[int] = [-1, -1]
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	queue_redraw()
 
 func update_map() -> void:
+	if game != null and "terrain" in game and is_instance_valid(game.terrain):
+		var version: Array[int] = [game.terrain.get_instance_id(), game.terrain.revision]
+		if version != _terrain_version:
+			_terrain_version = version
+			_cell_geometry.clear()
 	if game != null and int(game.stage.get("seed", 0)) != _cached_seed:
 		_cached_seed = int(game.stage.get("seed", 0))
 		_cell_geometry.clear()
@@ -41,6 +47,10 @@ func _geometry_for_cell(cell: Vector2i) -> Array:
 		return _cell_geometry[cell]
 	var fragments: Array[Rect2] = []
 	var area := Rect2(Vector2(cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE)
+	if "terrain" in game and is_instance_valid(game.terrain):
+		fragments = game.terrain.map_geometry(area)
+		_cell_geometry[cell] = fragments
+		return fragments
 	for solid: Rect2 in game.stage.get("solids", []):
 		if area.intersects(solid):
 			fragments.append(area.intersection(solid))

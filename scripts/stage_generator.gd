@@ -9,6 +9,41 @@ const FLOOR_COUNT := 32
 const CLIMB_STEP := 128.0
 const CLIMB_LEVELS := 12
 const SAFE_RADIUS := 640.0
+const NORMAL_KINDS := ["turret", "walker", "shifter", "flyer", "laser", "breaker", "builder"]
+const REQUIRED_KINDS := ["flyer", "laser", "breaker", "builder"]
+
+static func surface_exclusions() -> Array[Vector2]:
+	return [Vector2(0, T.TILE_SIZE + T.PROTECTED_EDGE_WIDTH), Vector2(768 - T.PROTECTED_BOSS_RADIUS, 768 + T.PROTECTED_BOSS_RADIUS), Vector2(START_X - T.PROTECTED_CLIMB_RADIUS, START_X + T.PROTECTED_CLIMB_RADIUS), Vector2(11520 - T.PROTECTED_BOSS_RADIUS, 11520 + T.PROTECTED_BOSS_RADIUS), Vector2(WORLD_SIZE.x - T.TILE_SIZE - T.PROTECTED_EDGE_WIDTH, WORLD_SIZE.x)]
+
+static func protected_column(left: float, right: float, exclusions: Array) -> bool:
+	for interval: Vector2 in exclusions:
+		if left < interval.y and right > interval.x:
+			return true
+	return false
+
+static func flight_lane(floor_rect: Rect2) -> Rect2:
+	var patrol := Vector2(floor_rect.position.x + T.FLYER_LANE_MARGIN, floor_rect.end.x - T.FLYER_LANE_MARGIN)
+	var center_y := floor_rect.position.y - T.FLYER_ALTITUDE
+	var half := T.ENEMY_SIZE / 2 + Vector2(T.FLYER_CLEARANCE, T.FLYER_BOB_AMPLITUDE + T.FLYER_CLEARANCE)
+	return Rect2(Vector2(patrol.x, center_y) - half, Vector2(patrol.y - patrol.x, 0) + half * 2)
+
+static func lane_is_clear(floor_rect: Rect2, solids: Array) -> bool:
+	var lane := flight_lane(floor_rect)
+	for solid: Rect2 in solids:
+		if lane.intersects(solid):
+			return false
+		if solid.size.y <= 20 and solid.position.x < lane.end.x and solid.end.x > lane.position.x and solid.position.y >= lane.end.y and solid.position.y - lane.end.y < T.PLAYER_SIZE.y + 8:
+			return false
+	return true
+
+static func _configure_spawn(spawn: Dictionary, kind: String, floor_rect: Rect2) -> void:
+	spawn.kind = kind
+	spawn.position.y = floor_rect.position.y - (T.FLYER_ALTITUDE if kind == "flyer" else T.ENEMY_SIZE.y / 2)
+	spawn.patrol = Vector2(spawn.position.x, spawn.position.x)
+	if kind == "walker":
+		spawn.patrol = Vector2(maxf(floor_rect.position.x + 48, spawn.position.x - 80), minf(floor_rect.end.x - 48, spawn.position.x + 80))
+	elif kind == "flyer":
+		spawn.patrol = Vector2(floor_rect.position.x + T.FLYER_LANE_MARGIN, floor_rect.end.x - T.FLYER_LANE_MARGIN)
 
 static func generate(stage_seed: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
@@ -60,18 +95,27 @@ static func _build(stage_seed: int, rng: RandomNumberGenerator, fallback: bool) 
 		var point := Vector2(boss_xs[boss_id], support_y - T.BOSS_SIZE.y / 2)
 		spawns.append({"id": "guardian_%d" % boss_id, "kind": "boss", "polarity": rng.randi_range(0, 1), "position": point, "patrol": Vector2(point.x, point.x), "boss_id": boss_id})
 		landmarks.append({"id": boss_id, "position": point, "name": T.BIOME_NAMES[boss_id] + "の守護者"})
-	var kinds := ["turret", "walker", "shifter"]
 	for index in range(2, FLOOR_COUNT - 1):
 		var center_x := index * FLOOR_WIDTH + FLOOR_WIDTH / 2
 		if absf(center_x - START_X) < SAFE_RADIUS or absf(center_x - 768) < 384 or absf(center_x - 11520) < 384:
 			continue
 		var offset := 0 if fallback else rng.randi_range(-2, 2) * T.TILE_SIZE
 		var point := Vector2(center_x + offset, heights[index] - T.ENEMY_SIZE.y / 2)
-		var kind: String = kinds[rng.randi_range(0, 2)]
-		var patrol := Vector2(point.x, point.x)
-		if kind == "walker":
-			patrol = Vector2(maxf(index * FLOOR_WIDTH + 48, point.x - 80), minf((index + 1) * FLOOR_WIDTH - 48, point.x + 80))
-		spawns.append({"id": "enemy_%d" % index, "kind": kind, "polarity": rng.randi_range(0, 1), "position": point, "patrol": patrol, "boss_id": -1})
+		var kinds := NORMAL_KINDS.duplicate()
+		if not lane_is_clear(solids[index], solids):
+			kinds.erase("flyer")
+		var kind: String = kinds[rng.randi_range(0, kinds.size() - 1)]
+		var spawn := {"id": "enemy_%d" % index, "kind": kind, "polarity": rng.randi_range(0, 1), "position": point, "patrol": Vector2.ZERO, "boss_id": -1, "floor_index": index}
+		_configure_spawn(spawn, kind, solids[index])
+		spawns.append(spawn)
+	# Repair missing required roles using the same generation-only RNG.
+	for required: String in REQUIRED_KINDS:
+		if spawns.any(func(spawn): return spawn.kind == required):
+			continue
+		var candidates := spawns.filter(func(spawn): return NORMAL_KINDS.has(spawn.kind) and not REQUIRED_KINDS.has(spawn.kind) and (required != "flyer" or lane_is_clear(solids[spawn.floor_index], solids)))
+		if not candidates.is_empty():
+			var replacement: Dictionary = candidates[rng.randi_range(0, candidates.size() - 1)]
+			_configure_spawn(replacement, required, solids[replacement.floor_index])
 	var biomes: Array[Dictionary] = []
 	for biome_id in range(3):
 		biomes.append({"id": biome_id, "name": T.BIOME_NAMES[biome_id], "rect": Rect2(biome_id * 4096, 0, 4096, WORLD_SIZE.y)})
@@ -87,7 +131,55 @@ static func _build(stage_seed: int, rng: RandomNumberGenerator, fallback: bool) 
 				points.append(Vector2(index * FLOOR_WIDTH + FLOOR_WIDTH / 2, heights[index] - T.PLAYER_SIZE.y / 2))
 			points.append(Vector2(boss_xs[boss_id], GROUND_Y - T.PLAYER_SIZE.y / 2))
 		routes.append({"boss_id": boss_id, "points": points})
-	return {"seed": stage_seed, "bounds": bounds, "start_position": start, "solids": solids, "spawns": spawns, "biomes": biomes, "landmarks": landmarks, "routes": routes, "fallback": fallback}
+	var stage := {"seed": stage_seed, "bounds": bounds, "start_position": start, "solids": solids, "spawns": spawns, "biomes": biomes, "landmarks": landmarks, "routes": routes, "fallback": fallback, "surface_exclusions": surface_exclusions(), "breakables": []}
+	# Seeded candidate order and sizes; no runtime randomness enters the stage data.
+	var candidates: Array[Rect2] = []
+	for floor_index in range(FLOOR_COUNT):
+		var floor_rect: Rect2 = solids[floor_index]
+		for offset in [32, 64, 96, 256, 288, 320]:
+			var block := Rect2(floor_rect.position.x + offset, floor_rect.position.y - 32 * rng.randi_range(1, 2), 32 * rng.randi_range(1, 2), 0)
+			block.size.y = floor_rect.position.y - block.position.y
+			if block_is_valid(block, stage):
+				candidates.append(block)
+	while stage.breakables.size() < T.BREAKABLE_MIN_COUNT + 4 and not candidates.is_empty():
+		var block: Rect2 = candidates.pop_at(rng.randi_range(0, candidates.size() - 1))
+		if block_is_valid(block, stage):
+			stage.breakables.append(block)
+	return stage
+
+static func block_is_valid(block: Rect2, stage: Dictionary) -> bool:
+	if block.size.x < 32 or block.size.y < 32 or block.size.x > 64 or block.size.y > 64:
+		return false
+	for value in [block.position.x, block.position.y, block.size.x, block.size.y]:
+		if fmod(value, T.TILE_SIZE) != 0:
+			return false
+	if protected_column(block.position.x, block.end.x, stage.get("surface_exclusions", [])) or absf(block.get_center().x - START_X) < SAFE_RADIUS + block.size.x / 2:
+		return false
+	var grounded := false
+	for solid: Rect2 in stage.solids:
+		if block.intersects(solid):
+			return false
+		if solid.size.x == FLOOR_WIDTH and solid.end.y == WORLD_SIZE.y and block.end.y == solid.position.y and block.position.x >= solid.position.x + 32 and block.end.x <= solid.end.x - 32:
+			grounded = true
+	if not grounded:
+		return false
+	for other: Rect2 in stage.get("breakables", []):
+		if block.intersects(other):
+			return false
+	for spawn: Dictionary in stage.spawns:
+		if spawn.kind == "flyer":
+			if block.intersects(flight_lane(stage.solids[spawn.floor_index])):
+				return false
+		else:
+			var size: Vector2 = T.BOSS_SIZE if spawn.kind == "boss" else T.ENEMY_SIZE
+			var body := Rect2(Vector2(spawn.patrol.x - size.x / 2, spawn.position.y - size.y / 2), Vector2(spawn.patrol.y - spawn.patrol.x + size.x, size.y))
+			if block.intersects(body):
+				return false
+	for route: Dictionary in stage.routes:
+		for point: Vector2 in route.points:
+			if block.intersects(Rect2(point - T.PLAYER_SIZE / 2 - Vector2(16, 0), T.PLAYER_SIZE + Vector2(32, 0))):
+				return false
+	return true
 
 static func _supported(point: Vector2, body_size: Vector2, solids: Array) -> bool:
 	var foot_y := point.y + body_size.y / 2
@@ -116,6 +208,21 @@ static func validate(stage: Dictionary) -> Array[String]:
 	var bounds: Rect2 = stage.get("bounds", Rect2())
 	var solids: Array = stage.get("solids", [])
 	var spawns: Array = stage.get("spawns", [])
+	var exclusions: Array = stage.get("surface_exclusions", [])
+	for required: Vector2 in surface_exclusions():
+		if not exclusions.any(func(interval): return interval.x <= required.x and interval.y >= required.y):
+			errors.append("Missing protected surface range")
+	if 64 + T.SURFACE_DEPTH > T.MAX_STEP_HEIGHT:
+		errors.append("Destroyed surface exceeds normal jump reach")
+	var breakables: Array = stage.get("breakables", [])
+	if breakables.size() < T.BREAKABLE_MIN_COUNT:
+		errors.append("Too few breakable blocks")
+	var block_stage := stage.duplicate(false)
+	block_stage.breakables = []
+	for block: Rect2 in breakables:
+		if not block_is_valid(block, block_stage):
+			errors.append("Invalid breakable block")
+		block_stage.breakables.append(block)
 	if bounds != Rect2(Vector2.ZERO, WORLD_SIZE) or solids.is_empty():
 		errors.append("Invalid continuous world bounds or missing terrain")
 		return errors
@@ -171,6 +278,7 @@ static func validate(stage: Dictionary) -> Array[String]:
 		errors.append("Start is unsupported or inside terrain")
 	var ids := {}
 	var guardians := {}
+	var normal_counts := {}
 	for spawn: Dictionary in spawns:
 		var id: String = spawn.get("id", "")
 		var kind: String = spawn.get("kind", "")
@@ -180,14 +288,27 @@ static func validate(stage: Dictionary) -> Array[String]:
 		if id.is_empty() or ids.has(id):
 			errors.append("Enemy identity must be unique")
 		ids[id] = true
-		if not ["boss", "turret", "walker", "shifter"].has(kind) or not [0, 1].has(spawn.get("polarity", -1)):
+		normal_counts[kind] = int(normal_counts.get(kind, 0)) + 1
+		if (kind != "boss" and not NORMAL_KINDS.has(kind)) or not [0, 1].has(spawn.get("polarity", -1)):
 			errors.append("Invalid enemy kind or color")
-		if not _supported(point, size, solids) or _embedded(point, size, solids):
-			errors.append("Enemy is unsupported or embedded in terrain")
-		var patrol_center := Vector2((patrol.x + patrol.y) / 2, point.y)
-		var patrol_body := Vector2(patrol.y - patrol.x + size.x, size.y)
-		if patrol.x > point.x or patrol.y < point.x or not _supported(patrol_center, patrol_body, solids) or _embedded(patrol_center, patrol_body, solids):
-			errors.append("Enemy patrol leaves its supporting surface")
+		if kind == "flyer":
+			var floor_index: int = spawn.get("floor_index", -1)
+			var floor_rect := Rect2(floor_index * FLOOR_WIDTH, point.y + T.FLYER_ALTITUDE, FLOOR_WIDTH, WORLD_SIZE.y - point.y - T.FLYER_ALTITUDE)
+			if floor_index < 0 or floor_index >= FLOOR_COUNT or not floors.has(floor_rect):
+				errors.append("Flyer altitude must match its floor segment")
+			if patrol != Vector2(floor_rect.position.x + T.FLYER_LANE_MARGIN, floor_rect.end.x - T.FLYER_LANE_MARGIN) or point.x < patrol.x or point.x > patrol.y:
+				errors.append("Flyer patrol must stay inside its floor segment")
+			if not bounds.encloses(flight_lane(floor_rect)) or not lane_is_clear(floor_rect, solids):
+				errors.append("Flyer lane intersects terrain or world bounds")
+		else:
+			if not _supported(point, size, solids) or _embedded(point, size, solids):
+				errors.append("Enemy is unsupported or embedded in terrain")
+			var patrol_center := Vector2((patrol.x + patrol.y) / 2, point.y)
+			var patrol_body := Vector2(patrol.y - patrol.x + size.x, size.y)
+			if patrol.x > point.x or patrol.y < point.x or not _supported(patrol_center, patrol_body, solids) or _embedded(patrol_center, patrol_body, solids):
+				errors.append("Enemy patrol leaves its supporting surface")
+			if kind in ["turret", "laser", "breaker", "builder"] and patrol != Vector2(point.x, point.x):
+				errors.append("Fixed enemy cannot patrol")
 		if point.distance_to(start) < SAFE_RADIUS:
 			errors.append("Enemy inside the safe starting region")
 		var boss_id: int = spawn.get("boss_id", -1)
@@ -199,6 +320,9 @@ static func validate(stage: Dictionary) -> Array[String]:
 			guardians[boss_id] = point
 		elif boss_id != -1:
 			errors.append("Normal enemy has a guardian ID")
+	for required: String in REQUIRED_KINDS:
+		if not normal_counts.has(required):
+			errors.append("Missing required enemy: " + required)
 	if guardians.size() != 3 or not guardians.has(0) or not guardians.has(1) or not guardians.has(2):
 		errors.append("The world requires three unique guardians")
 	var biomes: Array = stage.get("biomes", [])
@@ -246,8 +370,11 @@ static func signature(stage: Dictionary) -> String:
 	var parts := PackedStringArray([str(stage.seed), str(stage.bounds), str(stage.start_position), str(stage.fallback)])
 	for solid: Rect2 in stage.solids:
 		parts.append("S:" + str(solid))
+	parts.append("X:" + str(stage.get("surface_exclusions", [])))
+	parts.append("D:" + str(stage.get("breakables", [])))
 	for spawn: Dictionary in stage.spawns:
 		parts.append("E:%s:%s:%d:%s:%s:%d" % [spawn.id, spawn.kind, spawn.polarity, spawn.position, spawn.patrol, spawn.boss_id])
+		parts.append("F:" + str(spawn.get("floor_index", -1)))
 	for biome: Dictionary in stage.biomes:
 		parts.append("B:%d:%s:%s" % [biome.id, biome.name, biome.rect])
 	for landmark: Dictionary in stage.landmarks:

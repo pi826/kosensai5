@@ -12,6 +12,12 @@ window/stretch/mode="canvas_items"
 window/size/window_width_override=1280
 window/size/window_height_override=720
 
+[layer_names]
+2d_physics/layer_1="Terrain and breakables"
+2d_physics/layer_2="Player"
+2d_physics/layer_3="Enemies"
+2d_physics/layer_4="Builder walls"
+
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"

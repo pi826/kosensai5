@@ -378,7 +378,7 @@ func two_hit_fixture(kind: String, color: int):
 	return enemy
 
 func verify_two_hit_enemies() -> void:
-	for kind in ["turret", "walker", "shifter"]:
+	for kind in ["turret", "walker", "shifter", "flyer", "laser", "breaker", "builder"]:
 		for color in [0, 1]:
 			var enemy = two_hit_fixture(kind, color)
 			await frames(3)

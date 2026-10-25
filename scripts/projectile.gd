@@ -26,7 +26,7 @@ func _physics_process(delta: float) -> void:
 			direction = direction.rotated(turn).normalized()
 	var next_position := global_position + direction * speed * delta
 	# Swept collision prevents fast shots tunnelling through a thin body or shelf.
-	var mask := 1 | (4 if faction == 0 else 2)
+	var mask := 1 | (4 | T.WALL_LAYER if faction == 0 else 2)
 	var ray := PhysicsRayQueryParameters2D.create(global_position, next_position, mask)
 	ray.hit_from_inside = true
 	var hit := get_world_2d().direct_space_state.intersect_ray(ray)
@@ -34,6 +34,8 @@ func _physics_process(delta: float) -> void:
 		if hit.collider.has_method("receive_hit"):
 			hit.collider.receive_hit(polarity, damage)
 		else:
+			if faction == 0 and is_instance_valid(game.terrain):
+				game.terrain.damage_at(hit.position + direction * 0.5, damage)
 			game.effect(hit.position, T.COLORS[polarity].darkened(0.3), "hit")
 		queue_free()
 		return

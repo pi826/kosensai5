@@ -64,6 +64,17 @@ func cross_region(boundary: float) -> void:
 	var player_id: int = game.player.get_instance_id()
 	var projectile_container_id: int = game.projectiles.get_instance_id()
 	var terrain = game.world.get_children().filter(func(child): return child.has_method("mask_for_cell"))[0]
+	terrain.explode(Vector2(boundary - 500, ground_at(boundary - 500) + 32), 60)
+	var damaged: Dictionary = terrain.destroyed_cells.duplicate()
+	var wall_id := -1
+	for column in range(int(boundary + 320) / 32, int(boundary + 640) / 32):
+		var x := float(column * 32)
+		wall_id = terrain.place_wall(Rect2(x, ground_at(x) - 96, 32, 96), 123)
+		if wall_id >= 0:
+			break
+	check(not damaged.is_empty() and wall_id >= 0, "Boundary fixture includes destroyed floor and installed wall")
+	var wall_cells: Array = terrain.walls[wall_id].cells.duplicate()
+	var wall_remaining: float = terrain.walls[wall_id].remaining
 	var collision_id: int = terrain.collision_root.get_instance_id()
 	var shapes: int = terrain.collision_root.get_child_count()
 	var witness = get_nodes_in_group("enemies").filter(func(actor): return actor.kind != "boss")[0]
@@ -80,6 +91,36 @@ func cross_region(boundary: float) -> void:
 	await frames(6)
 	var bullet = game.spawn_bullet(game.player, Vector2.RIGHT)
 	var bullet_id: int = bullet.get_instance_id()
+	# Keep both warning and irradiation alive during actual boundary traversal.
+	var flyer = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "flyer")[0]
+	flyer.position = Vector2(boundary + 180, floor_y - T.FLYER_ALTITUDE)
+	flyer.flight_center_y = flyer.position.y
+	flyer.patrol = Vector2(boundary + 64, boundary + 352)
+	flyer.hp = 1
+	flyer.gauge = 3
+	flyer.shot_clock = 100
+	flyer.set_physics_process(true)
+	var flyer_id: int = flyer.get_instance_id()
+	var flyer_phase: float = flyer.flight_clock
+	var flyer_position: Vector2 = flyer.position
+	var laser_sources := get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "laser")
+	var source = laser_sources[0]
+	source.position = Vector2(boundary + 300, floor_y - T.ENEMY_SIZE.y / 2)
+	var warning = game.spawn_laser(source)
+	var active = game.spawn_laser(source)
+	# Aim away from the traversal player to observe persistence without changing HP/gauge.
+	for beam in [warning, active]:
+		beam.build_curve(Vector2(boundary + 328, floor_y - 26), Vector2(boundary + 560, floor_y - 180), 1)
+		beam.clip_path()
+	active.fire()
+	var warning_id: int = warning.get_instance_id()
+	var active_id: int = active.get_instance_id()
+	var fixed_curve: PackedVector2Array = warning.curve.duplicate()
+	var bomb = game.spawn_bomb_warning(source)
+	bomb.target = Vector2(boundary + 600, floor_y)
+	bomb.fire()
+	var bomb_id: int = bomb.get_instance_id()
+	var bomb_position: Vector2 = bomb.position
 	game.show_damage(game.player.position - Vector2(0, 60), 1)
 	var sequence: int = game.effects.damage_sequence
 	var previous_player: Vector2 = game.player.position
@@ -101,6 +142,12 @@ func cross_region(boundary: float) -> void:
 	check(is_instance_valid(bullet) and bullet.get_instance_id() == bullet_id and bullet.life < T.BULLET_LIFETIME and bullet.position.x > boundary, context + ": an actual projectile keeps flying across the boundary")
 	check(witness.get_instance_id() == witness_id and witness.position == witness_position and witness.hp == 1 and witness.gauge == 3, context + ": existing enemy identity, health and gauge persist")
 	check(witness.action == "windup_special" and is_equal_approx(witness.action_remaining, 0.4), context + ": crossing does not reset enemy windups")
+	check(flyer.get_instance_id() == flyer_id and flyer.hp == 1 and flyer.gauge == 3 and flyer.flight_clock > flyer_phase and flyer.position != flyer_position, context + ": live flyer preserves HP, gauge and flight phase while moving")
+	check(is_instance_valid(warning) and warning.get_instance_id() == warning_id and warning.phase == "warning" and warning.elapsed > 0 and warning.curve == fixed_curve, context + ": laser warning persists with fixed curve")
+	check(is_instance_valid(active) and active.get_instance_id() == active_id and active.phase == "beam" and active.remaining < T.LASER_DURATION, context + ": irradiation persists and advances without reset")
+	check(terrain.destroyed_cells == damaged and damaged.keys().all(func(cell): return not terrain.occupied.has(cell)), context + ": destroyed terrain remains destroyed")
+	check(terrain.walls.has(wall_id) and terrain.walls[wall_id].cells == wall_cells and terrain.walls[wall_id].remaining < wall_remaining, context + ": wall and remaining lifetime persist")
+	check(is_instance_valid(bomb) and bomb.get_instance_id() == bomb_id and bomb.phase == "flight" and bomb.position != bomb_position, context + ": bomb keeps flying without reinitialization")
 	check(game.effects.damage_sequence == sequence and not game.effects.damage_numbers.is_empty(), context + ": crossing does not clear damage effects")
 	check(game.player.hp == 88 and game.player.gauge == 5 and game.score == 200, context + ": player state and score persist")
 	check(max_player_step < 24 and max_camera_step < 24, context + ": movement and camera never teleport")

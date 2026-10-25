@@ -4,6 +4,8 @@ const Generator := preload("res://scripts/stage_generator.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Bullet := preload("res://scripts/projectile.gd")
+const LaserBeam := preload("res://scripts/laser_beam.gd")
+const Bomb := preload("res://scripts/bomb.gd")
 const WorldTerrain := preload("res://scripts/world_terrain.gd")
 const WorldBackdrop := preload("res://scripts/world_backdrop.gd")
 const Effects := preload("res://scripts/effects.gd")
@@ -20,6 +22,7 @@ var total_enemies := 0
 var player: CharacterBody2D
 var boss: CharacterBody2D
 var world: Node2D
+var terrain: Node2D
 var projectiles: Node2D
 var effects: Node2D
 var camera: Camera2D
@@ -73,7 +76,7 @@ func start_run(stage_seed: int) -> void:
 	var background := WorldBackdrop.new()
 	background.stage = stage
 	world.add_child(background)
-	var terrain := WorldTerrain.new()
+	terrain = WorldTerrain.new()
 	terrain.stage = stage
 	world.add_child(terrain)
 	for spawn: Dictionary in stage.spawns:
@@ -223,6 +226,25 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 	projectiles.add_child(bullet)
 	return bullet
 
+func spawn_laser(actor: CharacterBody2D) -> Node2D:
+	var beam := LaserBeam.new()
+	beam.game = self
+	beam.source = actor
+	beam.polarity = actor.polarity
+	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
+	projectiles.add_child(beam)
+	beam.clip_path()
+	return beam
+
+func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
+	var bomb := Bomb.new()
+	bomb.game = self
+	bomb.source = actor
+	bomb.polarity = actor.polarity
+	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
+	projectiles.add_child(bomb)
+	return bomb
+
 func fire_special(actor: CharacterBody2D, amount: int) -> void:
 	if amount <= 0:
 		return
@@ -249,6 +271,8 @@ func show_damage(at: Vector2, amount: int) -> void:
 		effects.show_damage(at, amount)
 
 func actor_defeated(actor: CharacterBody2D) -> void:
+	if actor.has_method("cancel_attack"):
+		actor.cancel_attack()
 	if actor.get_parent() != world:
 		return
 	if actor.faction == 0:
