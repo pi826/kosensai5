@@ -38,7 +38,7 @@ func _physics_process(delta: float) -> void:
 			hit.collider.receive_hit(polarity, damage)
 		else:
 			if faction == 0 and is_instance_valid(game.terrain):
-				game.terrain.damage_at(hit.position + direction * 0.5, damage)
+				game.terrain.damage_at(hit.position + direction * 0.5, damage, true)
 			game.effect(hit.position, T.COLORS[polarity].darkened(0.3), "hit")
 		queue_free()
 		return

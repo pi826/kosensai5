@@ -20,6 +20,9 @@ static func world_data(local: Dictionary) -> Dictionary:
 		data.spawns[i].patrol = local.spawns[i].patrol + Vector2.ONE * offset.x
 		data.spawns[i].sector = local.coord
 	data.navigation_bounds = [data.bounds]
+	for h: Dictionary in data.hearts:
+		h.id = "%d,%d:%s" % [local.coord.x, local.coord.y, h.id]
+		h.sector = local.coord
 	return data
 
 static func _translate(value, offset: Vector2):

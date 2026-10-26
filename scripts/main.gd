@@ -107,6 +107,7 @@ func start_run(stage_seed: int) -> void:
 	terrain = WorldTerrain.new()
 	terrain.stage = stage
 	world.add_child(terrain)
+	terrain.block_removed.connect(_block_removed)
 	projectiles = Node2D.new()
 	projectiles.name = "Projectiles"
 	world.add_child(projectiles)
@@ -170,6 +171,7 @@ func _physics_process(delta: float) -> void:
 				return
 		elapsed += delta
 		_update_camera(delta)
+		if streaming_enabled: stream.update_rewards()
 		_update_exploration()
 		_update_lock_marks()
 		ui.update_hud()
@@ -282,14 +284,8 @@ func lock_on_targets() -> Array:
 	if not is_instance_valid(player) or player.dead:
 		return marked
 	var candidates := targets_for(0, player.polarity, player.global_position)
-	for index in range(mini(player.gauge, candidates.size())):
+	for index in range(mini(T.HOMING_VOLLEY_SIZE if player.homing_charges > 0 else 0, candidates.size())):
 		marked.append(candidates[index])
-	for missile in projectiles.get_children():
-		if not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion():
-			continue
-		var target: Node2D = missile.target
-		if is_instance_valid(target) and not target.dead and not target.is_queued_for_deletion() and not marked.has(target):
-			marked.append(target)
 	return marked
 
 func _update_lock_marks() -> void:
@@ -371,6 +367,10 @@ func show_damage(at: Vector2, amount: int) -> void:
 		at.x = clampf(at.x, view.position.x + 32, view.end.x - 32)
 		effects.show_damage(at, amount)
 
+func _block_removed(bounds: Rect2, player_attack: bool) -> void:
+	if stream != null: stream.remember_block(bounds)
+	if player_attack and is_instance_valid(player): player.heal(T.BLOCK_HEAL)
+
 func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.has_method("cancel_attack"):
 		actor.cancel_attack()
@@ -384,6 +384,9 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if defeated_enemies.has(actor.spawn_id):
 		return
 	defeated_enemies[actor.spawn_id] = true
+	if is_instance_valid(player) and not player.dead:
+		player.add_homing_charges(T.BOSS_CHARGE_REWARD if actor.kind == "boss" else T.ENEMY_CHARGE_REWARD)
+	if stream != null and actor.kind != "boss": stream.remember_enemy(actor)
 	effect(actor.position, T.COLORS[actor.polarity], "defeat")
 	if actor.kind == "boss":
 		if defeated_bosses.has(actor.boss_id):

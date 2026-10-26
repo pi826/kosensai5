@@ -1,4 +1,5 @@
 extends Node2D
+signal block_removed(bounds: Rect2, player_attack: bool)
 ## One collision world. Rendering is split into spatial batches for canvas culling.
 
 const T := preload("res://scripts/tuning.gd")
@@ -205,22 +206,24 @@ func explode(center: Vector2, radius: float = T.BOMB_RADIUS) -> Array[Vector2i]:
 	_changed(removed_walls, T.WALL_LAYER)
 	return removed
 
-func _remove_block(id: int, removed: Array[Vector2i]) -> void:
+func _remove_block(id: int, removed: Array[Vector2i], player_attack: bool = false) -> void:
+	var bounds: Rect2 = breakables[id].bounds
 	for cell: Vector2i in breakables[id].cells:
 		occupied.erase(cell)
 		block_cells.erase(cell)
 		_set_row_cell(cell, 1, false)
 		removed.append(cell)
 	breakables.erase(id)
+	block_removed.emit(bounds, player_attack)
 
-func damage_at(point: Vector2, damage: int) -> bool:
+func damage_at(point: Vector2, damage: int, player_attack: bool = false) -> bool:
 	var cell := Vector2i(floori(point.x / TILE_SIZE), floori(point.y / TILE_SIZE))
 	if block_cells.has(cell):
 		var id: int = block_cells[cell]
 		breakables[id].hp -= damage
 		if breakables[id].hp <= 0:
 			var removed: Array[Vector2i] = []
-			_remove_block(id, removed)
+			_remove_block(id, removed, player_attack)
 			_changed(removed, 1)
 		return true
 	if wall_cells.has(cell):

@@ -9,6 +9,28 @@ var aim_index := 0
 var drop_remaining := 0.0
 var drop_clear_y := 0.0
 var contact_query := PhysicsShapeQueryParameters2D.new()
+var homing_charges := 0
+
+func _absorb_attack() -> void:
+	gauge = mini(T.ABSORPTIONS_PER_CHARGE, gauge + 1)
+	if gauge == T.ABSORPTIONS_PER_CHARGE and homing_charges < T.HOMING_CHARGE_CAPACITY:
+		gauge = 0
+		add_homing_charges(1)
+
+func add_homing_charges(amount: int) -> int:
+	if dead or amount <= 0: return 0
+	var before := homing_charges
+	homing_charges = mini(T.HOMING_CHARGE_CAPACITY, homing_charges + amount)
+	var gained := homing_charges - before
+	if gained > 0 and is_instance_valid(game) and is_instance_valid(game.effects):
+		game.effects.show_charge(global_position, gained)
+	return gained
+
+func launch_homing() -> bool:
+	if dead or homing_charges <= 0: return false
+	homing_charges -= 1
+	game.fire_special(self, T.HOMING_VOLLEY_SIZE)
+	return true
 
 func _ready() -> void:
 	super._ready()
@@ -121,8 +143,8 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
 		game.spawn_bullet(self, shot_direction())
 		shot_cooldown = T.SHOT_INTERVAL
-	if pending_special and gauge > 0:
-		game.fire_special(self, take_gauge())
+	if pending_special:
+		launch_homing()
 	pending_special = false
 
 func _try_drop_through() -> bool:

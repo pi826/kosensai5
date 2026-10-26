@@ -81,7 +81,8 @@ func horizontal(gate: Dictionary):
 	for direction in [1,-1]:
 		await setup(Vector2(x-direction*96,floor_y-22))
 		game.player.hp=88
-		game.player.gauge=5
+		game.player.gauge=3
+		game.player.homing_charges=T.HOMING_CHARGE_CAPACITY
 		game.score=200
 		var world_id: int=game.world.get_instance_id()
 		var player_id: int=game.player.get_instance_id()
@@ -110,7 +111,7 @@ func horizontal(gate: Dictionary):
 		check((game.player.position.x-x)*direction>64,"real walking crosses gate in both directions")
 		check(max_height_error<0.2 and absf(seam_speed-T.MOVE_SPEED)<0.1,"no floor gap height step or horizontal velocity loss at seam")
 		check(game.world.get_instance_id()==world_id and game.player.get_instance_id()==player_id and game.terrain.get_instance_id()==terrain_id,"seam never replaces world player or terrain")
-		check(is_instance_id_valid(witness_id) and witness.hp==1 and witness.gauge==3 and game.player.hp==88 and game.player.gauge==5 and game.score==200,"crossing preserves combat state")
+		check(is_instance_id_valid(witness_id) and witness.hp==1 and witness.gauge==3 and game.player.hp==88 and game.player.gauge==3 and game.player.homing_charges==T.HOMING_CHARGE_CAPACITY and game.score==200,"crossing preserves HP absorption meter homing stocks and enemy combat state")
 		if not continuity.is_empty():
 			check(game.terrain.destroyed_cells==continuity.destroyed,"seam preserves destroyed floor cells")
 			check(game.terrain.walls.has(continuity.wall) and game.terrain.walls[continuity.wall].remaining<continuity.wall_remaining,"seam preserves installed wall and its lifetime")

@@ -7,7 +7,12 @@ var damage_numbers: Array = []
 var damage_sequence := 0
 var health_display: Node2D
 var player_hp_numbers: Array = []
+var charge_numbers: Array = []
 const DAMAGE_LIFETIME := 0.8
+
+func show_charge(at: Vector2, amount: int) -> void:
+	charge_numbers.append({"at": at + Vector2(24, -68), "text": "誘導弾 +%d" % amount, "age": 0.0})
+	if charge_numbers.size() > 32: charge_numbers.pop_front()
 
 func emit(at: Vector2, tint: Color, kind: String) -> void:
 	bursts.append({"at": at, "color": tint, "kind": kind, "age": 0.0})
@@ -38,6 +43,8 @@ func show_player_health(actor: CharacterBody2D, before: int, after: int) -> void
 		player_hp_numbers.pop_front()
 
 func _process(delta: float) -> void:
+	for number: Dictionary in charge_numbers: number.age += delta
+	charge_numbers = charge_numbers.filter(func(n): return n.age < T.PLAYER_HP_NUMBER_TIME)
 	for burst: Dictionary in bursts:
 		burst.age += delta
 	bursts = bursts.filter(func(b): return b.age < 0.45)
@@ -70,6 +77,11 @@ func _draw() -> void:
 				var direction := Vector2.from_angle(i * TAU / 8)
 				draw_line(burst.at + direction * radius * 0.55, burst.at + direction * radius, tint, 3, true)
 	var font := ThemeDB.fallback_font
+	for number: Dictionary in charge_numbers:
+		var at: Vector2 = number.at + Vector2(0, -number.age * 36)
+		var tint := Color(1, 1, 1, clampf((1.0 - number.age) / 0.35, 0, 1))
+		draw_string_outline(font, at, number.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 4, Color("07111d"))
+		draw_string(font, at, number.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, tint)
 	for number: Dictionary in player_hp_numbers:
 		var at: Vector2 = number.at + Vector2(0, -number.age * T.PLAYER_HP_NUMBER_RISE)
 		var alpha := clampf((T.PLAYER_HP_NUMBER_TIME - float(number.age)) / T.PLAYER_HP_FADE_TIME, 0.0, 1.0)

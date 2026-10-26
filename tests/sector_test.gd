@@ -10,7 +10,7 @@ var fallback_count := 0
 var seed_first := 0
 var seed_count := 200
 var merge_batches := false
-var stats := {"chambers": {}, "heights": {}, "enemies": {}, "blocks": {}, "kinds": {}, "regions": {}, "same_region": 0, "adjacent": 0, "generated": 0, "forced_fallbacks": 0}
+var stats := {"chambers": {}, "heights": {}, "enemies": {}, "blocks": {}, "hearts": {}, "kinds": {}, "regions": {}, "same_region": 0, "adjacent": 0, "generated": 0, "forced_fallbacks": 0}
 var diversity := {"room_pairs": {}, "shaft_x": {}, "horizontal_floors": {}, "vertical_x": {}, "horizontal_count": {}, "vertical_count": {}, "gate_heights": {}, "connections": {}, "cycles": {}, "steps": {}, "protrusions": {}, "stalactites": {}, "shelves": {}, "enemies": {}, "blocks": {}}
 
 func _initialize():
@@ -61,6 +61,7 @@ func record_diversity(s: Dictionary):
 func measured(seed_value: int, at: Vector2i) -> Dictionary:
 	var begin := Time.get_ticks_usec()
 	var s := S.generate(seed_value, at)
+	check(S.heart_errors(s).is_empty(), "heart sites exclude rock blocks and enemy patrol/flight areas")
 	timings.append((Time.get_ticks_usec() - begin) / 1000.0)
 	fallback_count += int(s.fallback)
 	stats.generated += 1
@@ -71,6 +72,7 @@ func measured(seed_value: int, at: Vector2i) -> Dictionary:
 	check(heights.size() >= 4, "at least four chamber floor levels: seed=%d coord=%s fallback=%s" % [seed_value, at, s.fallback])
 	record_diversity(s)
 	histogram("blocks", s.breakables.size())
+	histogram("hearts", s.hearts.size())
 	var normals := 0
 	for e: Dictionary in s.spawns:
 		if e.kind == "boss": continue
@@ -168,6 +170,9 @@ func run():
 	# Corruption tests verify rejection, not merely agreement with generator metadata.
 	var original := S.generate(37, Vector2i.ZERO)
 	var bad := original.duplicate(true)
+	bad.hearts = [{"id": "invalid", "position": T.SECTOR_START}]
+	check(not S.validate(bad).is_empty(), "reject heart in start chamber")
+	bad = original.duplicate(true)
 	bad.solids.append(Rect2(768, 448, 128, 16))
 	check(not S.validate(bad).is_empty(), "reject unreachable platform")
 	bad = original.duplicate(true)
@@ -223,7 +228,7 @@ func run_merge():
 		check(int(report.seed_first) == first and int(report.seed_count) == 25, "disjoint complete seed batch")
 		timings.append_array(report.timings_ms)
 		fallback_count += int(report.fallback_count)
-		for field: String in ["chambers", "heights", "enemies", "blocks", "kinds"]:
+		for field: String in ["chambers", "heights", "enemies", "blocks", "hearts", "kinds"]:
 			for value: String in report.statistics[field]: stats[field][value] = stats[field].get(value, 0) + int(report.statistics[field][value])
 		for region: String in report.statistics.regions: stats.regions[region] = true
 		for field: String in ["same_region", "adjacent", "generated", "forced_fallbacks"]: stats[field] += int(report.statistics[field])
@@ -272,6 +277,9 @@ func overview(seed_value: int):
 	check(loaded != null and loaded.get_size() == size, "overview dimensions %d" % seed_value)
 
 func verify_diversity():
+	var heart_count := 0
+	for count in stats.hearts: heart_count += int(count) * int(stats.hearts[count])
+	check(stats.hearts.size() == 3 and float(heart_count) / stats.generated > 0.8 and float(heart_count) / stats.generated < 1.2, "0..2 hearts with average near one per sector")
 	check(stats.chambers.size() >= 3, "at least three chamber counts")
 	var maximum: int = diversity.room_pairs.values().max()
 	check(maximum <= stats.generated * 0.05, "no room x/floor pair in more than 5% of sectors")

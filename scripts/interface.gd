@@ -72,7 +72,7 @@ func _ready() -> void:
 	place(gauge_label, Vector2(522, 26), Vector2(320, 28))
 	hud.add_child(gauge_label)
 	gauge_bar = ProgressBar.new()
-	gauge_bar.max_value = T.GAUGE_CAPACITY
+	gauge_bar.max_value = T.ABSORPTIONS_PER_CHARGE
 	gauge_bar.show_percentage = false
 	gauge_bar.add_theme_stylebox_override("background", panel_style(Color("1c3547")))
 	gauge_bar.add_theme_stylebox_override("fill", panel_style(Color.WHITE))
@@ -187,11 +187,11 @@ func _ready() -> void:
 
 func refresh_bindings() -> void:
 	var keys: RefCounted = game.key_bindings
-	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 射撃方向（前→上→下）   %s 誘導弾   %s 調べる   %s 一時停止" % [
+	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 射撃方向（前→上→下）   %s 誘導弾（1回消費）   %s 調べる   %s 一時停止" % [
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
-	hint_label.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 複数の敵へ誘導弾" % [
+	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
 
@@ -210,7 +210,8 @@ func update_hud() -> void:
 	var charge: int = game.player.gauge if live else 0
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]
-	gauge_label.text = "%s  誘導弾  %d / %d" % [game.key_bindings.get_binding_text("special"), charge, T.GAUGE_CAPACITY]
+	var stocks: int = game.player.homing_charges if live else 0
+	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(T.HOMING_CHARGE_CAPACITY - stocks), charge, T.ABSORPTIONS_PER_CHARGE]
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
 	if game.stage.is_empty():
 		return
@@ -244,7 +245,7 @@ func show_menu(next_state: String) -> void:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
 			menu_subtitle.text = "3地域を探索し、3体のガーディアンを倒す。"
-			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n開けた洞窟を通路と縦穴で探索。\n倒れたら全リセット。目標プレイ時間 5〜10分。"
+			menu_detail.text = "敵と違う色で攻撃。撃破・同色吸収で誘導弾を最大%d回。\nハートと箱で回復。敵・箱・ハートは視界外で復活。\n倒れたら全リセット。目標プレイ時間 5〜10分。" % T.HOMING_CHARGE_CAPACITY
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":

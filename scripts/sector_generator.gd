@@ -402,8 +402,53 @@ static func _finish(s: Dictionary, rng) -> Dictionary:
 	# Match block_is_valid's enemy margin, including the full patrol body.
 	placement.solids = s.solids + s.breakables.map(func(r): return Rect2(r.position - Vector2(32, 0), r.size + Vector2(64, 0)))
 	G._populate(placement, rng, {"nodes": supports}, T.SECTOR_NORMAL_COUNT, T.CAVE_SAFE_RADIUS if s.coord == Vector2i.ZERO else 0.0)
+	_place_hearts(s, graphs[0] if not graphs.is_empty() else G.navigation_graph(terrain))
 	if not s.fallback: s._graphs = graphs
 	return s
+
+static func enemy_spawn_area(e: Dictionary) -> Rect2:
+	var size: Vector2 = T.BOSS_SIZE if e.kind == "boss" else T.ENEMY_SIZE
+	var bob: float = T.FLYER_BOB_AMPLITUDE if e.kind == "flyer" else 0.0
+	return Rect2(Vector2(e.patrol.x - size.x / 2, e.position.y - size.y / 2 - bob), Vector2(e.patrol.y - e.patrol.x + size.x, size.y + 2 * bob))
+
+static func heart_site_valid(s: Dictionary, point: Vector2) -> bool:
+	var standing := Rect2(point - T.PLAYER_SIZE / 2, T.PLAYER_SIZE)
+	if not s.chambers.any(func(room): return room.kind == "normal" and room.rect.encloses(standing)): return false
+	if not G._supported(point, T.PLAYER_SIZE, s.solids) or G._embedded(point, T.PLAYER_SIZE, s.solids + s.breakables): return false
+	if s.breakables.any(func(r): return r.grow(4).intersects(standing)): return false
+	if s.spawns.any(func(e): return enemy_spawn_area(e).grow(8).intersects(standing)): return false
+	return true
+
+static func _place_hearts(s: Dictionary, graph: Dictionary) -> void:
+	s.hearts = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _key(s.seed, s.coord, "hearts")
+	var wanted := rng.randi_range(T.SECTOR_HEART_MIN, T.SECTOR_HEART_MAX)
+	var candidates: Array[Vector2] = []
+	for surface: Rect2 in graph.nodes:
+		for x in range(ceili(surface.position.x / 32) * 32 + 16, int(surface.end.x) - 16, 32):
+			var point := Vector2(x, surface.position.y - T.PLAYER_SIZE.y / 2)
+			if heart_site_valid(s, point): candidates.append(point)
+	G._shuffle(candidates, rng)
+	for point: Vector2 in candidates:
+		if s.hearts.size() >= wanted: break
+		if s.hearts.any(func(h): return h.position.distance_to(point) < 128): continue
+		s.hearts.append({"id": "heart_%d" % s.hearts.size(), "position": point})
+
+static func heart_errors(s: Dictionary, graph: Dictionary = {}) -> Array[String]:
+	var errors: Array[String] = []
+	if not s.has("hearts") or not s.hearts is Array: return ["Missing hearts"]
+	if s.hearts.size() > T.SECTOR_HEART_MAX: errors.append("Heart count")
+	var ids := {}
+	for h: Dictionary in s.hearts:
+		if not h.has("id") or not h.has("position") or not h.position is Vector2:
+			errors.append("Heart data")
+			continue
+		if ids.has(h.id): errors.append("Duplicate heart ID")
+		ids[h.id] = true
+		if not heart_site_valid(s, h.position): errors.append("Heart placement")
+		if not graph.is_empty() and G.node_at(graph, h.position) < 0 and G.node_at(graph, h.position + Vector2(0, T.SURFACE_DEPTH)) < 0: errors.append("Heart unreachable")
+	return errors
 
 # A deterministic emergency layout: two ladder rails and isolated room floors.
 # Arbitrary canonical gates join the rails, not a selected floor band.
@@ -560,6 +605,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		errors.append_array(G.connectivity_errors(s, damaged, graph))
 		for point: Vector2 in gate_positions(s):
 			if G.node_at(graph, point) < 0: errors.append("Gate standing point")
+		errors.append_array(heart_errors(s, graph))
 	var kinds := {}
 	var rooms := {}
 	var ids := {}

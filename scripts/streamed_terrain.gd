@@ -111,6 +111,21 @@ func snapshot(at: Vector2i) -> Dictionary:
 		if breakables.has(id): saved.blocks[breakables[id].bounds.position] = breakables[id].hp
 	return saved
 
+func restore_block(at: Vector2i, rect: Rect2) -> void:
+	var id := next_block_id
+	next_block_id += 1
+	var cells := Job.cells(rect)
+	breakables[id] = {"bounds": rect, "cells": cells, "hp": T.TERRAIN_HP}
+	sectors[at].blocks.append(id)
+	for cell: Vector2i in cells:
+		occupied[cell] = true
+		if not sectors[at].cells.has(cell): sectors[at].cells.append(cell)
+		block_cells[cell] = id
+		_set_row_cell(cell, 1, true)
+		var chunk := _chunk(_chunk_key(cell))
+		if not chunk.cells.has(cell): chunk.cells.append(cell)
+	_changed(cells, 1)
+
 func unload(at: Vector2i) -> void:
 	var sector: Dictionary = sectors[at]
 	var rows := {}

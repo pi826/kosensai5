@@ -132,11 +132,11 @@ func run() -> void:
 	await frames(2)
 	Input.action_release("special")
 	check(game.projectiles.get_child_count() == 0, "empty gauge produces no special")
-	game.player.gauge = 3
+	game.player.homing_charges = 3
 	tap("special")
 	await frames(2)
 	Input.action_release("special")
-	check(game.player.gauge == 0 and game.projectiles.get_child_count() == 3, "partial gauge fires exactly stored number")
+	check(game.player.homing_charges == 2 and game.projectiles.get_child_count() == T.HOMING_VOLLEY_SIZE, "one stock fires one fixed-size volley")
 	clear_bullets()
 	var second = fixture_enemies[1]
 	var third = fixture_enemies[2]
@@ -191,6 +191,7 @@ func run() -> void:
 	enemy.shot_clock = 10
 	enemy.set_physics_process(true)
 	game.player.gauge = 0
+	game.player.homing_charges = 0
 	await frames(1)
 	check(enemy.action == "windup_special", "full enemy gauge starts special warning")
 	await frames(25)
@@ -199,7 +200,7 @@ func run() -> void:
 	check(enemy.gauge == 0 and game.projectiles.get_child_count() == 8, "enemy expends full gauge on eight homing shots")
 	enemy.set_physics_process(false)
 	await frames(160)
-	check(game.player.gauge > 0 and game.player.hp == T.PLAYER_HP, "enemy homing special can be absorbed and recycled")
+	check((game.player.gauge > 0 or game.player.homing_charges > 0) and game.player.hp == T.PLAYER_HP, "enemy homing special can be absorbed and recycled")
 	check(game.score == 0, "charge loop cannot farm score")
 	clear_bullets()
 	enemy.receive_hit(1 - enemy.polarity, 100)
@@ -414,7 +415,7 @@ func verify_aim_controls() -> void:
 	await frames(3)
 	game.primary_action()
 	check(game.player.aim_angle() == 0, "death retry resets elevation")
-	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with(";"), "HUD help and gauge use the new controls")
+	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with("誘導弾"), "HUD help and stock use the new controls")
 
 func verify_platform_attacks() -> void:
 	for use_world in [false, true]:
@@ -477,51 +478,52 @@ func verify_multi_lock() -> void:
 		enemies[index].polarity = 1
 		enemies[index].hp = 100
 	game.player.polarity = 0
-	for amount in [0, 1, 2, 3, 5, 8]:
-		game.player.gauge = amount
+	for amount in [0, 1, 2, 3, 4, 5]:
+		game.player.homing_charges = amount
 		game._update_lock_marks()
 		var marked: Array = game.lock_on_targets()
-		check(marked.size() == mini(amount, 3), "preview mark count equals min(gauge=%d, candidates=3)" % amount)
+		var expected := 3 if amount > 0 else 0
+		check(marked.size() == expected, "preview shows the next volley for stock=%d" % amount)
 		check(enemies.filter(func(actor): return actor.lock_marked).size() == marked.size(), "actual drawn mark flags match the preview")
-		check(marked == enemies.slice(0, mini(amount, 3)), "preview follows distance priority")
-	game.player.gauge = 5
+		check(marked == enemies.slice(0, expected), "preview follows distance priority")
+	game.player.homing_charges = 1
 	action_tap("special")
 	await frames(1)
-	check(game.player.gauge == 0 and game.projectiles.get_child_count() == 5, "five charges fire exactly five homing missiles")
+	check(game.player.homing_charges == 0 and game.projectiles.get_child_count() == T.HOMING_VOLLEY_SIZE, "one stock fires four missiles")
 	var counts := [0, 0, 0]
 	for missile in game.projectiles.get_children():
 		var index := enemies.find(missile.target)
 		check(index >= 0, "each missile selects a visible opposite enemy")
 		if index >= 0:
 			counts[index] += 1
-	check(counts == [2, 2, 1], "five missiles cover three enemies with assignment difference at most one")
+	check(counts == [2, 1, 1], "four missiles cover three enemies with assignment difference at most one")
 	game._update_lock_marks()
-	check(game.lock_on_targets().size() == 3 and enemies.all(func(actor): return actor.lock_marked), "in-flight missiles keep marks after the gauge is spent")
-	# All missiles at enemy 0 must rebalance using current live counts (2 and 1).
+	check(game.lock_on_targets().is_empty() and enemies.all(func(actor): return not actor.lock_marked), "preview clears when no next volley is available")
+	# All missiles at enemy 0 rebalance using the current live counts.
 	enemies[0].dead = true
 	var first_missile = game.projectiles.get_child(0)
 	await frames(1)
-	check(first_missile.target == enemies[2], "defeated target reacquires the least-targeted live enemy")
+	check(first_missile.target == enemies[1], "defeated target reacquires the least-targeted live enemy with distance tie break")
 	counts = [0, 0, 0]
 	for missile in game.projectiles.get_children():
 		var index := enemies.find(missile.target)
 		if index >= 0:
 			counts[index] += 1
-	check(counts == [0, 3, 2], "simultaneous retargets update counts and break ties by distance")
+	check(counts == [0, 2, 2], "simultaneous retargets update counts and break ties by distance")
 	enemies[0].dead = false
 	clear_bullets()
 	game._update_lock_marks()
 	check(game.lock_on_targets().is_empty() and enemies.all(func(actor): return not actor.lock_marked), "marks clear after missiles disappear with empty gauge")
 	enemies[2].polarity = 0
-	game.player.gauge = 5
+	game.player.homing_charges = 1
 	check(game.lock_on_targets() == enemies.slice(0, 2), "same-color enemy is excluded from preview when opposites exist")
-	game.fire_special(game.player, game.player.take_gauge())
+	game.player.launch_homing()
 	check(game.projectiles.get_children().all(func(missile): return missile.target != enemies[2]), "two opposites and one same-color enemy never assign to the same-color enemy")
 	clear_bullets()
 	for enemy in enemies:
 		enemy.polarity = 0
-	game.player.gauge = 2
-	check(game.lock_on_targets() == enemies.slice(0, 2), "same-color candidates are available when no opposites exist")
+	game.player.homing_charges = 2
+	check(game.lock_on_targets() == enemies.slice(0, 3), "same-color candidates are available when no opposites exist")
 	enemies[0].dead = true
 	enemies[1].position.x += 3000
 	check(game.lock_on_targets() == [enemies[2]], "dead and offscreen enemies are excluded")

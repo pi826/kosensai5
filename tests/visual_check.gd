@@ -2,36 +2,103 @@ extends SceneTree
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
+const Enemy := preload("res://scripts/enemy.gd")
 const Support := preload("res://tests/stream_test_support.gd")
-const OUTPUT := "res://builds/qa/streaming/"
+const OUTPUT := "res://builds/qa/rewards/"
 var game: Node2D
 var failures := 0
-func _initialize(): call_deferred("run")
+var captures := 0
+var output := OUTPUT
+func _initialize():
+	if OS.get_cmdline_user_args().has("--streaming"):
+		output = "res://builds/qa/streaming/"
+		call_deferred("run_streaming")
+	else: call_deferred("run")
 func frames(n: int):
 	for i in range(n):
 		await physics_frame
 		await process_frame
 func capture(name: String):
+	game.ui.update_hud()
+	await frames(2)
 	await RenderingServer.frame_post_draw
-	var code := root.get_texture().get_image().save_png(OUTPUT + name + ".png")
+	var code := root.get_texture().get_image().save_png(output + name + ".png")
+	captures += 1
 	if code != OK:
 		failures += 1
-		printerr("CAPTURE FAILED ",name)
+		printerr("CAPTURE FAILED ", name)
 	else: print("CAPTURE ", name)
 func show(point: Vector2):
-	if not await Support.ready(self,game,point):
+	if not await Support.ready(self, game, point):
 		failures += 1
 		return
 	game.player.position = point
 	game.player.velocity = Vector2.ZERO
-	game._update_camera(0,true)
+	game._update_camera(0, true)
 	game._update_exploration()
 	game.ui.update_hud()
-	await frames(4)
+	await frames(3)
 func run():
 	DirAccess.make_dir_recursive_absolute(OUTPUT)
 	game = Main.new()
 	game.controls_path = OUTPUT + "visual_controls.cfg"
+	root.add_child(game)
+	game.start_run(37)
+	var h = get_nodes_in_group("hearts").filter(func(n): return n.get_parent() == game.world)[0]
+	await show(h.position - Vector2(96, 0))
+	await capture("heart")
+	game.player.hp = 50
+	game.player.position = h.position
+	h.try_collect()
+	await capture("heart_heal")
+	var rect: Rect2 = game.stream.loaded[Vector2i.ZERO].breakables[0]
+	await show(rect.get_center() - Vector2(64, 6))
+	game.player.hp = 50
+	var bullet = game.spawn_bullet(game.player, Vector2.RIGHT, true)
+	bullet.position = rect.get_center() - Vector2(40, 0)
+	await frames(8)
+	if game.player.hp != 56: failures += 1
+	await capture("box_heal")
+	game.player.homing_charges = 3
+	game.player.gauge = 2
+	game.elapsed = 9.0
+	await capture("stocks_absorption")
+	var target = get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss" and not e.dead)[0]
+	await show(target.position - Vector2(100, 0))
+	game.player.homing_charges = 1
+	target.receive_hit(1 - target.polarity, T.ENEMY_HP)
+	await capture("defeat_stock")
+	game.start_run(37)
+	var room: Dictionary = game.stream.loaded[Vector2i.ZERO].chambers.filter(func(r): return r.kind == "start")[0]
+	await show(Vector2(room.rect.position.x + 160, room.rect.end.y - 22))
+	game.elapsed = 9.0
+	game.player.polarity = 0
+	game.player.homing_charges = 3
+	game.player.gauge = 2
+	for i in range(4):
+		var e := Enemy.new()
+		e.game = game
+		e.polarity = 1
+		e.kind = "flyer"
+		e.position = game.player.position + Vector2(280 + i * 40, -i * 120)
+		e.patrol = Vector2(e.position.x, e.position.x)
+		game.world.add_child(e)
+		e.set_physics_process(false)
+	game._update_lock_marks()
+	game.player.launch_homing()
+	await frames(8)
+	if game.projectiles.get_child_count() != T.HOMING_VOLLEY_SIZE or game.player.homing_charges != 2: failures += 1
+	await capture("volley")
+	FileAccess.open(OUTPUT + "visual_results.json", FileAccess.WRITE).store_string(JSON.stringify({"captures": captures, "failures": failures, "renderer": RenderingServer.get_video_adapter_name()}, "\t"))
+	game.free()
+	print("VISUAL CHECK: ", captures, " captures, ", failures, " failures")
+	quit(0 if failures == 0 else 1)
+
+# Keep the Task 5B streaming captures available with -- --streaming.
+func run_streaming():
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
 	root.add_child(game)
 	game.start_run(37)
 	await show(T.SECTOR_START)
@@ -74,7 +141,7 @@ func run():
 	game.show_menu("won")
 	await frames(3)
 	await capture("result")
-	FileAccess.open(OUTPUT+"visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":8,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
+	FileAccess.open(output+"visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":8,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
 	game.free()
 	print("VISUAL CHECK: 8 captures, ", failures, " failures")
 	quit(0 if failures==0 else 1)

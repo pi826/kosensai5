@@ -44,7 +44,7 @@ func receive_hit(attack_color: int, damage: int) -> String:
 	if dead:
 		return "dead"
 	if attack_color == polarity:
-		gauge = mini(T.GAUGE_CAPACITY, gauge + 1)
+		_absorb_attack()
 		absorb_flash = 0.28
 		if is_instance_valid(game):
 			game.effect(global_position, T.COLORS[polarity], "absorb")
@@ -73,6 +73,9 @@ func receive_hit(attack_color: int, damage: int) -> String:
 
 func _hp_changed(_previous_hp: int) -> void:
 	pass
+
+func _absorb_attack() -> void:
+	gauge = mini(T.GAUGE_CAPACITY, gauge + 1)
 
 func take_gauge() -> int:
 	var amount := gauge
