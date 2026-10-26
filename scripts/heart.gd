@@ -14,7 +14,7 @@ func try_collect() -> bool:
 	var player_rect := Rect2(game.player.position - game.player.body_size / 2, game.player.body_size)
 	if not player_rect.intersects(Rect2(position - T.HEART_SIZE / 2, T.HEART_SIZE)): return false
 	if game.player.heal(T.HEART_HEAL) <= 0: return false
-	game.stream.remember_heart(spawn)
+	if game.stream != null: game.stream.remember_heart(spawn)
 	queue_free()
 	return true
 

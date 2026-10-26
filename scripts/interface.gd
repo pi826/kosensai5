@@ -31,6 +31,10 @@ var location_label: Label
 var objective_label: Label
 var angle_label: Label
 var announcement_label: Label
+var tutorial_button: Button
+var title_button: Button
+var tutorial_panel: Panel
+var tutorial_label: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -178,6 +182,28 @@ func _ready() -> void:
 	place(settings_button, Vector2(302, 594), Vector2(676, 36))
 	settings_button.pressed.connect(game.open_key_settings)
 	menu.add_child(settings_button)
+	tutorial_button = Button.new()
+	tutorial_button.text = "チュートリアル"
+	tutorial_button.add_theme_stylebox_override("normal", panel_style(Color("1a3044")))
+	place(tutorial_button, Vector2(650, 541), Vector2(328, 40))
+	tutorial_button.pressed.connect(game.start_tutorial)
+	menu.add_child(tutorial_button)
+	title_button = Button.new()
+	title_button.text = "タイトルへ戻る"
+	title_button.add_theme_stylebox_override("normal", panel_style(Color("1a3044")))
+	place(title_button, Vector2(650, 594), Vector2(328, 36))
+	title_button.pressed.connect(game.return_to_title)
+	menu.add_child(title_button)
+	tutorial_panel = Panel.new()
+	tutorial_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tutorial_panel.add_theme_stylebox_override("panel", panel_style(Color("0d1b2bf5"), Color("57d8ff")))
+	place(tutorial_panel, Vector2(32, 540), Vector2(1216, 122))
+	root.add_child(tutorial_panel)
+	tutorial_label = label("", 20)
+	place(tutorial_label, Vector2(20, 10), Vector2(1176, 102))
+	tutorial_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tutorial_panel.add_child(tutorial_label)
+	tutorial_panel.hide()
 	settings_overlay = Control.new()
 	settings_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(settings_overlay)
@@ -221,6 +247,17 @@ func update_hud() -> void:
 	var stocks: int = game.player.homing_charges if live else 0
 	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(T.HOMING_CHARGE_CAPACITY - stocks), charge, T.ABSORPTIONS_PER_CHARGE]
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
+	if game.is_tutorial():
+		score_label.text = "チュートリアル  %d / 11" % mini(game.lesson + 1, 11)
+		progress_label.text = "練習中はHPが1未満になりません"
+		progress_bar.max_value = 11
+		progress_bar.value = game.lesson
+		location_label.text = "操作の練習"
+		objective_label.text = game.direction_hint()
+		for control in [minimap, boss_hp_label, boss_label, hint_label, announcement_label]: control.hide()
+		tutorial_panel.visible = game.state == "playing"
+		tutorial_label.text = game.lesson_text()
+		return
 	if game.stage.is_empty():
 		return
 	progress_label.text = "探索  %d区画   ·   シード %d" % [explored_sector_count(), game.current_seed]
@@ -248,6 +285,12 @@ func show_menu(next_state: String) -> void:
 	seed_field.text = str(game.current_seed)
 	seed_field.visible = next_state == "title"
 	seed_label.visible = next_state == "title"
+	tutorial_panel.hide()
+	tutorial_button.visible = next_state == "title" and not game.is_tutorial()
+	title_button.visible = next_state == "paused" or next_state == "tutorial_complete"
+	new_button.visible = next_state != "tutorial_complete"
+	place(new_button, Vector2(302, 541), Vector2(328 if next_state == "title" else 676, 40))
+	place(settings_button, Vector2(302, 594), Vector2(328 if title_button.visible else 676, 36))
 	match next_state:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
@@ -258,7 +301,7 @@ func show_menu(next_state: String) -> void:
 		"paused":
 			menu_title.text = "一時停止"
 			menu_subtitle.text = "ひと休み。準備ができたら再開。"
-			menu_detail.text = "スコア  %06d     /     シード  %d\n%s    ·    探索 %d区画" % [game.score, game.current_seed, game.boss_cycle.objective(), explored_sector_count()]
+			menu_detail.text = "練習を再開できます。" if game.is_tutorial() else "スコア  %06d     /     シード  %d\n%s    ·    探索 %d区画" % [game.score, game.current_seed, game.boss_cycle.objective(), explored_sector_count()]
 			primary_button.text = "再開  /  " + game.key_bindings.get_binding_text("pause_game")
 			new_button.text = "同じマップを最初から"
 		"lost", "won":
@@ -267,6 +310,14 @@ func show_menu(next_state: String) -> void:
 			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d体 · ラスボス %d回 · 裏ボス %d体\n通常敵 %d撃破 · 探索 %d区画 · シード %d" % [game.score, game.clock_text(), game.boss_cycle.guardian_kills, game.boss_cycle.final_clears, game.boss_cycle.secret_kills, game.kills, explored_sector_count(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
 			new_button.text = "新しいマップで開始"
+		"tutorial_complete":
+			menu_title.text = "練習完了"
+			menu_subtitle.text = "基本の操作をひと通り練習しました。"
+			menu_detail.text = "同じ色は吸収、違う色はダメージ。\n本編では洞窟を探索し、ガーディアンを探します。\nキー設定は本編でも引き継ぎます。"
+			primary_button.text = "本編を始める"
+	if game.is_tutorial() and next_state == "paused":
+		menu_detail.text = "練習 %d / 11\n再開すると同じ課題から続けます。" % mini(game.lesson + 1, 11)
+		new_button.text = "チュートリアルを最初から"
 	update_hud()
 	primary_button.grab_focus()
 

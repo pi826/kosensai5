@@ -54,6 +54,59 @@ var physics_frame_started := 0
 var boss_cycle: RefCounted
 var announcement := ""
 var announcement_remaining := 0.0
+var tutorial_session: Node2D
+var tutorial_layer: CanvasLayer
+var tutorial_seed_text := ""
+
+func is_tutorial() -> bool:
+	return false
+
+func start_tutorial() -> void:
+	if is_instance_valid(tutorial_session): return
+	tutorial_seed_text = ui.seed_field.text
+	# Keep the entire main run suspended, including its seed and all progress.
+	world.process_mode = Node.PROCESS_MODE_DISABLED
+	world.hide()
+	ui.hide()
+	set_physics_process(false)
+	set_process_unhandled_input(false)
+	tutorial_layer = CanvasLayer.new()
+	tutorial_layer.layer = 10
+	add_child(tutorial_layer)
+	var container := SubViewportContainer.new()
+	container.size = T.VIEW_SIZE
+	container.stretch = true
+	tutorial_layer.add_child(container)
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(T.VIEW_SIZE)
+	viewport.world_2d = World2D.new()
+	viewport.disable_3d = true
+	container.add_child(viewport)
+	tutorial_session = load("res://scripts/tutorial.gd").new()
+	tutorial_session.host = self
+	tutorial_session.key_bindings = key_bindings
+	tutorial_session.controls_path = controls_path
+	viewport.add_child(tutorial_session)
+
+func finish_tutorial(begin_main: bool = false) -> void:
+	if is_instance_valid(tutorial_layer):
+		tutorial_layer.hide()
+		tutorial_layer.process_mode = Node.PROCESS_MODE_DISABLED
+		tutorial_layer.queue_free()
+	tutorial_layer = null
+	tutorial_session = null
+	camera.make_current()
+	world.show()
+	ui.show()
+	set_physics_process(true)
+	set_process_unhandled_input(true)
+	ui.refresh_bindings()
+	show_menu("title")
+	ui.seed_field.text = tutorial_seed_text
+	if begin_main: primary_action()
+
+func return_to_title() -> void:
+	show_menu("title")
 
 func _ready() -> void:
 	_register_inputs()
@@ -161,7 +214,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif state == "paused":
 			resume_run()
 		get_viewport().set_input_as_handled()
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and state in ["title", "paused", "lost", "won"] and not ui.seed_field.has_focus():
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and state in ["title", "paused", "lost", "won"] and not ui.seed_field.has_focus() and get_viewport().gui_get_focus_owner() == null:
 		primary_action()
 		get_viewport().set_input_as_handled()
 

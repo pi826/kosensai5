@@ -1,15 +1,20 @@
 # CHROMA SHIFT
 
-現在は **Task 5D：ボスの移動・循環・クリア**です。
+現在は **Task 5E：タイトルから選ぶチュートリアル**です。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
 報酬・ハート・復活の実装と検証は [Task 5C](docs/task5c_rewards.md) を参照してください。
 ボスの配置・進行・検証は [Task 5D](docs/task5d_bosses.md) を参照してください。
+チュートリアルの実装と検証は [Task 5E](docs/task5e_tutorial.md) を参照してください。
 
 ## 遊び方
 
 `play.cmd` で起動し、シードを指定して「このマップで開始」を選びます。
+初めて遊ぶ場合は、タイトルの「チュートリアル」を選んで操作を練習できます。マウス、またはTabで選んでEnterで開始します。
+固定された一続きの練習場で、移動・ジャンプ・すり抜け・射撃方向・色と吸収・誘導弾・箱とハートの回復を順に練習します。
+説明は現在のキー設定に追従します。練習中はHPが1未満にならず、一時停止からいつでもタイトルへ戻れます。
+完了後は「本編を始める」「タイトルへ戻る」を選べます。本編のシード入力・スコア・時間・進行には影響せず、キー設定を共有します。
 開始は区画 (0, 0)。空洞・段差のある通路・縦穴が上下左右に続き、探索中の部屋切替・ロード画面・境界ワープはありません。
 最初の3体のガーディアンはシードで決まる別々の地域にいます。撃破順は自由です。
 3体を倒すとラスボスが出現し、地域名・方角・区画距離を6秒表示します。倒すと別の場所にガーディアン3体が復活します。
@@ -76,6 +81,7 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 | scripts/combatant.gd / player.gd / enemy.gd | 色判定、操作、敵の挙動 |
 | scripts/heart.gd | ハートの描画・揺れ・取得と回復 |
 | scripts/boss_cycle.gd | ボスの進行、配置ジョブ、区画から独立した生存・HP・移動状態 |
+| scripts/tutorial.gd / tutorial_player.gd / tutorial_target.gd | 独立した練習場、課題判定、死亡防止、練習用の的 |
 | scripts/projectile.gd / laser_beam.gd / bomb.gd | 通常弾・誘導弾、レーザー、砲弾 |
 
 `test.cmd` は全自動検査を順番に実行して最後に停止します。個別実行は次の形式です。
@@ -85,11 +91,13 @@ $env:APPDATA = "$PWD\.userdata"
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . --fixed-fps 60 --script tests/streaming_test.gd
 # 描画確認。画像は builds/qa/bosses/ に保存（-- --rewards / --streaming で旧場面）
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd
+# チュートリアルの各課題・完了画面は builds/qa/tutorial/ に保存
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --tutorial
 ```
 
 実物理のガーディアン往復、全種類の継ぎ目、先読み・解放、状態保持、遠方、生成・戦闘・操作・キー設定・地図・カメラを検査します。
-今回の全テストの項目数は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
+今回の全テストの項目数は [Task 5E](docs/task5e_tutorial.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
 人による長時間の操作・難易度確認と、単独exeへの書き出しは未実施です。
-5Eのチュートリアルは今回の対象外です。ボスの強さ・難易度、1周の所要時間、回復量・復活頻度との釣り合いは未確認です。
+チュートリアルの検査数と画面確認は [Task 5E](docs/task5e_tutorial.md) に記録します。初めて遊ぶ人が説明を理解し迷わず進めるかは未確認です。ボスの強さ・難易度、1周の所要時間、回復量・復活頻度との釣り合いも未確認です。
 
 Godot本体・キャッシュ・個人設定・検証画像はGitの対象外。プロファイルとログは `.userdata/`、検証ログ・画像は `builds/qa/` に保存します。

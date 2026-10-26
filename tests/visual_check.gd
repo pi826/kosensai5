@@ -10,13 +10,40 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--streaming"):
+	if OS.get_cmdline_user_args().has("--tutorial"):
+		output = "res://builds/qa/tutorial/"
+		call_deferred("run_tutorial")
+	elif OS.get_cmdline_user_args().has("--streaming"):
 		output = "res://builds/qa/streaming/"
 		call_deferred("run_streaming")
 	elif OS.get_cmdline_user_args().has("--rewards"): call_deferred("run")
 	else:
 		output = "res://builds/qa/bosses/"
 		call_deferred("run_bosses")
+
+func run_tutorial():
+	DirAccess.make_dir_recursive_absolute(output)
+	var host := Main.new()
+	host.controls_path = output + "visual_controls.cfg"
+	root.add_child(host)
+	host.key_bindings.reset_defaults()
+	game = host
+	await capture("title")
+	host.start_tutorial()
+	game = host.tutorial_session
+	game.show_menu("paused")
+	await capture("paused")
+	game.resume_run()
+	var driver := preload("res://tests/tutorial_driver.gd").new()
+	driver.tree = self
+	driver.game = game
+	driver.capture = capture
+	await driver.run()
+	failures += driver.failures.size()
+	FileAccess.open(output + "visual_results.json", FileAccess.WRITE).store_string(JSON.stringify({"captures": captures, "failures": failures, "input_checks": driver.checks, "renderer": RenderingServer.get_video_adapter_name()}, "\t"))
+	host.free()
+	print("VISUAL CHECK: %d captures, %d failures" % [captures, failures])
+	quit(0 if failures == 0 else 1)
 func frames(n: int):
 	for i in range(n):
 		await physics_frame
