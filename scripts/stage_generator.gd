@@ -357,9 +357,9 @@ static func _decorate(stage: Dictionary, rng) -> void:
 		for step: Rect2 in room.floor_steps + room.rocks:
 			if step.end.y == r.end.y: stage.protected_rects.append(Rect2(step.position.x - 64, step.position.y - 32, step.size.x + 128, step.size.y + 160))
 
-static func _carve(holes: Array) -> Array:
-	var width := int(WORLD_SIZE.x / T.TILE_SIZE)
-	var height := int(WORLD_SIZE.y / T.TILE_SIZE)
+static func _carve(holes: Array, size: Vector2 = WORLD_SIZE) -> Array:
+	var width := int(size.x / T.TILE_SIZE)
+	var height := int(size.y / T.TILE_SIZE)
 	var grid := PackedByteArray()
 	grid.resize(width * height)
 	for hole: Rect2 in holes:
@@ -422,11 +422,11 @@ static func lane_is_clear(floor_rect: Rect2, solids: Array) -> bool:
 		if solid.size.y == 16 and solid.position.x < lane.end.x and solid.end.x > lane.position.x and solid.position.y >= lane.end.y and solid.position.y - lane.end.y < T.PLAYER_SIZE.y + 8: return false
 	return true
 
-static func _populate(stage: Dictionary, rng, graph: Dictionary) -> void:
+static func _populate(stage: Dictionary, rng, graph: Dictionary, normal_count: int = T.CAVE_NORMAL_COUNT, safe_radius: float = SAFE_RADIUS) -> void:
 	var kinds: Array = []
-	var arc_count := _pick(rng, ceili(T.CAVE_NORMAL_COUNT * T.CAVE_ARC_RATIO), floori(T.CAVE_NORMAL_COUNT * T.CAVE_MAX_ARC_RATIO))
+	var arc_count := _pick(rng, ceili(normal_count * T.CAVE_ARC_RATIO), floori(normal_count * T.CAVE_MAX_ARC_RATIO))
 	for i in range(arc_count): kinds.append(["breaker", "flyer", "laser"][i % 3])
-	for i in range(T.CAVE_NORMAL_COUNT - arc_count): kinds.append(["turret", "walker", "shifter", "builder"][i % 4])
+	for i in range(normal_count - arc_count): kinds.append(["turret", "walker", "shifter", "builder"][i % 4])
 	_shuffle(kinds, rng)
 	var rooms: Array = stage.chambers.filter(func(r): return r.kind == "normal")
 	var index := 0
@@ -440,10 +440,14 @@ static func _populate(stage: Dictionary, rng, graph: Dictionary) -> void:
 			for surface: Rect2 in supports:
 				for trial in range(8):
 					var x: float = _pick(rng, ceili((maxf(surface.position.x, room.rect.position.x) + 32) / 16), floori((minf(surface.end.x, room.rect.end.x) - 32) / 16)) * 16
+					if rng == null:
+						x += trial * 96
+						if x > minf(surface.end.x, room.rect.end.x) - 32: continue
 					var floor_rect := Rect2(x - 144, surface.position.y, 288, 32)
 					if kind == "flyer":
 						var width := _pick(rng, 6, mini(12, int(surface.size.x / 32))) * 32
 						x = _pick(rng, ceili((maxf(surface.position.x, room.rect.position.x) + width / 2) / 16), floori((minf(surface.end.x, room.rect.end.x) - width / 2) / 16)) * 16
+						if rng == null: x += trial * 96
 						floor_rect = Rect2(x - width / 2, surface.position.y, width, 32)
 						if floor_rect.position.x < surface.position.x or floor_rect.end.x > surface.end.x: continue
 						if not lane_is_clear(floor_rect, stage.solids): continue
@@ -455,7 +459,7 @@ static func _populate(stage: Dictionary, rng, graph: Dictionary) -> void:
 					if kind != "flyer" and (not _supported(Vector2((patrol.x + patrol.y) / 2, pos.y), Vector2(patrol.y - patrol.x + 38, 44), stage.solids) or _embedded(Vector2((patrol.x + patrol.y) / 2, pos.y), Vector2(patrol.y - patrol.x + 38, 44), stage.solids)): continue
 					if kind == "builder" and not stage.solids.any(func(s): return s.size.y != 16 and s.position.y == pos.y + 22 and s.position.x <= x - 19 and s.end.x >= x + 19): continue
 					var spawn := {"id": "enemy_%d" % index, "kind": kind, "boss_id": -1, "polarity": _pick(rng, 0, 1), "position": pos, "patrol": patrol, "chamber_id": room.id, "support": floor_rect}
-					if pos.distance_to(stage.start_position) < SAFE_RADIUS: continue
+					if pos.distance_to(stage.start_position) < safe_radius: continue
 					if stage.spawns.any(func(s): return s.position.distance_to(pos) < 80): continue
 					if not has_attack_sight(spawn, stage): continue
 					stage.spawns.append(spawn)
@@ -626,8 +630,15 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false) -> Dictio
 	var solid_buckets := _x_buckets(solids, 160)
 	var surfaces: Array = []
 	for solid: Rect2 in solids:
-		if solid.position.y < T.PLAYER_SIZE.y + 32: continue
 		var spans: Array[Vector2] = [Vector2(solid.position.x, solid.end.x)]
+		if stage.has("navigation_bounds"):
+			spans.clear()
+			for area: Rect2 in stage.navigation_bounds:
+				if solid.position.y < area.position.y + T.PLAYER_SIZE.y + 32 or solid.position.y > area.end.y: continue
+				var left := maxf(solid.position.x, area.position.x)
+				var right := minf(solid.end.x, area.end.x)
+				if right > left: spans.append(Vector2(left, right))
+		elif solid.position.y < T.PLAYER_SIZE.y + 32: continue
 		for blocker: Rect2 in _x_near(thick, thick_buckets, solid.position.x, solid.end.x):
 			if blocker.position.y < solid.position.y and blocker.end.y > solid.position.y - T.PLAYER_SIZE.y - 32:
 				spans = _subtract(spans, blocker.position.x, blocker.end.x)

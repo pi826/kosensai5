@@ -116,6 +116,13 @@ const MAX_STEP_HEIGHT := JUMP_SPEED * JUMP_SPEED / (2.0 * GRAVITY) - LANDING_MAR
 # One continuous world. All positions use the same world coordinate system.
 const TILE_SIZE := 32
 const WORLD_SIZE := Vector2(12288, 3072)
+# Task 5B-1 data only; the running game still uses WORLD_SIZE.
+const SECTOR_SIZE := Vector2(4096, 3072)
+const SECTOR_START := Vector2(1024, 1738)
+const SECTOR_RETRIES := 3
+const SECTOR_NORMAL_COUNT := 14
+const SECTOR_BLOCK_COUNT := 4
+const SECTOR_REGION_SPAN := 4
 const GROUND_Y := 2304.0
 const WORLD_START_X := 6144.0
 const MAP_CELL_SIZE := 128
