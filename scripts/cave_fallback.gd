@@ -1379,22 +1379,16 @@ static func data() -> Dictionary:
 	"to": 4,
 	"x": 8416.0
 	}, {
-	"action": "drop",
-	"position": Vector2(8624, 618),
-	"target": Vector2(8624, 746),
-	"to": 18,
-	"x": 8624.0
-	}, {
 	"action": "walk",
-	"position": Vector2(8672, 746),
-	"x": 8672.0
+	"position": Vector2(8592, 618),
+	"x": 8592.0
 	}, {
 	"action": "jump",
-	"hold_frames": 40,
-	"position": Vector2(8672, 746),
-	"target": Vector2(8736, 618),
+	"hold_frames": 4,
+	"position": Vector2(8592, 618),
+	"target": Vector2(8720, 618),
 	"to": 5,
-	"x": 8672.0
+	"x": 8592.0
 	}, {
 	"action": "drop",
 	"position": Vector2(8784, 618),
@@ -1470,25 +1464,19 @@ static func data() -> Dictionary:
 	"to": 5,
 	"x": 8800.0
 	}, {
-	"action": "drop",
-	"position": Vector2(8688, 618),
-	"target": Vector2(8688, 746),
-	"to": 18,
-	"x": 8688.0
-	}, {
 	"action": "walk",
-	"position": Vector2(8608, 746),
-	"x": 8608.0
+	"position": Vector2(8720, 618),
+	"x": 8720.0
 	}, {
 	"action": "jump",
 	"hold_frames": 4,
-	"position": Vector2(8608, 746),
-	"target": Vector2(8544, 714),
-	"to": 13,
-	"x": 8608.0
+	"position": Vector2(8720, 618),
+	"target": Vector2(8592, 618),
+	"to": 4,
+	"x": 8720.0
 	}, {
 	"action": "drop",
-	"position": Vector2(8432, 714),
+	"position": Vector2(8432, 618),
 	"target": Vector2(8432, 746),
 	"to": 17,
 	"x": 8432.0

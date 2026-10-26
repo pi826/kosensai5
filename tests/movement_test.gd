@@ -96,9 +96,10 @@ func run() -> void:
 	var short_height := await jump_height(true)
 	measurements.full_height = full_height
 	measurements.short_height = short_height
-	check(full_height > 140 and full_height < 190, "full jump is taller than the original prototype")
+	check(absf(full_height - 170.0747) <= 6.0, "full jump preserves Task 4B height within six pixels")
 	check(short_height > 25 and short_height < full_height * 0.6, "short tap creates a low jump")
-	check(measurements.full_airtime < 0.75, "taller jump still lands promptly")
+	check(measurements.full_airtime >= (32.0 / 60) * 1.25 and measurements.full_airtime <= (32.0 / 60) * 1.35, "full airtime is 1.25 to 1.35 times the measured Task 4B jump")
+	check(is_equal_approx(T.MAX_STEP_HEIGHT, T.JUMP_SPEED * T.JUMP_SPEED / (2 * T.GRAVITY) - T.LANDING_MARGIN), "reach validation derives height from the new physics")
 	await reset_player()
 	game.key_bindings.try_bind("jump", 1, KEY_Q)
 	key_event(KEY_SPACE, true)
@@ -272,7 +273,8 @@ func verify_cave_hops() -> void:
 		generator._add_hop(blocked,0,lower,upper,direction,[Rect2(FIXTURE_ORIGIN+Vector2(224,544),Vector2(160,32))])
 		check(blocked.is_empty(),"solid roof rejects the same hop, direction %d" % direction)
 		blocked.clear()
-		var farther := Rect2(upper.position+Vector2(direction*32,0),upper.size)
+		# The slower jump travels farther; a 96px gap now requires the >96px-high profile.
+		var farther := Rect2(upper.position+Vector2(direction*64,0),upper.size)
 		generator._add_hop(blocked,0,lower,farther,direction,[solids[2]])
 		check(blocked.is_empty(),"higher hop that lands on the overhead shelf is rejected, direction %d" % direction)
 

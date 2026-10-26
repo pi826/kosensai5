@@ -1,7 +1,7 @@
 extends SceneTree
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
-const OUTPUT := "res://builds/qa/caves/"
+const OUTPUT := "res://builds/qa/ui_feel/"
 var game: Node2D
 var capture_failures := 0
 
@@ -58,6 +58,7 @@ func run() -> void:
 	game.start_run(37)
 	await frames(6)
 	await capture("start")
+	await capture_player_health()
 	await capture_caves()
 	show_position(game.stage.chambers.filter(func(r):return r.band==0)[0].approaches[0])
 	await frames(3)
@@ -102,10 +103,28 @@ func run() -> void:
 	await capture_phase3_enemies()
 	await capture_changing_terrain()
 	await capture_controls()
-	print("VISUAL CAPTURES: builds/qa/caves/")
+	print("VISUAL CAPTURES: builds/qa/ui_feel/")
 	game.queue_free()
 	await frames(2)
 	quit(0 if capture_failures == 0 else 1)
+
+func capture_player_health() -> void:
+	show_position(game.stage.start_position)
+	game.elapsed = 10 # Keep the initial help away from the player feedback.
+	game.player.hp = 70
+	game.player.invulnerability = 0
+	game.player.receive_hit(1 - game.player.polarity, 12)
+	game.player.tick_visuals(0.25) # Staging disables actor physics; clear its white hit flash explicitly.
+	game.ui.update_hud()
+	await frames(6)
+	await capture("player_hp_damage")
+	await frames(60)
+	game.player.heal(20)
+	game.ui.update_hud()
+	await frames(6)
+	await capture("player_hp_healing")
+	await frames(190)
+	await capture("player_hp_expired")
 
 func capture_controls() -> void:
 	game.start_run(37)

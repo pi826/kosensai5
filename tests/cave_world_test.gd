@@ -45,7 +45,9 @@ func run():
 	driver.input("move_down",true)
 	var passed_shelves := 0
 	var last_y: float = game.player.position.y
-	for i in range(180):
+	# Allow the slower fall and a fresh drop through each overlapping shelf.
+	var descent_frames := ceili(60 * (shaft.rect.size.y / T.MAX_FALL_SPEED + (shaft.platforms.size() + 1) * (T.MAX_FALL_SPEED / T.FALL_GRAVITY + T.DROP_THROUGH_MAX_TIME)))
+	for i in range(descent_frames):
 		await driver.tick()
 		for shelf: Rect2 in shaft.platforms:
 			if last_y+22<=shelf.position.y+1 and game.player.position.y+22>shelf.position.y+1: passed_shelves+=1

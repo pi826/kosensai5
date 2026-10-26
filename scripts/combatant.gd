@@ -19,12 +19,14 @@ var action_remaining := 0.0
 var next_polarity := 0
 var visual_scale := Vector2.ONE
 var lock_marked := false
+var body_shape: RectangleShape2D
 
 func _ready() -> void:
 	collision_layer = 2 if faction == 0 else 4
 	collision_mask = 1 | T.WALL_LAYER | T.PLATFORM_LAYER
 	var shape := RectangleShape2D.new()
 	shape.size = body_size
+	body_shape = shape
 	var collider := CollisionShape2D.new()
 	collider.shape = shape
 	add_child(collider)
@@ -52,6 +54,8 @@ func receive_hit(attack_color: int, damage: int) -> String:
 		return "protected"
 	var previous_hp := hp
 	hp = maxi(0, hp - damage)
+	if hp != previous_hp:
+		_hp_changed(previous_hp)
 	hit_flash = 0.15
 	queue_redraw()
 	if faction == 0:
@@ -66,6 +70,9 @@ func receive_hit(attack_color: int, damage: int) -> String:
 			game.actor_defeated(self)
 		queue_free()
 	return "damaged"
+
+func _hp_changed(_previous_hp: int) -> void:
+	pass
 
 func take_gauge() -> int:
 	var amount := gauge
@@ -83,8 +90,11 @@ func muzzle_offset(direction: Vector2) -> Vector2:
 
 func _draw() -> void:
 	var tint: Color = T.COLORS[polarity]
-	if invulnerability > 0 and int(invulnerability * 16) % 2 == 0:
-		tint.a = 0.45
+	# Fade the entire body, including its dark fill and markings, for a clear blink.
+	if faction == 0 and invulnerability > 0 and hit_flash <= 0 and fmod(invulnerability, T.INVULNERABILITY_BLINK_PERIOD) < T.INVULNERABILITY_BLINK_PERIOD / 2:
+		modulate.a = T.INVULNERABILITY_BLINK_ALPHA
+	else:
+		modulate.a = 1.0
 	if hit_flash > 0:
 		tint = Color.WHITE
 	var rect := Rect2(-body_size * 0.5, body_size)

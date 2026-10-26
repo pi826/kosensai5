@@ -8,7 +8,7 @@ const ACTIONS := {
 	"move_down": "下へ降りる",
 	"shoot": "通常射撃",
 	"switch_color": "色を切り替え",
-	"aim_cycle": "射撃角度を切り替え",
+	"aim_cycle": "射撃方向（前→上→下）",
 	"special": "誘導弾",
 	"interact": "調べる",
 	"pause_game": "一時停止",

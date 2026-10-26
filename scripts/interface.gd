@@ -99,7 +99,7 @@ func _ready() -> void:
 	hud.add_child(objective_label)
 	minimap = Minimap.new()
 	minimap.game = game
-	place(minimap, Vector2(1016, 122), Vector2(240, 170))
+	place(minimap, Vector2(936, 122), Vector2(320, 104))
 	minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(minimap)
 	boss_label = label("", 16)
@@ -131,7 +131,7 @@ func _ready() -> void:
 	card.add_theme_stylebox_override("panel", panel_style(Color("102235f5"), Color("3e5d72")))
 	place(card, Vector2(260, 134), Vector2(760, 520))
 	menu.add_child(card)
-	var eyebrow := label("02 COLORS   /   03 WARDENS   /   EXPLORE", 14, Color("81a6be"))
+	var eyebrow := label("2色   /   3体のガーディアン   /   探索", 14, Color("81a6be"))
 	place(eyebrow, Vector2(300, 160), Vector2(680, 24))
 	menu.add_child(eyebrow)
 	menu_title = label("", 48)
@@ -143,7 +143,7 @@ func _ready() -> void:
 	menu_detail = label("", 18, Color("afc2cf"))
 	place(menu_detail, Vector2(302, 327), Vector2(680, 110))
 	menu.add_child(menu_detail)
-	seed_label = label("SEED / 同じ数値なら同じマップ", 13, Color("81a6be"))
+	seed_label = label("シード / 同じ数値なら同じマップ", 13, Color("81a6be"))
 	place(seed_label, Vector2(302, 406), Vector2(676, 22))
 	menu.add_child(seed_label)
 	seed_field = LineEdit.new()
@@ -187,11 +187,11 @@ func _ready() -> void:
 
 func refresh_bindings() -> void:
 	var keys: RefCounted = game.key_bindings
-	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 角度切替   %s 誘導弾   %s 調べる   %s 一時停止" % [
+	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 射撃方向（前→上→下）   %s 誘導弾   %s 調べる   %s 一時停止" % [
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
-	hint_label.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n%s 射撃 / %s 色切替 / %s 角度 0° → 60° → -60°\n%s 薄い足場を降りる / %s 複数の敵へ誘導弾" % [
+	hint_label.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 複数の敵へ誘導弾" % [
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
 
@@ -206,15 +206,15 @@ func update_hud() -> void:
 	var color_index: int = game.player.polarity if live else 0
 	color_label.text = T.COLOR_NAMES[color_index]
 	color_label.modulate = T.COLORS[color_index]
-	angle_label.text = "角度 %d°" % (game.player.aim_angle() if live else 0.0)
+	angle_label.text = "射撃方向 " + (game.player.aim_name() if live else T.AIM_NAMES[0])
 	var charge: int = game.player.gauge if live else 0
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]
 	gauge_label.text = "%s  誘導弾  %d / %d" % [game.key_bindings.get_binding_text("special"), charge, T.GAUGE_CAPACITY]
-	score_label.text = "SCORE  %06d    %s" % [game.score, game.clock_text()]
+	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
 	if game.stage.is_empty():
 		return
-	progress_label.text = "探索  %d%%   ·   SEED %d" % [exploration_percent(), game.current_seed]
+	progress_label.text = "探索  %d%%   ·   シード %d" % [exploration_percent(), game.current_seed]
 	progress_bar.max_value = 3
 	progress_bar.value = game.defeated_bosses.size()
 	var at: Vector2 = game.player.position if live else game.stage.start_position
@@ -222,14 +222,14 @@ func update_hud() -> void:
 	var marks: Array[String] = []
 	for boss_id in range(3):
 		marks.append("◆" if game.defeated_bosses.has(boss_id) else "◇")
-	objective_label.text = "中ボス  %s  %d / 3 撃破" % ["  ".join(marks), game.defeated_bosses.size()]
+	objective_label.text = "ガーディアン  %s  %d / 3 撃破" % ["  ".join(marks), game.defeated_bosses.size()]
 	minimap.update_map()
 	var boss_visible: bool = is_instance_valid(game.boss) and not game.boss.dead and game.is_on_screen(game.boss.position)
 	boss_hp_label.visible = boss_visible
 	boss_label.visible = boss_visible
 	if boss_visible:
 		boss_hp_label.text = str(game.boss.hp)
-		boss_label.text = "WARDEN %d  /  %s" % [game.boss.boss_id + 1, T.COLOR_NAMES[game.boss.polarity]]
+		boss_label.text = "ガーディアン %d  /  %s" % [game.boss.boss_id + 1, T.COLOR_NAMES[game.boss.polarity]]
 	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0
 
 func exploration_percent() -> int:
@@ -247,20 +247,20 @@ func show_menu(next_state: String) -> void:
 	match next_state:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
-			menu_subtitle.text = "3地域を探索し、3体の中ボスを倒す。"
+			menu_subtitle.text = "3地域を探索し、3体のガーディアンを倒す。"
 			menu_detail.text = "敵と違う色で攻撃。同色の弾は吸収して誘導弾に。\n開けた洞窟を通路と縦穴で探索。\n倒れたら全リセット。目標プレイ時間 5〜10分。"
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":
-			menu_title.text = "PAUSED"
+			menu_title.text = "一時停止"
 			menu_subtitle.text = "ひと休み。準備ができたら再開。"
-			menu_detail.text = "SCORE  %06d     /     SEED  %d\n中ボス %d / 3 撃破    ·    探索 %d%%" % [game.score, game.current_seed, game.defeated_bosses.size(), exploration_percent()]
+			menu_detail.text = "スコア  %06d     /     シード  %d\nガーディアン %d / 3 撃破    ·    探索 %d%%" % [game.score, game.current_seed, game.defeated_bosses.size(), exploration_percent()]
 			primary_button.text = "再開  /  " + game.key_bindings.get_binding_text("pause_game")
 			new_button.text = "同じマップを最初から"
 		"lost", "won":
-			menu_title.text = "STAGE CLEAR" if next_state == "won" else "TRY AGAIN"
-			menu_subtitle.text = "3体の中ボスをすべて撃破。" if next_state == "won" else "再挑戦は同じ地形で最初から。中ボスも復活。"
-			menu_detail.text = "SCORE  %06d     /     TIME  %s\n中ボス %d / 3    ·    通常敵 %d / %d\n探索 %d%%    ·    SEED %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, game.total_enemies, exploration_percent(), game.current_seed]
+			menu_title.text = "クリア" if next_state == "won" else "失敗"
+			menu_subtitle.text = "3体のガーディアンをすべて撃破。" if next_state == "won" else "再挑戦は同じ地形で最初から。ガーディアンも復活。"
+			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d / 3    ·    通常敵 %d / %d\n探索 %d%%    ·    シード %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, game.total_enemies, exploration_percent(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
 			new_button.text = "新しいマップで開始"
 	update_hud()

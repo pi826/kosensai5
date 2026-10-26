@@ -8,6 +8,41 @@ var jump_cut_requested := false
 var aim_index := 0
 var drop_remaining := 0.0
 var drop_clear_y := 0.0
+var contact_query := PhysicsShapeQueryParameters2D.new()
+
+func _ready() -> void:
+	super._ready()
+	contact_query.shape = body_shape
+	contact_query.collision_mask = 4 # Enemy bodies; the movement mask stays terrain-only.
+
+func aim_name() -> String:
+	return T.AIM_NAMES[aim_index]
+
+func heal(amount: int) -> int:
+	if dead or amount <= 0:
+		return 0
+	var before := hp
+	hp = mini(max_hp, hp + amount)
+	if hp > before:
+		_hp_changed(before)
+	return hp - before
+
+func _hp_changed(previous_hp: int) -> void:
+	if is_instance_valid(game) and is_instance_valid(game.effects):
+		game.effects.show_player_health(self, previous_hp, hp)
+
+func _check_enemy_contact() -> void:
+	if invulnerability > 0.0:
+		return
+	contact_query.transform = global_transform
+	for hit: Dictionary in get_world_2d().direct_space_state.intersect_shape(contact_query, 64):
+		var enemy = hit.collider
+		if not enemy is CharacterBody2D or enemy.get_parent() != game.world or enemy.dead or enemy.is_queued_for_deletion():
+			continue
+		# A color-change warning still uses polarity, never next_polarity.
+		if enemy.polarity != polarity:
+			receive_hit(enemy.polarity, T.CONTACT_DAMAGE)
+			return
 
 func aim_angle() -> float:
 	return T.AIM_ANGLES[aim_index]
@@ -74,6 +109,9 @@ func _physics_process(delta: float) -> void:
 	velocity.y = minf(velocity.y + gravity * delta, T.MAX_FALL_SPEED)
 	var before_slide_y := velocity.y
 	move_and_slide()
+	_check_enemy_contact()
+	if dead:
+		return
 	if is_on_ceiling() and before_slide_y < 0:
 		_try_correct_ceiling(before_slide_y)
 	if not grounded and is_on_floor() and before_slide_y > 180:

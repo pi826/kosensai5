@@ -57,14 +57,15 @@ func _geometry_for_cell(cell: Vector2i) -> Array:
 	_cell_geometry[cell] = fragments
 	return fragments
 
+func map_area() -> Rect2:
+	return Rect2(Vector2(12, 12), Vector2(maxf(32, size.x - 24), maxf(32, size.y - 24)))
+
 func _draw() -> void:
 	draw_style_box(_panel_style(), Rect2(Vector2.ZERO, size))
-	var font := get_theme_default_font()
-	draw_string(font, Vector2(12, 20), "MAP", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("d0dce2"))
 	if game == null or not game.stage.has("bounds"):
 		return
 	var bounds: Rect2 = game.stage.bounds
-	var map_area := Rect2(Vector2(12, 37), Vector2(maxf(32, size.x - 24), maxf(32, size.y - 89)))
+	var map_area := map_area()
 	var scale_factor := minf(map_area.size.x / bounds.size.x, map_area.size.y / bounds.size.y)
 	var origin := map_area.get_center() - bounds.get_center() * scale_factor
 	var world_box := Rect2(origin + bounds.position * scale_factor, bounds.size * scale_factor)
@@ -95,8 +96,6 @@ func _draw() -> void:
 		var at: Vector2 = origin + game.player.position * scale_factor
 		draw_circle(at, 3.0, Color("0d1721"))
 		draw_circle(at, 2.0, Color.WHITE)
-	draw_string(font, Vector2(12, size.y - 34), "● YOU   ◇ WARDEN   ✓ CLEARED", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("aebdc5"))
-	draw_string(font, Vector2(12, size.y - 13), "GUARDIANS %d / 3" % game.defeated_bosses.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("b9cad2"))
 
 func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

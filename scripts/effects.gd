@@ -1,9 +1,12 @@
 extends Node2D
 const T := preload("res://scripts/tuning.gd")
+const PlayerHealthDisplay := preload("res://scripts/player_health_display.gd")
 
 var bursts: Array = []
 var damage_numbers: Array = []
 var damage_sequence := 0
+var health_display: Node2D
+var player_hp_numbers: Array = []
 const DAMAGE_LIFETIME := 0.8
 
 func emit(at: Vector2, tint: Color, kind: String) -> void:
@@ -20,6 +23,20 @@ func show_damage(at: Vector2, amount: int) -> void:
 	if damage_numbers.size() > 64:
 		damage_numbers.pop_front()
 
+func show_player_health(actor: CharacterBody2D, before: int, after: int) -> void:
+	if before == after:
+		return
+	if not is_instance_valid(health_display):
+		health_display = PlayerHealthDisplay.new()
+		add_child(health_display)
+	health_display.change(actor, before, after)
+	var amount := after - before
+	player_hp_numbers.append({"at": actor.global_position + Vector2(0, -actor.body_size.y / 2) + T.PLAYER_HP_NUMBER_OFFSET,
+		"text": ("+" if amount > 0 else "") + str(amount), "age": 0.0,
+		"color": T.PLAYER_HP_COLORS.healing if amount > 0 else T.PLAYER_HP_COLORS.red})
+	if player_hp_numbers.size() > 32:
+		player_hp_numbers.pop_front()
+
 func _process(delta: float) -> void:
 	for burst: Dictionary in bursts:
 		burst.age += delta
@@ -27,6 +44,9 @@ func _process(delta: float) -> void:
 	for number: Dictionary in damage_numbers:
 		number.age += delta
 	damage_numbers = damage_numbers.filter(func(number): return number.age < DAMAGE_LIFETIME)
+	for number: Dictionary in player_hp_numbers:
+		number.age += delta
+	player_hp_numbers = player_hp_numbers.filter(func(number): return number.age < T.PLAYER_HP_NUMBER_TIME)
 	queue_redraw()
 
 func _draw() -> void:
@@ -50,6 +70,13 @@ func _draw() -> void:
 				var direction := Vector2.from_angle(i * TAU / 8)
 				draw_line(burst.at + direction * radius * 0.55, burst.at + direction * radius, tint, 3, true)
 	var font := ThemeDB.fallback_font
+	for number: Dictionary in player_hp_numbers:
+		var at: Vector2 = number.at + Vector2(0, -number.age * T.PLAYER_HP_NUMBER_RISE)
+		var alpha := clampf((T.PLAYER_HP_NUMBER_TIME - float(number.age)) / T.PLAYER_HP_FADE_TIME, 0.0, 1.0)
+		var tint: Color = number.color
+		tint.a = alpha
+		draw_string_outline(font, at, number.text, HORIZONTAL_ALIGNMENT_CENTER, -1, 24, 5, Color(0.02, 0.04, 0.07, alpha))
+		draw_string(font, at, number.text, HORIZONTAL_ALIGNMENT_CENTER, -1, 24, tint)
 	for number: Dictionary in damage_numbers:
 		var text := str(number.amount)
 		var font_size := 26 if number.amount >= 4 else 22

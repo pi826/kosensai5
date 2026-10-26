@@ -38,7 +38,7 @@ func _physics_process(delta: float) -> void:
 		cancel_attack()
 		velocity.x = 0
 		if kind != "flyer":
-			velocity.y += T.GRAVITY * delta
+			velocity.y += T.ENEMY_GRAVITY * delta
 			move_and_slide()
 		return
 	if not was_visible:
@@ -61,7 +61,7 @@ func _move_kind(delta: float) -> void:
 	if kind == "flyer":
 		_move_flyer(delta)
 		return
-	velocity.y += T.GRAVITY * delta
+	velocity.y += T.ENEMY_GRAVITY * delta
 	if kind == "walker" and action == "idle" and wake_delay <= 0:
 		var direction := -1
 		if position.x <= patrol.x:

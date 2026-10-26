@@ -58,7 +58,7 @@ func run() -> void:
 	var protected_actor := Actor.new()
 	protected_actor.receive_hit(1, T.ENEMY_NORMAL_DAMAGE)
 	protected_actor.receive_hit(1, T.ENEMY_NORMAL_DAMAGE)
-	check(protected_actor.hp == T.PLAYER_HP - T.ENEMY_NORMAL_DAMAGE, "one-second player hit protection")
+	check(protected_actor.hp == T.PLAYER_HP - T.ENEMY_NORMAL_DAMAGE and T.INVULNERABILITY == 1.5, "1.5-second player hit protection")
 	protected_actor.receive_hit(0, 1)
 	check(protected_actor.gauge == 1, "can absorb during hit protection")
 	protected_actor.free()
@@ -328,6 +328,8 @@ func run() -> void:
 	await verify_aim_controls()
 	await verify_platform_attacks()
 	await verify_multi_lock()
+	await verify_player_feedback()
+	verify_ui_language()
 	game.queue_free()
 	await frames(2)
 	var report := {"checks": checks, "failures": failures, "elapsed_ms": Time.get_ticks_msec() - begun}
@@ -357,7 +359,7 @@ func verify_aim_controls() -> void:
 		action_tap("aim_cycle")
 		check(game.player.aim_angle() == angle, "aim cycle advances to %d degrees" % angle)
 		game.ui.update_hud()
-		check(game.ui.angle_label.text == "角度 %d°" % angle, "HUD shows the current elevation")
+		check(game.ui.angle_label.text == "射撃方向 " + T.AIM_NAMES[T.AIM_ANGLES.find(angle)], "HUD shows the current direction")
 	game.player.set_physics_process(false)
 	for index in range(3):
 		var angle: float = [0.0, 60.0, -60.0][index]
@@ -400,7 +402,7 @@ func verify_aim_controls() -> void:
 	await frames(3)
 	game.primary_action()
 	check(game.player.aim_angle() == 0, "death retry resets elevation")
-	check(game.ui.controls_label.text.contains("L 角度切替") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with(";"), "HUD help and gauge use the new controls")
+	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with(";"), "HUD help and gauge use the new controls")
 
 func verify_platform_attacks() -> void:
 	for use_world in [false, true]:
@@ -641,3 +643,133 @@ func verify_guardian_orders() -> void:
 	check(game.state == "lost" and game.ui.menu.visible, "simultaneous final guardian and player deaths prefer loss")
 	check(game.defeated_bosses.size() == 3 and game.score == 3 * T.BOSS_SCORE, "simultaneous deaths still count the final guardian once")
 	check(game.result_menu_count == result_count + 1, "simultaneous deaths open one result screen")
+
+func verify_player_feedback() -> void:
+	game.start_run(37)
+	prepare_fixture()
+	await frames(3)
+	var player = game.player
+	var enemy = normal_enemies()[0]
+	player.polarity = 0
+	enemy.polarity = 0
+	enemy.position = player.position
+	await frames(3)
+	check(player.hp == 100 and player.gauge == 0 and game.effects.health_display == null, "same-color body causes neither damage nor absorption nor HP popup")
+	enemy.action = "windup_switch"
+	enemy.next_polarity = 1
+	await frames(2)
+	check(player.hp == 100, "switch warning keeps the old body color")
+	enemy.polarity = 1
+	enemy.next_polarity = 0
+	await frames(1)
+	check(player.hp == 100 - T.CONTACT_DAMAGE and player.gauge == 0, "opposite normal body inflicts contact damage without pushing")
+	check(player.position.distance_to(enemy.position) < 0.2, "bodies still overlap without physical repulsion")
+	check(is_equal_approx(player.invulnerability, 1.5), "contact starts exactly 1.5 seconds of invulnerability")
+	var hp_after_contact: int = player.hp
+	var query_result: String = player.receive_hit(1, T.ENEMY_NORMAL_DAMAGE)
+	check(query_result == "protected" and player.hp == hp_after_contact, "contact protection also blocks bullets")
+	await frames(60)
+	check(player.hp == hp_after_contact and player.invulnerability > 0.45, "contact stays protected beyond the former one second")
+	check(player.receive_hit(0, 12) == "absorbed" and player.gauge == 1, "same-color attack absorbs during the longer protection")
+	# Real shots hit during protection; absorption must precede the protection check.
+	for color in [1, 0]:
+		enemy.polarity = color
+		var bullet = game.spawn_bullet(enemy, Vector2.RIGHT)
+		bullet.position = player.position - Vector2(40, 0)
+		await frames(12)
+		check(not is_instance_valid(bullet) and player.hp == hp_after_contact, "real projectile resolves safely during invulnerability, color %d" % color)
+	check(player.gauge == 2, "real same-color projectile still charges the protected player")
+	enemy.polarity = 1
+	await frames(3)
+	check(player.hp == hp_after_contact and player.invulnerability > 0, "contact remains blocked just before 1.5 seconds")
+	await frames(5)
+	check(player.hp == hp_after_contact - T.CONTACT_DAMAGE, "sustained opposite contact damages again after protection expires")
+	enemy.position.x += 400
+	await frames(2) # Let the physics space publish the separated body before clearing protection.
+	player.invulnerability = 0
+	var guardian = boss_enemies()[0]
+	guardian.position = player.position + Vector2(55, 0)
+	guardian.polarity = player.polarity
+	await frames(2)
+	var before_boss: int = player.hp
+	check(before_boss == hp_after_contact - T.CONTACT_DAMAGE, "same-color guardian contact causes no damage")
+	guardian.polarity = 1 - player.polarity
+	await frames(1)
+	check(player.hp == before_boss - T.CONTACT_DAMAGE, "guardian contact uses its larger physical body and shared damage")
+	guardian.position.x += 400
+	player.invulnerability = 0
+	player.hp = 70
+	player.receive_hit(1 - player.polarity, 12)
+	var display = game.effects.health_display
+	var segments: Dictionary = display.bar_segments()
+	check(display.visible and display.remaining == T.PLAYER_HP_DISPLAY_TIME, "damage immediately shows a timed HP bar")
+	check(is_equal_approx(segments.green, 0.58 * T.PLAYER_HP_BAR_SIZE.x) and is_equal_approx(segments.red, 0.12 * T.PLAYER_HP_BAR_SIZE.x) and is_equal_approx(segments.gray, 0.30 * T.PLAYER_HP_BAR_SIZE.x), "green, red and gray reflect remaining, just lost and previously lost HP")
+	var number: Dictionary = game.effects.player_hp_numbers[-1]
+	check(number.text == "-12" and number.color == T.PLAYER_HP_COLORS.red, "player damage number is signed and red")
+	check(number.at.y < player.position.y - T.PLAYER_SIZE.y / 2 and number.at.x < player.position.x, "player number starts above and to the left of the body")
+	check(game.effects.damage_numbers.is_empty(), "player HP changes never enter yellow enemy damage numbers")
+	var old_position: Vector2 = display.global_position
+	player.position.x += 20
+	await frames(2)
+	check(absf(display.global_position.x - old_position.x - 20) < 0.2, "temporary HP bar follows player movement")
+	game.show_menu("paused")
+	var paused_remaining: float = display.remaining
+	var paused_number_age: float = game.effects.player_hp_numbers[-1].age
+	await frames(10)
+	check(display.remaining == paused_remaining and game.effects.player_hp_numbers[-1].age == paused_number_age, "pause freezes player bar and numbers")
+	game.resume_run()
+	await frames(30)
+	check(display.bar_segments().red < segments.red and display.bar_segments().gray > segments.gray, "recent red damage shrinks into the gray deficit")
+	await frames(30)
+	check(is_zero_approx(display.bar_segments().red) and game.effects.player_hp_numbers.is_empty(), "red damage finishes shrinking and number expires")
+	check(player.heal(20) == 20 and player.hp == 78, "heal returns actual increase and changes HP")
+	segments = display.bar_segments()
+	check(display.visible and is_equal_approx(segments.green, 0.58 * T.PLAYER_HP_BAR_SIZE.x) and is_equal_approx(segments.healing, 0.20 * T.PLAYER_HP_BAR_SIZE.x) and is_zero_approx(segments.red) and is_equal_approx(segments.gray, 0.22 * T.PLAYER_HP_BAR_SIZE.x), "healing highlights exactly the new HP in bright green")
+	check(game.effects.player_hp_numbers[-1].text == "+20" and game.effects.player_hp_numbers[-1].color == T.PLAYER_HP_COLORS.healing, "healing number is signed and green")
+	game.ui.update_hud()
+	check(game.ui.health_bar.value == 78, "top HP bar remains synchronized after healing")
+	await frames(50)
+	check(is_zero_approx(display.bar_segments().healing) and is_equal_approx(display.bar_segments().green, 0.78 * T.PLAYER_HP_BAR_SIZE.x), "healing highlight settles into the remaining HP")
+	await frames(140)
+	check(not display.visible and game.effects.player_hp_numbers.is_empty(), "bar and numbers disappear after a few seconds")
+	check(player.heal(1000) == 22 and player.hp == 100 and game.effects.player_hp_numbers[-1].text == "+22", "healing clamps to maximum and displays only the actual gain")
+	var count: int = game.effects.player_hp_numbers.size()
+	check(player.heal(0) == 0 and player.heal(-5) == 0 and player.heal(20) == 0 and game.effects.player_hp_numbers.size() == count, "zero, negative and full-health healing create no popup")
+	player.dead = true
+	player.hp = 0
+	check(player.heal(20) == 0 and player.hp == 0, "healing cannot revive a dead player")
+	player.dead = false
+
+func check_ui_language(node: Node) -> void:
+	if node is Label or node is Button or node is LineEdit:
+		var text: String = node.text
+		var forbidden := ["SCORE", "TIME", "SEED", "PAUSED", "STAGE CLEAR", "TRY AGAIN", "WARDEN", "GUARDIANS", "MAP", "角度", "0°", "60°"]
+		check(not forbidden.any(func(word): return text.contains(word)), "Japanese display: %s = %s" % [node.name, text])
+	for child in node.get_children():
+		check_ui_language(child)
+
+func verify_ui_language() -> void:
+	game.start_run(37)
+	prepare_fixture()
+	var guardian = boss_enemies()[0]
+	guardian.position = game.player.position + Vector2(250, -36)
+	game._update_exploration()
+	game.ui.update_hud()
+	check(game.ui.boss_label.visible and game.ui.boss_label.text.begins_with("ガーディアン"), "visible guardian has Japanese name")
+	check(game.ui.objective_label.text.begins_with("ガーディアン"), "objective uses the same guardian name")
+	for menu_state in ["title", "paused", "won", "lost"]:
+		game.show_menu(menu_state)
+		check_ui_language(game.ui)
+		var expected: String = {"title": "CHROMA / SHIFT", "paused": "一時停止", "won": "クリア", "lost": "失敗"}[menu_state]
+		check(game.ui.menu_title.text == expected, "menu title is localized: " + menu_state)
+	game.open_key_settings()
+	check_ui_language(game.ui.settings_panel)
+	check(game.key_bindings.ACTIONS.aim_cycle == "射撃方向（前→上→下）", "key settings name describes the direction sequence")
+	game.close_key_settings()
+	game.resume_run()
+	for index in range(3):
+		game.player.aim_index = index
+		game.ui.update_hud()
+		check(game.ui.angle_label.text == "射撃方向 " + ["前", "上", "下"][index], "HUD names the selected direction")
+	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.hint_label.text.contains("前→上→下"), "help and start hint describe the direction sequence")
+

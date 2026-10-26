@@ -68,7 +68,7 @@ func run() -> void:
 	}
 	for action: String in expected:
 		check([keys.get_key(action, 0), keys.get_key(action, 1)] == expected[action], "two-hand default keys: " + action)
-	check(KeyBindings.ACTIONS.move_down == "下へ降りる" and KeyBindings.ACTIONS.aim_cycle == "射撃角度を切り替え", "new actions have Japanese names")
+	check(KeyBindings.ACTIONS.move_down == "下へ降りる" and KeyBindings.ACTIONS.aim_cycle == "射撃方向（前→上→下）", "new actions have Japanese names")
 	check(KeyBindings.key_text(KEY_SEMICOLON) == ";", "semicolon is displayed literally")
 	check(KeyBindings.ACTIONS.interact == "調べる", "interaction action has no room-travel description")
 	var ui_actions := {}
