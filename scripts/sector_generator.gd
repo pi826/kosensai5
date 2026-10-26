@@ -394,7 +394,7 @@ static func _finish(s: Dictionary, rng) -> Dictionary:
 				if s.breakables.size() == T.SECTOR_BLOCK_COUNT: break
 				if G.block_is_valid(block, s): s.breakables.append(block)
 			terrain.solids = s.solids + s.breakables
-			graphs = [G.navigation_graph(terrain), G.navigation_graph(terrain, true)]
+			graphs = [G.navigation_graph(terrain, false, graph, s.breakables), G.navigation_graph(terrain, true)]
 			if G.connectivity_errors(terrain, false, graphs[0]).is_empty() and G.connectivity_errors(terrain, true, graphs[1]).is_empty(): break
 			graphs.clear()
 		if graphs.is_empty(): return {}
@@ -488,11 +488,13 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 	if not errors.is_empty(): return errors
 	if s.get("bounds", Rect2()) != Rect2(Vector2.ZERO, T.SECTOR_SIZE): errors.append("Sector bounds")
 	if s.region != region_at(s.seed, s.coord): errors.append("Sector region")
+	if s.get("biomes", []) != [{"id": s.region, "name": T.BIOME_NAMES[s.region], "rect": s.bounds}]: errors.append("Sector biome metadata")
 	if s.chambers.size() < 3: return ["Missing anchor chamber"]
 	if s.coord == Vector2i.ZERO and s.start_position != T.SECTOR_START: errors.append("Local anchor")
 	if s.chambers.size() not in range(4, 9): errors.append("Chamber count")
 	for side: Vector2i in SIDES:
 		if s.gates.get(side, []) != boundary_gates(s.seed, s.coord, side): errors.append("Canonical gate mismatch")
+	var thick_solids: Array = s.solids.filter(func(r): return r.size.y != 16)
 	for solid: Rect2 in s.solids:
 		if not s.bounds.encloses(solid) or solid.size.x <= 0 or solid.size.y <= 0: errors.append("Solid bounds")
 		for v: float in [solid.position.x, solid.position.y, solid.size.x]:
@@ -500,7 +502,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		if solid.size.y == 16:
 			var inset := minf(16, solid.size.x / 4)
 			for dy: float in [-76, 16]:
-				if G._any_intersects(s.solids.filter(func(r): return r.size.y != 16), Rect2(solid.position + Vector2(inset, dy), Vector2(solid.size.x - inset * 2, 76)).grow(-0.1)): errors.append("Shelf clearance")
+				if G._any_intersects(thick_solids, Rect2(solid.position + Vector2(inset, dy), Vector2(solid.size.x - inset * 2, 76)).grow(-0.1)): errors.append("Shelf clearance")
 	var starts := 0
 	var boss_rooms := 0
 	var step_rooms := 0
@@ -573,6 +575,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		if e.kind == "boss":
 			bosses += 1
 			if guardian_sectors(s.seed).find(s.coord) != e.boss_id or room.kind != "boss" or e.boss_id != s.region: errors.append("Guardian assignment")
+			if not s.get("landmarks", []).any(func(mark): return mark.id == e.boss_id and mark.position == e.position): errors.append("Guardian landmark")
 		else:
 			kinds[e.kind] = kinds.get(e.kind, 0) + 1
 			rooms[e.chamber_id] = rooms.get(e.chamber_id, 0) + 1
@@ -596,6 +599,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 	if arc < count * 0.45 or arc > count * 0.60 or kinds.values().any(func(n): return n > count * 0.30): errors.append("Enemy ratios")
 	if rooms.values().any(func(n): return n > 5): errors.append("Room enemy cap")
 	if bosses != int(s.coord in guardian_sectors(s.seed)): errors.append("Guardian count")
+	if s.get("landmarks", []).size() != bosses: errors.append("Landmark count")
 	var fixture := s.duplicate(false)
 	fixture.breakables = []
 	for block: Rect2 in s.breakables:
@@ -611,6 +615,8 @@ static func _shell_errors(s: Dictionary) -> Array[String]:
 	var thick: Array = s.solids.filter(func(r): return r.size.y != 16)
 	for side: Vector2i in SIDES:
 		var length := int(T.SECTOR_SIZE.y if side.x != 0 else T.SECTOR_SIZE.x)
+		var border := Rect2(0 if side.x < 0 else T.SECTOR_SIZE.x - 32, 0, 32, T.SECTOR_SIZE.y) if side.x != 0 else Rect2(0, 0 if side.y < 0 else T.SECTOR_SIZE.y - 32, T.SECTOR_SIZE.x, 32)
+		var boundary_rock: Array = thick.filter(func(r): return r.intersects(border))
 		for t in range(0, length, 32):
 			var cell := Rect2(0 if side.x < 0 else T.SECTOR_SIZE.x - 32, t, 32, 32) if side.x != 0 else Rect2(t, 0 if side.y < 0 else T.SECTOR_SIZE.y - 32, 32, 32)
 			var open := false
@@ -618,7 +624,7 @@ static func _shell_errors(s: Dictionary) -> Array[String]:
 				if side.x != 0: open = open or (t >= gate.floor - gate.height and t < gate.floor)
 				else: open = open or (t >= gate.x and t < gate.x + gate.width)
 			var area := 0.0
-			for r: Rect2 in thick: area += r.intersection(cell).get_area() if r.intersects(cell) else 0.0
+			for r: Rect2 in boundary_rock: area += r.intersection(cell).get_area() if r.intersects(cell) else 0.0
 			if (open and area != 0) or (not open and not is_equal_approx(area, cell.get_area())): errors.append("Boundary rock/opening mismatch")
 	return errors
 

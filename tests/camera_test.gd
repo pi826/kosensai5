@@ -27,6 +27,7 @@ func prepare(initial_position: Vector2) -> void:
 	for action: String in ["move_left", "move_right", "jump", "shoot", "special", "interact"]:
 		Input.action_release(action)
 	game.start_run(37)
+	game.streaming_enabled = false
 	for actor in get_nodes_in_group("enemies"):
 		actor.set_physics_process(false)
 	game.player.position = initial_position
@@ -56,7 +57,7 @@ func assert_sample(sample: Dictionary, context: String) -> void:
 	check(sample.body_outside_frames.is_empty(), context + ": whole player body remains visible with an eight-pixel viewport margin")
 	check(sample.max_screen_y <= SAFE_BOTTOM, context + ": player remains above the footer while moving")
 	check(sample.max_camera_step <= MAX_CAMERA_STEP, context + ": camera moves less than one tile per physics frame")
-	check(sample.camera_outside_frames.is_empty(), context + ": camera remains inside world bounds")
+	check(sample.camera_outside_frames.is_empty(), context + ": camera follows throughout the loaded area")
 
 func run() -> void:
 	game = Main.new()
@@ -65,6 +66,7 @@ func run() -> void:
 	game.key_bindings.reset_defaults()
 	# Descend a generated shaft with a clear long fall, using down input on its shelves.
 	game.start_run(37)
+	game.streaming_enabled = false
 	var fixture: Dictionary = preload('res://tests/cave_driver.gd').shaft_fixture(game.stage,true)
 	var shaft: Dictionary = fixture.shaft
 	var fall_x: float = fixture.x
@@ -72,7 +74,8 @@ func run() -> void:
 	Input.action_press("move_down")
 	var sample := new_sample()
 	var landed := false
-	for index in range(240):
+	var descent_frames := ceili(60 * (shaft.rect.size.y / T.MAX_FALL_SPEED + (shaft.platforms.size() + 1) * (T.MAX_FALL_SPEED / T.FALL_GRAVITY + T.DROP_THROUGH_MAX_TIME)))
+	for index in range(descent_frames):
 		var previous: Vector2 = game.camera.position
 		await frames()
 		observe(sample, previous)
@@ -132,6 +135,10 @@ func run() -> void:
 	check(start_y - minimum_y > 160, "upward camera test exercises a full-height physical jump")
 	check(game.player.is_on_floor() and absf(game.player.position.y + T.PLAYER_SIZE.y / 2 - shelf.position.y) < 0.5, "jump lands on the lowest generated shaft shelf")
 	measurements.upward_jump = jump_sample
+	game.player.set_physics_process(false)
+	game.player.position = game.stage.bounds.position + Vector2.ONE * 32
+	game._update_camera(0,true)
+	check(not game.camera.limit_enabled and game.camera.position.x < game.stage.bounds.position.x + T.VIEW_SIZE.x/2 and game.camera.position.y < game.stage.bounds.position.y + T.VIEW_SIZE.y/2,"camera has no enclosing-world edge clamp even over outer rock")
 	game.queue_free()
 	await frames(2)
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")

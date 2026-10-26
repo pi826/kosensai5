@@ -143,7 +143,7 @@ func _rebuild_row(key: Vector2i) -> void:
 			collision_root.remove_child(body)
 			body.queue_free()
 	row_bodies[key] = []
-	var columns: Array = row_cells[key].keys()
+	var columns: Array = row_cells.get(key, {}).keys()
 	columns.sort()
 	var index := 0
 	while index < columns.size():
@@ -406,24 +406,40 @@ func mask_for_cell(cell: Vector2i) -> int:
 	if w and n and occupied.has(cell + Vector2i(-1, -1)): mask |= NORTH_WEST
 	return mask
 
+static func regional_theme(point: Vector2, seed_value: int) -> Dictionary:
+	var coord := Vector2i((point / T.SECTOR_SIZE).floor())
+	var local := point - Vector2(coord) * T.SECTOR_SIZE
+	var lo := coord
+	var hi := coord
+	var blend := Vector2.ZERO
+	for axis in range(2):
+		if local[axis] < T.REGION_BLEND_WIDTH:
+			lo[axis] -= 1
+			blend[axis] = smoothstep(-T.REGION_BLEND_WIDTH, T.REGION_BLEND_WIDTH, local[axis])
+		elif local[axis] > T.SECTOR_SIZE[axis] - T.REGION_BLEND_WIDTH:
+			hi[axis] += 1
+			blend[axis] = smoothstep(T.SECTOR_SIZE[axis] - T.REGION_BLEND_WIDTH, T.SECTOR_SIZE[axis] + T.REGION_BLEND_WIDTH, local[axis])
+	var sectors := preload("res://scripts/sector_generator.gd")
+	if lo == hi: return THEMES[sectors.region_at(seed_value, lo)]
+	var a: Dictionary = THEMES[sectors.region_at(seed_value, lo)]
+	var b: Dictionary = THEMES[sectors.region_at(seed_value, Vector2i(hi.x, lo.y))]
+	var c: Dictionary = THEMES[sectors.region_at(seed_value, Vector2i(lo.x, hi.y))]
+	var d: Dictionary = THEMES[sectors.region_at(seed_value, hi)]
+	var result := {}
+	for key: String in a: result[key] = a[key].lerp(b[key], blend.x).lerp(c[key].lerp(d[key], blend.x), blend.y)
+	return result
+
+func theme_at(point: Vector2) -> Dictionary:
+	if stage.has("seed"): return regional_theme(point, stage.seed)
+	return theme_at_x(point.x)
+
 func theme_at_x(x: float) -> Dictionary:
-	var bounds: Rect2 = stage.get("bounds", Rect2(0, 0, 12288, 3072))
-	var width := bounds.size.x / 3.0
-	var region := clampi(floori((x - bounds.position.x) / width), 0, 2)
-	var theme: Dictionary = THEMES[region].duplicate()
-	# The terrain palette follows the same soft boundary as the backdrop.
-	for boundary in [1, 2]:
-		var at: float = bounds.position.x + width * int(boundary)
-		if absf(x - at) < 256.0:
-			var mix := smoothstep(at - 256.0, at + 256.0, x)
-			for key: String in theme:
-				theme[key] = THEMES[boundary - 1][key].lerp(THEMES[boundary][key], mix)
-	return theme
+	return regional_theme(Vector2(x, 0), int(stage.get("seed", 0)))
 
 func draw_tile(canvas: Node2D, cell: Vector2i, mask: int) -> void:
 	var world_at := Vector2(cell) * TILE_SIZE
 	var at := world_at - canvas.position
-	var theme := theme_at_x(world_at.x + TILE_SIZE / 2.0)
+	var theme := theme_at(world_at + Vector2.ONE * TILE_SIZE / 2.0)
 	canvas.draw_rect(Rect2(at, Vector2.ONE * TILE_SIZE), theme.body)
 	if mask == 255 and not block_cells.has(cell): return
 	canvas.draw_line(at + Vector2(0, 31), at + Vector2(32, 31), theme.shadow, 1.0)
@@ -456,7 +472,7 @@ func _draw_corner(canvas: Node2D, corner: Vector2, inward: Vector2, mask: int, a
 
 func draw_shelf(canvas: Node2D, world_shelf: Rect2) -> void:
 	var shelf := Rect2(world_shelf.position - canvas.position, world_shelf.size)
-	var theme := theme_at_x(world_shelf.get_center().x)
+	var theme := theme_at(world_shelf.get_center())
 	canvas.draw_rect(shelf, theme.shadow)
 	canvas.draw_rect(Rect2(shelf.position, Vector2(shelf.size.x, 5)), theme.inner)
 	canvas.draw_line(shelf.position + Vector2(0, 1), Vector2(shelf.end.x, shelf.position.y + 1), theme.edge, 3.0)

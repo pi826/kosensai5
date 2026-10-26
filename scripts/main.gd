@@ -1,16 +1,21 @@
 extends Node2D
 const T := preload("res://scripts/tuning.gd")
-const Generator := preload("res://scripts/stage_generator.gd")
+const SectorStream := preload("res://scripts/sector_stream.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Bullet := preload("res://scripts/projectile.gd")
 const LaserBeam := preload("res://scripts/laser_beam.gd")
 const Bomb := preload("res://scripts/bomb.gd")
-const WorldTerrain := preload("res://scripts/world_terrain.gd")
+const WorldTerrain := preload("res://scripts/streamed_terrain.gd")
 const WorldBackdrop := preload("res://scripts/world_backdrop.gd")
 const Effects := preload("res://scripts/effects.gd")
 const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
+
+class PhysicsProbe extends Node:
+	var game: Node
+	func _physics_process(_delta: float) -> void:
+		game._finish_physics_sample()
 
 var stage: Dictionary = {}
 var last_start_metrics: Dictionary = {}
@@ -36,15 +41,29 @@ var explored_cells: Dictionary = {}
 var discovered_bosses: Dictionary = {}
 var defeated_bosses: Dictionary = {}
 var defeated_enemies: Dictionary = {}
+var visited_sectors: Dictionary = {}
+var explored_by_sector: Dictionary = {}
+var explored_geometry: Dictionary = {}
+var stream: RefCounted
+var streaming_enabled := true
+var streaming_wait := false
+var frame_times: Array[float] = []
+var physics_frame_times: Array[float] = []
+var physics_frame_started := 0
 
 func _ready() -> void:
 	_register_inputs()
 	camera = Camera2D.new()
 	camera.position = T.VIEW_SIZE / 2
+	camera.limit_enabled = false
 	add_child(camera)
 	ui = Interface.new()
 	ui.game = self
 	add_child(ui)
+	var probe := PhysicsProbe.new()
+	probe.game = self
+	probe.process_physics_priority = 1000
+	add_child(probe)
 	start_run(_random_seed())
 	show_menu("title")
 
@@ -57,50 +76,46 @@ func _random_seed() -> int:
 
 func start_run(stage_seed: int) -> void:
 	var started := Time.get_ticks_usec()
+	if stream != null: stream.shutdown()
 	if is_instance_valid(world):
 		remove_child(world)
-		world.queue_free()
-	var generation_started := Time.get_ticks_usec()
-	stage = Generator.generate(stage_seed)
-	var generation_ms := (Time.get_ticks_usec() - generation_started) / 1000.0
+		world.free()
 	current_seed = stage_seed
+	stage = {"seed": stage_seed, "streaming": true, "bounds": Rect2(), "start_position": T.SECTOR_START}
 	score = 0
 	elapsed = 0.0
 	kills = 0
 	total_enemies = 0
 	ending = false
 	boss = null
+	player = null
+	streaming_enabled = true
+	streaming_wait = false
+	frame_times.clear()
+	physics_frame_times.clear()
+	physics_frame_started = 0
 	explored_cells.clear()
+	explored_by_sector.clear()
+	explored_geometry.clear()
+	visited_sectors.clear()
 	discovered_bosses.clear()
 	defeated_bosses.clear()
 	defeated_enemies.clear()
 	world = Node2D.new()
 	world.name = "Stage"
 	add_child(world)
-	var background := WorldBackdrop.new()
-	background.stage = stage
-	world.add_child(background)
 	terrain = WorldTerrain.new()
 	terrain.stage = stage
 	world.add_child(terrain)
-	for spawn: Dictionary in stage.spawns:
-		var enemy := Enemy.new()
-		enemy.game = self
-		enemy.kind = spawn.kind
-		enemy.polarity = spawn.polarity
-		enemy.patrol = spawn.patrol
-		enemy.position = spawn.position
-		enemy.boss_id = spawn.boss_id
-		enemy.spawn_id = spawn.id
-		world.add_child(enemy)
-		if enemy.kind != "boss":
-			total_enemies += 1
 	projectiles = Node2D.new()
 	projectiles.name = "Projectiles"
 	world.add_child(projectiles)
 	effects = Effects.new()
 	effects.z_index = 5
 	world.add_child(effects)
+	stream = SectorStream.new()
+	stream.game = self
+	stream.initialize()
 	player = Player.new()
 	player.game = self
 	player.position = stage.start_position
@@ -114,7 +129,18 @@ func start_run(stage_seed: int) -> void:
 	_update_exploration()
 	get_viewport().gui_release_focus()
 	ui.update_hud()
-	last_start_metrics = {"seed": stage_seed, "generation_ms": generation_ms, "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_root.get_child_count(), "actors": stage.spawns.size() + 1}
+	last_start_metrics = {"seed": stage_seed, "generation_ms": stream.generation_times.reduce(func(a, b): return a + b, 0.0), "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_root.get_child_count(), "actors": stage.spawns.size() + 1}
+
+func _exit_tree() -> void:
+	if stream != null: stream.shutdown()
+
+func loaded_contains(point: Vector2) -> bool:
+	if not streaming_enabled or stream == null: return stage.bounds.has_point(point)
+	return stream.contains(point)
+
+func map_geometry(area: Rect2) -> Array:
+	if is_instance_valid(terrain) and (not streaming_enabled or stream.contains(area.get_center())): return terrain.map_geometry(area)
+	return explored_geometry.get(Vector2i((area.position / T.MAP_CELL_SIZE).floor()), [])
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_game") and not event.is_echo():
@@ -128,12 +154,36 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _physics_process(delta: float) -> void:
+	physics_frame_started = 0
 	if state == "playing" and is_instance_valid(player):
+		var begin := Time.get_ticks_usec()
+		physics_frame_started = begin
+		if streaming_enabled:
+			stream.request_around(player.position,player.velocity)
+			stream.service()
+			var next_view := view_rect().grow(T.TILE_SIZE).merge(Rect2(player.position - T.VIEW_SIZE / 2 + player.velocity * delta, T.VIEW_SIZE))
+			streaming_wait = not stream.contains_rect(next_view) or not stream.neighbourhood_ready(player.position,delta)
+			world.process_mode = Node.PROCESS_MODE_DISABLED if streaming_wait else Node.PROCESS_MODE_INHERIT
+			if streaming_wait:
+				stream.hold_frames += 1
+				_record_frame(begin)
+				return
 		elapsed += delta
 		_update_camera(delta)
 		_update_exploration()
 		_update_lock_marks()
 		ui.update_hud()
+		_record_frame(begin)
+
+func _record_frame(begin: int) -> void:
+	frame_times.append((Time.get_ticks_usec() - begin) / 1000.0)
+	if frame_times.size() > T.STREAM_METRIC_SAMPLES: frame_times.pop_front()
+
+func _finish_physics_sample() -> void:
+	if physics_frame_started == 0: return
+	physics_frame_times.append((Time.get_ticks_usec()-physics_frame_started)/1000.0)
+	physics_frame_started = 0
+	if physics_frame_times.size() > T.STREAM_METRIC_SAMPLES: physics_frame_times.pop_front()
 
 func _update_camera(delta: float, snap: bool = false) -> void:
 	if not is_instance_valid(player):
@@ -150,33 +200,29 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 			target.x = focus.x - signf(difference.x) * T.CAMERA_DEAD_ZONE.x
 		if absf(difference.y) > T.CAMERA_DEAD_ZONE.y:
 			target.y = focus.y - signf(difference.y) * T.CAMERA_DEAD_ZONE.y
-	var half := T.VIEW_SIZE / 2
-	var bounds: Rect2 = stage.bounds
-	target.x = clampf(target.x, bounds.position.x + half.x, bounds.end.x - half.x)
-	target.y = clampf(target.y, bounds.position.y + half.y, bounds.end.y - half.y)
 	camera.position = target if snap else camera.position.lerp(target, 1.0 - exp(-T.CAMERA_FOLLOW_SPEED * delta))
 	if snap:
 		camera.reset_smoothing()
 
 func biome_at(point: Vector2) -> int:
-	for biome: Dictionary in stage.get("biomes", []):
-		if biome.rect.has_point(point):
-			return biome.id
-	return 0
+	return preload("res://scripts/sector_generator.gd").region_at(current_seed, SectorStream.coord_at(point))
 
 func _update_exploration() -> void:
 	if not is_instance_valid(player) or player.dead:
 		return
-	var bounds: Rect2 = stage.bounds
 	var radius := T.EXPLORATION_RADIUS
-	var from_cell := Vector2i((player.position - Vector2.ONE * radius) / T.MAP_CELL_SIZE)
-	var to_cell := Vector2i((player.position + Vector2.ONE * radius) / T.MAP_CELL_SIZE)
+	var from_cell := Vector2i(((player.position - Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
+	var to_cell := Vector2i(((player.position + Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
 	for y in range(from_cell.y, to_cell.y + 1):
 		for x in range(from_cell.x, to_cell.x + 1):
 			var cell := Vector2i(x, y)
 			var center := (Vector2(cell) + Vector2.ONE * 0.5) * T.MAP_CELL_SIZE
-			if bounds.has_point(center) and center.distance_to(player.position) <= radius:
+			if center.distance_to(player.position) <= radius:
 				explored_cells[cell] = true
+				var at := SectorStream.coord_at(center)
+				if not explored_by_sector.has(at): explored_by_sector[at] = {}
+				explored_by_sector[at][cell] = true
+	visited_sectors[SectorStream.coord_at(player.position)] = true
 	boss = null
 	var distance := INF
 	for actor in get_tree().get_nodes_in_group("enemies"):
@@ -250,8 +296,10 @@ func _update_lock_marks() -> void:
 	var marked := lock_on_targets()
 	for actor in get_tree().get_nodes_in_group("enemies"):
 		if actor.get_parent() == world:
-			actor.lock_marked = marked.has(actor)
-			actor.queue_redraw()
+			var next_mark := marked.has(actor)
+			if actor.lock_marked != next_mark:
+				actor.lock_marked = next_mark
+				actor.queue_redraw()
 
 func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
 	var bullet := Bullet.new()
@@ -281,6 +329,7 @@ func spawn_laser(actor: CharacterBody2D) -> Node2D:
 	var beam := LaserBeam.new()
 	beam.game = self
 	beam.source = actor
+	beam.set_meta("source_sector", SectorStream.coord_at(actor.position))
 	beam.polarity = actor.polarity
 	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
 	projectiles.add_child(beam)
@@ -291,6 +340,7 @@ func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
 	var bomb := Bomb.new()
 	bomb.game = self
 	bomb.source = actor
+	bomb.set_meta("source_sector", SectorStream.coord_at(actor.position))
 	bomb.polarity = actor.polarity
 	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
 	projectiles.add_child(bomb)

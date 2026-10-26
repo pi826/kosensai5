@@ -24,6 +24,7 @@ func run():
 	root.add_child(game)
 	game.key_bindings.reset_defaults()
 	game.start_run(37)
+	game.streaming_enabled = false
 	quiet()
 	var driver := Driver.new()
 	driver.tree=self
@@ -55,11 +56,11 @@ func run():
 		if game.player.is_on_floor() and game.player.position.y+22>shaft.rect.end.y-1: break
 	driver.input("move_down",false)
 	check(absf(game.player.position.y+22-shaft.rect.end.y)<1 and passed_shelves>=shaft.platforms.size(),"held down passes mouth and all overlapping shelves to bottom")
-	var tunnel: Dictionary = game.stage.tunnels.filter(func(e):return game.stage.chambers[e.a].rect.end.y!=game.stage.chambers[e.b].rect.end.y)[0]
-	var ar: Rect2 = game.stage.chambers[tunnel.a].rect
-	var br: Rect2 = game.stage.chambers[tunnel.b].rect
-	var a := Vector2(ar.end.x-32,ar.end.y-22)
-	var b := Vector2(br.position.x+32,br.end.y-22)
+	var tunnel: Dictionary = game.stage.tunnels.filter(func(e): return e.pieces[0].end.y != e.pieces[-1].end.y)[0]
+	var first: Rect2 = tunnel.pieces[0]
+	var last: Rect2 = tunnel.pieces[-1]
+	var a := Vector2(first.get_center().x,first.end.y-22)
+	var b := Vector2(last.get_center().x,last.end.y-22)
 	game.player.position=a
 	game.player.velocity=Vector2.ZERO
 	game._update_camera(0,true)
@@ -68,7 +69,7 @@ func run():
 	check(await driver.follow(G.path_steps(graph,G.node_at(graph,a),G.node_at(graph,b),b)),"different-height tunnel forward: "+driver.error)
 	check(await driver.follow(G.path_steps(graph,G.node_at(graph,b),G.node_at(graph,a),a)),"different-height tunnel return: "+driver.error)
 	check(game.world.get_instance_id()==world_id,"shaft and tunnel use original world")
-	check(game.stage.spawns.all(func(s): return s.kind=="boss" or game.stage.chambers[s.chamber_id].kind=="normal"),"no ordinary enemies in start or boss chamber")
+	check(game.stream.loaded.values().all(func(data): return data.spawns.all(func(s): return s.kind == "boss" or data.chambers[s.chamber_id].kind == "normal")),"no ordinary enemies in start or boss chamber")
 	driver.release()
 	game.set_physics_process(false)
 	game.player.set_physics_process(false)

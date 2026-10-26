@@ -214,7 +214,7 @@ func update_hud() -> void:
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
 	if game.stage.is_empty():
 		return
-	progress_label.text = "探索  %d%%   ·   シード %d" % [exploration_percent(), game.current_seed]
+	progress_label.text = "探索  %d区画   ·   シード %d" % [explored_sector_count(), game.current_seed]
 	progress_bar.max_value = 3
 	progress_bar.value = game.defeated_bosses.size()
 	var at: Vector2 = game.player.position if live else game.stage.start_position
@@ -232,12 +232,8 @@ func update_hud() -> void:
 		boss_label.text = "ガーディアン %d  /  %s" % [game.boss.boss_id + 1, T.COLOR_NAMES[game.boss.polarity]]
 	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0
 
-func exploration_percent() -> int:
-	if game.stage.is_empty():
-		return 0
-	var bounds: Rect2 = game.stage.bounds
-	var cells := ceili(bounds.size.x / 128.0) * ceili(bounds.size.y / 128.0)
-	return clampi(roundi(game.explored_cells.size() * 100.0 / maxi(cells, 1)), 0, 100)
+func explored_sector_count() -> int:
+	return game.visited_sectors.size()
 
 func show_menu(next_state: String) -> void:
 	menu.show()
@@ -254,13 +250,13 @@ func show_menu(next_state: String) -> void:
 		"paused":
 			menu_title.text = "一時停止"
 			menu_subtitle.text = "ひと休み。準備ができたら再開。"
-			menu_detail.text = "スコア  %06d     /     シード  %d\nガーディアン %d / 3 撃破    ·    探索 %d%%" % [game.score, game.current_seed, game.defeated_bosses.size(), exploration_percent()]
+			menu_detail.text = "スコア  %06d     /     シード  %d\nガーディアン %d / 3 撃破    ·    探索 %d区画" % [game.score, game.current_seed, game.defeated_bosses.size(), explored_sector_count()]
 			primary_button.text = "再開  /  " + game.key_bindings.get_binding_text("pause_game")
 			new_button.text = "同じマップを最初から"
 		"lost", "won":
 			menu_title.text = "クリア" if next_state == "won" else "失敗"
 			menu_subtitle.text = "3体のガーディアンをすべて撃破。" if next_state == "won" else "再挑戦は同じ地形で最初から。ガーディアンも復活。"
-			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d / 3    ·    通常敵 %d / %d\n探索 %d%%    ·    シード %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, game.total_enemies, exploration_percent(), game.current_seed]
+			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d / 3    ·    通常敵 %d撃破\n探索 %d区画    ·    シード %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, explored_sector_count(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
 			new_button.text = "新しいマップで開始"
 	update_hud()

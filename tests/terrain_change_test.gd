@@ -6,6 +6,7 @@ const Laser := preload("res://scripts/laser_beam.gd")
 const Bomb := preload("res://scripts/bomb.gd")
 const Generator := preload("res://scripts/stage_generator.gd")
 const T := preload("res://scripts/tuning.gd")
+const FIXTURE_SIZE := Vector2(12288, 3072)
 const FLOOR_Y := 2304.0
 var game: Node2D
 var checks := 0
@@ -37,6 +38,7 @@ func fixture(blocks: bool = false, step: bool = false) -> void:
 	for name in ["move_left", "move_right", "jump", "shoot"]:
 		Input.action_release(name)
 	game.start_run(37)
+	game.streaming_enabled = false
 	game.set_physics_process(false)
 	game.player.set_physics_process(false)
 	for child in game.world.get_children():
@@ -45,9 +47,9 @@ func fixture(blocks: bool = false, step: bool = false) -> void:
 	game.stage.solids = []
 	for index in range(32):
 		var top := FLOOR_Y - (64 if step and index == 7 else 0)
-		game.stage.solids.append(Rect2(index * 384, top, 384, T.WORLD_SIZE.y - top))
-	game.stage.solids.append(Rect2(0, 0, 32, T.WORLD_SIZE.y))
-	game.stage.solids.append(Rect2(T.WORLD_SIZE.x - 32, 0, 32, T.WORLD_SIZE.y))
+		game.stage.solids.append(Rect2(index * 384, top, 384, FIXTURE_SIZE.y - top))
+	game.stage.solids.append(Rect2(0, 0, 32, FIXTURE_SIZE.y))
+	game.stage.solids.append(Rect2(FIXTURE_SIZE.x - 32, 0, 32, FIXTURE_SIZE.y))
 	game.stage.solids.append(Rect2(3008, FLOOR_Y - 128, 192, 16))
 	game.stage.protected_rects = []
 	for interval: Vector2 in [Vector2(0,96),Vector2(384,1152),Vector2(5696,6592),Vector2(11136,11904),Vector2(12192,12288)]:
@@ -86,7 +88,7 @@ func ray(from: Vector2, to: Vector2, mask: int) -> Dictionary:
 
 func verify_surface() -> void:
 	await fixture()
-	var stage_before := Generator.signature(game.stage)
+	var stage_before := str(game.stage)
 	var center := Vector2(2512, FLOOR_Y + 32)
 	var neighbour := Vector2i(76, 72)
 	var old_mask: int = game.terrain.tile_masks[neighbour]
@@ -128,7 +130,7 @@ func verify_surface() -> void:
 	check(not ray(Vector2(80, 800), Vector2(0, 800), 1).is_empty(), "outer wall cannot be destroyed")
 	game.terrain.explode(Vector2(2512, FLOOR_Y + 96), 180)
 	check(game.terrain.occupied.has(Vector2i(78, 74)), "repeated deeper blasts never excavate below 64px")
-	check(Generator.signature(game.stage) == stage_before, "runtime damage never mutates generated stage data")
+	check(str(game.stage) == stage_before, "runtime damage never mutates generated stage data")
 
 func verify_jump_and_walk() -> void:
 	await fixture(false, true)
@@ -503,7 +505,7 @@ func verify_map_retry_performance() -> void:
 	var pristine: Dictionary = game.terrain.occupied.duplicate()
 	var pristine_masks: Dictionary = game.terrain.tile_masks.duplicate()
 	var pristine_blocks: Dictionary = game.terrain.breakables.duplicate(true)
-	var pristine_map: Array = game.terrain.map_geometry(Rect2(0, 0, T.WORLD_SIZE.x, T.WORLD_SIZE.y))
+	var pristine_map: Array = game.terrain.map_geometry(Rect2(0, 0, FIXTURE_SIZE.x, FIXTURE_SIZE.y))
 	var surface: Rect2 = game.stage.erodible_surfaces[0]
 	game.terrain.explode(surface.get_center(),60)
 	var wall := -1
@@ -525,7 +527,7 @@ func verify_map_retry_performance() -> void:
 		actor.set_physics_process(false)
 	await frames(2)
 	check(game.terrain.occupied == pristine and game.terrain.tile_masks == pristine_masks and game.terrain.breakables == pristine_blocks, "retry completely restores original terrain, masks, blocks and durability")
-	check(game.terrain.map_geometry(Rect2(0, 0, T.WORLD_SIZE.x, T.WORLD_SIZE.y)) == pristine_map, "retry restores complete minimap geometry")
+	check(game.terrain.map_geometry(Rect2(0, 0, FIXTURE_SIZE.x, FIXTURE_SIZE.y)) == pristine_map, "retry restores complete minimap geometry")
 	check(game.terrain.walls.is_empty() and game.terrain.destroyed_cells.is_empty() and game.projectiles.get_child_count() == 0 and not is_instance_valid(flying), "retry leaves no walls, destroyed cells or flying bombs")
 	game.ui.minimap.update_map()
 	check(game.ui.minimap._terrain_version[0] == game.terrain.get_instance_id(), "same-seed retry refreshes minimap terrain identity")
@@ -582,7 +584,7 @@ func verify_cave_protection() -> void:
 	game.terrain.explode(shelf.get_center(),200)
 	await frames(2)
 	check(not ray(shelf.get_center()-Vector2(0,30),shelf.get_center()+Vector2(0,30),T.PLATFORM_LAYER).is_empty(),"shaft mouth lid remains physical after blast")
-	var room: Rect2 = game.stage.chambers[1].rect
+	var room: Rect2 = game.stage.chambers.filter(func(r): return r.kind == "start")[0].rect
 	var ceiling := Vector2(room.get_center().x+256,room.position.y-16)
 	var wall := Vector2(room.position.x-16,room.position.y+96)
 	for point: Vector2 in [ceiling,wall]:

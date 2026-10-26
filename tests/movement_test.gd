@@ -43,6 +43,7 @@ func reset_player() -> void:
 	for action in ["move_left", "move_right", "jump", "move_down", "shoot", "switch_color", "aim_cycle", "special"]:
 		input_action(action, false)
 	game.start_run(37)
+	game.streaming_enabled = false
 	for enemy in get_nodes_in_group("enemies"):
 		enemy.set_physics_process(false)
 	for child in game.world.get_children():

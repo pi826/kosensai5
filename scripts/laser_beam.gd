@@ -32,24 +32,21 @@ static func curve_points(start: Vector2, target: Vector2, facing: int) -> Packed
 
 func clip_path() -> void:
 	path.clear()
-	if curve.is_empty() or not game.stage.bounds.has_point(curve[0]):
+	if curve.is_empty() or not game.loaded_contains(curve[0]):
 		return
 	path.append(curve[0])
-	var bounds: Rect2 = game.stage.bounds
 	for index in range(1, curve.size()):
 		var start := path[-1]
 		var end := curve[index]
-		var outside := not bounds.has_point(end)
+		var outside: bool = not game.loaded_contains(end)
 		if outside:
-			# Previous point is inside: the earliest exit is an axis boundary.
-			var chord := end - start
-			var fraction := 1.0
-			for axis in range(2):
-				if chord[axis] > 0:
-					fraction = minf(fraction, (bounds.end[axis] - start[axis]) / chord[axis])
-				elif chord[axis] < 0:
-					fraction = minf(fraction, (bounds.position[axis] - start[axis]) / chord[axis])
-			end = start + chord * fraction
+			var inside := start
+			var beyond := end
+			for step in range(20):
+				var middle := (inside + beyond) / 2
+				if game.loaded_contains(middle): inside = middle
+				else: beyond = middle
+			end = inside
 		var ray := PhysicsRayQueryParameters2D.create(start, end, 1 | T.PLATFORM_LAYER)
 		ray.hit_from_inside = true
 		var hit := get_world_2d().direct_space_state.intersect_ray(ray)

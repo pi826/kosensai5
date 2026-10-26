@@ -14,6 +14,8 @@ var laser_beam: Node2D
 var bomb: Node2D
 var build_clock := T.BUILD_INTERVAL
 var wall_plan := Rect2()
+var resting_revision := -1
+var resting_position := Vector2.INF
 
 func _ready() -> void:
 	faction = 1
@@ -31,15 +33,21 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if dead or not is_instance_valid(game.player):
 		return
-	tick_visuals(delta)
 	var on_screen: bool = game.is_on_screen(global_position, 20.0)
+	tick_visuals(delta, on_screen)
 	if not on_screen:
 		was_visible = false
-		cancel_attack()
+		if action != "idle" or is_instance_valid(laser_beam) or is_instance_valid(bomb): cancel_attack()
 		velocity.x = 0
 		if kind != "flyer":
-			velocity.y += T.ENEMY_GRAVITY * delta
-			move_and_slide()
+			var revision: int = game.terrain.revision if is_instance_valid(game.terrain) else -1
+			# A resting body only needs another physics query after terrain changes
+			# or external movement. Unsupported enemies still fall off screen.
+			if not is_on_floor() or revision != resting_revision or position != resting_position:
+				velocity.y += T.ENEMY_GRAVITY * delta
+				move_and_slide()
+				resting_position = position
+				resting_revision = revision
 		return
 	if not was_visible:
 		wake_delay = T.ENEMY_WAKE_DELAY

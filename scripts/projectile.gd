@@ -25,6 +25,9 @@ func _physics_process(delta: float) -> void:
 			var turn := clampf(angle_difference(direction.angle(), desired), -T.HOMING_TURN_RATE * delta, T.HOMING_TURN_RATE * delta)
 			direction = direction.rotated(turn).normalized()
 	var next_position := global_position + direction * speed * delta
+	if not game.loaded_contains(next_position):
+		queue_free()
+		return
 	# Swept collision prevents fast shots tunnelling through a thin body or shelf.
 	var mask := 1 | T.PLATFORM_LAYER | (4 | T.WALL_LAYER if faction == 0 else 2)
 	var ray := PhysicsRayQueryParameters2D.create(global_position, next_position, mask)

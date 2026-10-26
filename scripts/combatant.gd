@@ -34,11 +34,11 @@ func _ready() -> void:
 	add_to_group("players" if faction == 0 else "enemies")
 	floor_snap_length = 12.0
 
-func tick_visuals(delta: float) -> void:
+func tick_visuals(delta: float, redraw: bool = true) -> void:
 	invulnerability = maxf(0.0, invulnerability - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
 	absorb_flash = maxf(0.0, absorb_flash - delta)
-	queue_redraw()
+	if redraw: queue_redraw()
 
 func receive_hit(attack_color: int, damage: int) -> String:
 	if dead:

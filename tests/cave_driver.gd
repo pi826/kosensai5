@@ -1,4 +1,5 @@
 extends RefCounted
+const T := preload("res://scripts/tuning.gd")
 ## Executes generated commands using the same action input as the player.
 var tree: SceneTree
 var game: Node2D
@@ -131,6 +132,9 @@ static func shaft_fixture(stage: Dictionary, for_fall: bool = false) -> Dictiona
 				gap=maxf(gap,shelf.position.y-previous)
 				previous=shelf.position.y
 			gap=maxf(gap,shaft.rect.end.y-previous)
-			if for_fall and gap<192: continue
+			if for_fall and gap<160: continue
+			if not for_fall:
+				var geometry := preload("res://scripts/stage_generator.gd")
+				if not [shaft.rect.position.x-16, shaft.rect.end.x+16, x].all(func(px): return geometry._supported(Vector2(px,shaft.rect.position.y-22),T.PLAYER_SIZE,stage.solids) and not geometry._embedded(Vector2(px,shaft.rect.position.y-22),T.PLAYER_SIZE,stage.solids)): continue
 			return {"shaft":shaft,"x":x}
 	return {}

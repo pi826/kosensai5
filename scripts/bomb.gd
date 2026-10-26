@@ -34,7 +34,7 @@ func _physics_process(delta: float) -> void:
 		if not hit.is_empty():
 			global_position = hit.position
 			detonate()
-		elif not game.stage.bounds.has_point(next):
+		elif not game.loaded_contains(next):
 			queue_free()
 		else:
 			global_position = next

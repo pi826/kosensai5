@@ -118,8 +118,6 @@ func _physics_process(delta: float) -> void:
 		visual_scale = Vector2(1.18, 0.84)
 		game.effect(global_position + Vector2(0, 22), Color("8aa4ac"), "land")
 	visual_scale = visual_scale.lerp(Vector2.ONE, 1.0 - exp(-18.0 * delta))
-	var world_bounds: Rect2 = game.stage.bounds
-	position.x = clampf(position.x, world_bounds.position.x + 24, world_bounds.end.x - 24)
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
 		game.spawn_bullet(self, shot_direction())
 		shot_cooldown = T.SHOT_INTERVAL

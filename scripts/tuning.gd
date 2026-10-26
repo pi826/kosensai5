@@ -115,16 +115,22 @@ const MAX_STEP_HEIGHT := JUMP_SPEED * JUMP_SPEED / (2.0 * GRAVITY) - LANDING_MAR
 
 # One continuous world. All positions use the same world coordinate system.
 const TILE_SIZE := 32
-const WORLD_SIZE := Vector2(12288, 3072)
-# Task 5B-1 data only; the running game still uses WORLD_SIZE.
+# Infinite world sectors, with integer keys independent of load order.
 const SECTOR_SIZE := Vector2(4096, 3072)
 const SECTOR_START := Vector2(1024, 1738)
 const SECTOR_RETRIES := 3
 const SECTOR_NORMAL_COUNT := 14
 const SECTOR_BLOCK_COUNT := 4
 const SECTOR_REGION_SPAN := 4
-const GROUND_Y := 2304.0
-const WORLD_START_X := 6144.0
+const STREAM_LOAD_RADIUS := 2
+const STREAM_UNLOAD_DISTANCE := 4
+const STREAM_WORKERS := 2
+const STREAM_LOOK_AHEAD_SECONDS := 3.0
+const STREAM_BUDGET_MS := 3.0
+const STREAM_DRAW_CHUNKS_PER_FRAME := 2
+const STREAM_METRIC_SAMPLES := 20000
+const MAP_SECTOR_WIDTH := 3.0
+const REGION_BLEND_WIDTH := 384.0
 const MAP_CELL_SIZE := 128
 const EXPLORATION_RADIUS := 384.0
 const CAMERA_FOLLOW_SPEED := 8.0
@@ -135,9 +141,6 @@ const CAMERA_DEAD_ZONE := Vector2(120, 64)
 const BIOME_NAMES := ["翠の水路", "紫晶の回廊", "灰燼の遺構"]
 
 # Cave layout: open chambers joined in both axes, all in one collision world.
-const CAVE_COUNT_MIN := 14
-const CAVE_COUNT_MAX := 22
-const CAVE_FLOOR_BANDS := [Vector2i(416, 1120), Vector2i(1152, 2016), Vector2i(2048, 2944)]
 const CAVE_ROOM_WIDTH_MIN := 640
 const CAVE_ROOM_WIDTH_MAX := 1536
 const CAVE_ROOM_HEIGHT_MIN := 320

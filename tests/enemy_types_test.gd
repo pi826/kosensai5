@@ -25,6 +25,7 @@ func frames(count: int) -> void:
 
 func fixture() -> void:
 	game.start_run(37)
+	game.streaming_enabled = false
 	game.set_physics_process(false)
 	game.player.set_physics_process(false)
 	for child in game.world.get_children():
@@ -250,7 +251,7 @@ func verify_clipping_and_cancellation() -> void:
 	beam = game.spawn_laser(enemy)
 	beam.build_curve(Vector2(5800, 2100), Vector2(13000, 2100), 1)
 	beam.clip_path()
-	check(beam.path[-1].x <= T.WORLD_SIZE.x and beam.path.size() < beam.curve.size(), "curve stops at world boundary")
+	check(beam.path[-1].x <= game.stage.bounds.end.x and beam.path.size() < beam.curve.size(), "curve stops at world boundary")
 	var old_world: Node2D = game.world
 	game.start_run(37)
 	await frames(2)

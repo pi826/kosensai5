@@ -1,5 +1,6 @@
 extends SceneTree
 const T := preload("res://scripts/tuning.gd")
+const FIXTURE_SIZE := Vector2(12288, 3072)
 const Actor := preload("res://scripts/combatant.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Terrain := preload("res://scripts/terrain.gd")
@@ -10,6 +11,17 @@ const FIXTURE_ORIGIN := Vector2(5800, 1600)
 
 class ObservedMain extends "res://scripts/main.gd":
 	var result_menu_count := 0
+	var guardian_fixtures: Array = []
+	func start_run(seed_value: int) -> void:
+		super.start_run(seed_value)
+		# Combat fixtures exercise all victory orders independently of streaming travel.
+		# Actual guardian loading/unloading is covered by streaming/playthrough tests.
+		streaming_enabled = false
+		if guardian_fixtures.is_empty():
+			for at in preload("res://scripts/sector_generator.gd").guardian_sectors(seed_value):
+				var data := preload("res://scripts/sector_job.gd").world_data(preload("res://scripts/sector_generator.gd").generate(seed_value, at))
+				guardian_fixtures.append_array(data.spawns.filter(func(s): return s.kind == "boss"))
+		for spawn: Dictionary in guardian_fixtures: stream._spawn(spawn)
 	func show_menu(next_state: String) -> void:
 		if next_state in ["won", "lost"]:
 			result_menu_count += 1
@@ -305,7 +317,7 @@ func run() -> void:
 	check(game.explored_cells == initial_exploration and game.discovered_bosses.is_empty(), "clear retry resets explored map cells and hidden guardians")
 	check(boss_enemies().size() == 3 and boss_enemies().all(func(actor): return actor.hp == T.BOSS_HP and not actor.dead), "clear retry revives all three guardians at full HP")
 	var defeated_before_death = boss_enemies()[0]
-	game.player.position = Vector2(T.WORLD_SIZE.x - 1400, 1800)
+	game.player.position = Vector2(FIXTURE_SIZE.x - 1400, 1800)
 	game._update_camera(1.0, true)
 	game._update_exploration()
 	for actor in get_nodes_in_group("enemies"):
@@ -772,4 +784,3 @@ func verify_ui_language() -> void:
 		game.ui.update_hud()
 		check(game.ui.angle_label.text == "射撃方向 " + ["前", "上", "下"][index], "HUD names the selected direction")
 	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.hint_label.text.contains("前→上→下"), "help and start hint describe the direction sequence")
-
