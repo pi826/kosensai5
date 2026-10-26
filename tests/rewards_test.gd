@@ -117,6 +117,15 @@ func stocks():
 	for e in targets: counts.append(game.projectiles.get_children().filter(func(b): return b.target == e).size())
 	check(game.projectiles.get_child_count() == 4 and counts.max() - counts.min() <= 1, "simultaneous volley assigns missiles evenly")
 	check(game.projectiles.get_children().all(func(b): return b.polarity == p.polarity), "volley stores launch color")
+	p.homing_charges = 0
+	game._update_lock_marks()
+	check(game.lock_on_targets().size() == 4, "flying targets stay marked with zero stock")
+	# Change the next volley's candidates without changing the existing missiles.
+	for target in targets: target.polarity = p.polarity
+	targets[4].polarity = 1 - p.polarity
+	p.homing_charges = 1
+	check(game.lock_on_targets().size() == 5 and game.lock_on_targets().has(targets[4]), "marks are union of next volley and flying targets across color changes")
+	p.homing_charges = 1
 	clear_bullets()
 	game.ui.update_hud()
 	check(game.ui.gauge_label.text == "誘導弾 ■□□□□  吸収2/4" and game.ui.gauge_bar.value == 2 and game.ui.gauge_bar.max_value == 4, "HUD shows stocks and separate absorption progress")

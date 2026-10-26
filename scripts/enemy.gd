@@ -16,11 +16,22 @@ var build_clock := T.BUILD_INTERVAL
 var wall_plan := Rect2()
 var resting_revision := -1
 var resting_position := Vector2.INF
+var boss_role := "guardian"
+var arena := Rect2()
+var roam := Rect2()
+var move_clock := 0.0
+var move_direction := Vector2(-1, -0.35)
+
+func _hp_changed(_previous_hp: int) -> void:
+	if kind == "boss" and game.boss_cycle.records.has(boss_id): game.boss_cycle.records[boss_id].hp = hp
 
 func _ready() -> void:
 	faction = 1
 	body_size = T.BOSS_SIZE if kind == "boss" else T.ENEMY_SIZE
 	max_hp = T.BOSS_HP if kind == "boss" else T.ENEMY_HP
+	if kind == "boss":
+		body_size = preload("res://scripts/boss_cycle.gd").size_for(boss_role)
+		max_hp = preload("res://scripts/boss_cycle.gd").hp_for(boss_role)
 	hp = max_hp
 	facing = -1
 	flight_center_y = position.y
@@ -39,7 +50,7 @@ func _physics_process(delta: float) -> void:
 		was_visible = false
 		if action != "idle" or is_instance_valid(laser_beam) or is_instance_valid(bomb): cancel_attack()
 		velocity.x = 0
-		if kind != "flyer":
+		if kind != "flyer" and not (kind == "boss" and roam.has_area()):
 			var revision: int = game.terrain.revision if is_instance_valid(game.terrain) else -1
 			# A resting body only needs another physics query after terrain changes
 			# or external movement. Unsupported enemies still fall off screen.
@@ -66,6 +77,9 @@ func _physics_process(delta: float) -> void:
 	_choose_attack(delta)
 
 func _move_kind(delta: float) -> void:
+	if kind == "boss" and roam.has_area():
+		_move_boss(delta)
+		return
 	if kind == "flyer":
 		_move_flyer(delta)
 		return
@@ -83,6 +97,22 @@ func _move_kind(delta: float) -> void:
 	move_and_slide()
 	if kind == "walker" and is_on_wall():
 		set_meta("patrol_direction", -int(get_meta("patrol_direction", -1)))
+
+func _move_boss(delta: float) -> void:
+	move_clock += delta
+	var period: float = T.BOSS_MOVE_PERIOD[boss_role]
+	var speed: float = T.BOSS_MOVE_SPEED[boss_role] * (T.BOSS_PACE_MIN + T.BOSS_PACE_VARIATION * sin(move_clock * TAU / period))
+	var slope: float = T.BOSS_MOVE_SLOPE[boss_role]
+	velocity = Vector2(signf(move_direction.x), signf(move_direction.y) * slope).normalized() * speed
+	var target := position + velocity * delta
+	if target.x <= roam.position.x or target.x >= roam.end.x: move_direction.x *= -1
+	if target.y <= roam.position.y or target.y >= roam.end.y: move_direction.y *= -1
+	target = Vector2(clampf(target.x, roam.position.x, roam.end.x), clampf(target.y, roam.position.y, roam.end.y))
+	var collision := move_and_collide(target - position)
+	if collision:
+		move_direction = move_direction.bounce(collision.get_normal())
+		if absf(collision.get_normal().x) > 0.5: move_direction.y *= -1
+	if game.boss_cycle.records.has(boss_id): game.boss_cycle.records[boss_id].position = position
 
 func _move_flyer(delta: float) -> void:
 	velocity = Vector2.ZERO
@@ -136,6 +166,8 @@ func _choose_build() -> bool:
 	return wall_plan.has_area()
 
 func _shot_interval() -> float:
+	if kind == "boss" and boss_role == "final": return T.FINAL_BOSS_SHOT_INTERVAL
+	if kind == "boss" and boss_role == "secret": return T.SECRET_BOSS_SHOT_INTERVAL
 	if kind == "laser":
 		return T.LASER_INTERVAL
 	if kind == "breaker":
@@ -175,9 +207,17 @@ func _complete_action() -> void:
 			shot_clock = T.BOMB_INTERVAL if kind == "breaker" else (T.LASER_INTERVAL if kind == "laser" else T.ENEMY_SHOT_INTERVAL)
 		"windup_shot":
 			var direction: Vector2 = (game.player.global_position - global_position).normalized()
-			if kind == "boss" and pattern == 1:
-				for angle in [-0.34, -0.17, 0.0, 0.17, 0.34]:
+			if kind == "boss" and boss_role != "guardian":
+				var count := T.SECRET_BOSS_FAN_COUNT if boss_role == "secret" else T.BOSS_FAN_COUNT
+				for i in range(count):
+					var angle := (i - (count - 1) / 2.0) * T.BOSS_FAN_ANGLE
+					if pattern == 1: angle += sin(move_clock) * T.BOSS_FAN_ANGLE
 					game.spawn_bullet(self, direction.rotated(angle))
+				if pattern == 1 or boss_role == "secret":
+					game.spawn_bullet(self, direction, true, game.player)
+			elif kind == "boss" and pattern == 1:
+				for i in range(T.BOSS_FAN_COUNT):
+					game.spawn_bullet(self, direction.rotated((i - (T.BOSS_FAN_COUNT - 1) / 2.0) * T.BOSS_FAN_ANGLE))
 			else:
 				game.spawn_bullet(self, direction)
 			shot_clock = _shot_interval()

@@ -47,6 +47,7 @@ func initialize() -> void:
 		loaded[at] = job.result.data
 		_add_backdrop(at)
 		for spawn: Dictionary in loaded[at].spawns: _spawn(spawn)
+		install_bosses(at)
 		for h: Dictionary in loaded[at].hearts: _spawn_heart(h)
 	jobs.clear()
 	_refresh_stage()
@@ -109,6 +110,7 @@ func service() -> void:
 			actor_index += 1
 			continue
 		loaded[active_job.coord] = data
+		install_bosses(active_job.coord)
 		for h: Dictionary in data.hearts: _spawn_heart(h)
 		_add_backdrop(active_job.coord)
 		active_job = null
@@ -131,6 +133,17 @@ func _add_backdrop(at: Vector2i) -> void:
 
 func _spawn(spawn: Dictionary) -> void:
 	if game.defeated_enemies.has(spawn.id): return
+	var record: Dictionary = {}
+	if spawn.kind == "boss":
+		if game.boss_cycle.records.has(spawn.boss_id):
+			record = game.boss_cycle.records[spawn.boss_id]
+		else:
+			var data: Dictionary = loaded.get(spawn.sector, {})
+			if data.is_empty() and active_job != null and active_job.coord == spawn.sector: data = active_job.result.data
+			record = game.boss_cycle.initial_spawn(spawn, data)
+		if record.is_empty() or not record.alive: return
+		if game.get_tree().get_nodes_in_group("enemies").any(func(e): return e.get_parent() == game.world and e.spawn_id == spawn.id and not e.is_queued_for_deletion()): return
+	elif game.boss_cycle.blocks_normal(spawn): return
 	var enemy := Enemy.new()
 	enemy.game = game
 	enemy.kind = spawn.kind
@@ -139,14 +152,35 @@ func _spawn(spawn: Dictionary) -> void:
 	enemy.position = spawn.position
 	enemy.boss_id = spawn.boss_id
 	enemy.spawn_id = spawn.id
+	if not record.is_empty():
+		enemy.boss_role = record.role
+		enemy.arena = record.arena
+		enemy.roam = record.roam
+		enemy.position = record.position
 	enemy.set_meta("sector", spawn.sector)
+	enemy.set_meta("chamber_id", spawn.chamber_id)
 	game.world.add_child(enemy)
 	var saved: Dictionary = states.get(spawn.sector, {}).get("actors", {}).get(spawn.id, {})
+	if not record.is_empty():
+		saved = record.saved
+		enemy.hp = record.hp
 	for field: String in saved: enemy.set(field, saved[field])
 	# Temporary warnings are intentionally discarded on unload. Visibility always wakes normally.
 	enemy.was_visible = false
 	enemy.action = "idle"
 	enemy.wake_delay = T.ENEMY_WAKE_DELAY
+
+func install_bosses(at: Vector2i) -> void:
+	if not loaded.has(at): return
+	for enemy in game.get_tree().get_nodes_in_group("enemies"):
+		if enemy.get_parent() != game.world or enemy.kind == "boss" or enemy.get_meta("sector", Vector2i(999999,999999)) != at: continue
+		var descriptor := {"sector": at, "chamber_id": enemy.get_meta("chamber_id", -1), "position": enemy.position}
+		if game.boss_cycle.blocks_normal(descriptor):
+			enemy.cancel_attack()
+			enemy.set_physics_process(false)
+			enemy.queue_free()
+	for record: Dictionary in game.boss_cycle.records.values():
+		if record.sector == at and record.alive: _spawn(record)
 
 func _spawn_heart(spawn: Dictionary) -> void:
 	if missing.has(spawn.id): return
@@ -187,6 +221,7 @@ static func respawn_roll(seed_value: int, id: String, stamp: int, attempt: int) 
 	return rng.randf()
 
 func _return_area_clear(record: Dictionary) -> bool:
+	if record.category == "enemy" and game.boss_cycle.blocks_normal(record.descriptor): return false
 	var area: Rect2 = record.area
 	if game.view_rect().grow(T.RESPAWN_VIEW_MARGIN).intersects(area): return false
 	if is_instance_valid(game.player) and Rect2(game.player.position - game.player.body_size / 2, game.player.body_size).intersects(area): return false
@@ -251,8 +286,9 @@ func _unload(at: Vector2i) -> void:
 		if enemy.get_parent() != game.world or enemy.get_meta("sector", Vector2i(2147483647, 2147483647)) != at: continue
 		if not enemy.dead and not enemy.is_queued_for_deletion():
 			var actor := {}
-			for field in ["hp", "gauge", "polarity", "position", "velocity", "facing", "shot_clock", "switch_clock", "build_clock", "flight_clock", "flight_center_y", "pattern", "body_size"]: actor[field] = enemy.get(field)
+			for field in ["hp", "gauge", "polarity", "position", "velocity", "facing", "shot_clock", "switch_clock", "build_clock", "flight_clock", "flight_center_y", "pattern", "body_size", "move_clock", "move_direction"]: actor[field] = enemy.get(field)
 			saved.actors[enemy.spawn_id] = actor
+			if enemy.kind == "boss": game.boss_cycle.remember(enemy, actor)
 		enemy.cancel_attack()
 		enemy.free()
 	for heart in game.get_tree().get_nodes_in_group("hearts"):

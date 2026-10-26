@@ -39,7 +39,9 @@ func get_visible_bosses() -> Array:
 	if game == null:
 		return result
 	for boss_id in game.discovered_bosses:
-		result.append({"id": int(boss_id), "position": game.discovered_bosses[boss_id], "defeated": game.defeated_bosses.has(boss_id)})
+		var role := "guardian"
+		if "boss_cycle" in game and game.boss_cycle != null: role = game.boss_cycle.records.get(boss_id, {}).get("role", "guardian")
+		result.append({"id": int(boss_id), "position": game.discovered_bosses[boss_id], "defeated": game.defeated_bosses.has(boss_id), "role": role})
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.id) < int(b.id))
 	return result
 
@@ -89,7 +91,7 @@ func guardian_marks() -> Array:
 			var vector := at - area.get_center()
 			var factor := minf(area.size.x / 2 / maxf(absf(vector.x), 0.001), area.size.y / 2 / maxf(absf(vector.y), 0.001))
 			at = area.get_center() + vector * factor
-		out.append({"id": boss.id, "position": at, "direction": (boss.position - world.get_center()).normalized(), "offscreen": offscreen, "defeated": boss.defeated})
+		out.append({"id": boss.id, "role": boss.role, "position": at, "direction": (boss.position - world.get_center()).normalized(), "offscreen": offscreen, "defeated": boss.defeated})
 	return out
 
 func _draw() -> void:
@@ -122,13 +124,15 @@ func _draw() -> void:
 	draw_rect(Rect2(origin + view.position * scale_factor, view.size * scale_factor), Color("afc9d780"), false, 1)
 	for boss: Dictionary in guardian_marks():
 		var at: Vector2 = boss.position
+		var tint := Color("f0d8b2") if boss.role == "guardian" else (Color("ffdc79") if boss.role == "final" else Color("e4a8ff"))
 		if boss.defeated:
 			draw_polyline(PackedVector2Array([at + Vector2(-3, 0), at + Vector2(-0.5, 2), at + Vector2(4, -3)]), Color("d9f4d9"), 1.5)
 		elif boss.offscreen:
 			var direction: Vector2 = boss.direction
-			draw_colored_polygon(PackedVector2Array([at + direction * 4, at - direction * 3 + direction.orthogonal() * 3, at - direction * 3 - direction.orthogonal() * 3]), Color("f0d8b2"))
+			draw_colored_polygon(PackedVector2Array([at + direction * 4, at - direction * 3 + direction.orthogonal() * 3, at - direction * 3 - direction.orthogonal() * 3]), tint)
 		else:
-			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -3.5), at + Vector2(3.5, 0), at + Vector2(0, 3.5), at + Vector2(-3.5, 0)]), Color("f0d8b2"))
+			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -3.5), at + Vector2(3.5, 0), at + Vector2(0, 3.5), at + Vector2(-3.5, 0)]), tint)
+			if boss.role != "guardian": draw_arc(at, 5, 0, TAU, 16, tint, 1, true)
 	if is_instance_valid(game.player):
 		var at: Vector2 = origin + game.player.position * scale_factor
 		draw_circle(at, 3.0, Color("0d1721"))

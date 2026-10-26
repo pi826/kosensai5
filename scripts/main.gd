@@ -11,6 +11,7 @@ const WorldBackdrop := preload("res://scripts/world_backdrop.gd")
 const Effects := preload("res://scripts/effects.gd")
 const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
+const BossCycle := preload("res://scripts/boss_cycle.gd")
 
 class PhysicsProbe extends Node:
 	var game: Node
@@ -50,6 +51,9 @@ var streaming_wait := false
 var frame_times: Array[float] = []
 var physics_frame_times: Array[float] = []
 var physics_frame_started := 0
+var boss_cycle: RefCounted
+var announcement := ""
+var announcement_remaining := 0.0
 
 func _ready() -> void:
 	_register_inputs()
@@ -76,6 +80,7 @@ func _random_seed() -> int:
 
 func start_run(stage_seed: int) -> void:
 	var started := Time.get_ticks_usec()
+	if boss_cycle != null: boss_cycle.shutdown()
 	if stream != null: stream.shutdown()
 	if is_instance_valid(world):
 		remove_child(world)
@@ -101,6 +106,11 @@ func start_run(stage_seed: int) -> void:
 	discovered_bosses.clear()
 	defeated_bosses.clear()
 	defeated_enemies.clear()
+	announcement = ""
+	announcement_remaining = 0.0
+	boss_cycle = BossCycle.new()
+	boss_cycle.game = self
+	boss_cycle.initialize()
 	world = Node2D.new()
 	world.name = "Stage"
 	add_child(world)
@@ -133,6 +143,7 @@ func start_run(stage_seed: int) -> void:
 	last_start_metrics = {"seed": stage_seed, "generation_ms": stream.generation_times.reduce(func(a, b): return a + b, 0.0), "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_root.get_child_count(), "actors": stage.spawns.size() + 1}
 
 func _exit_tree() -> void:
+	if boss_cycle != null: boss_cycle.shutdown()
 	if stream != null: stream.shutdown()
 
 func loaded_contains(point: Vector2) -> bool:
@@ -157,6 +168,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	physics_frame_started = 0
 	if state == "playing" and is_instance_valid(player):
+		boss_cycle.service()
 		var begin := Time.get_ticks_usec()
 		physics_frame_started = begin
 		if streaming_enabled:
@@ -170,6 +182,7 @@ func _physics_process(delta: float) -> void:
 				_record_frame(begin)
 				return
 		elapsed += delta
+		announcement_remaining = maxf(0, announcement_remaining - delta)
 		_update_camera(delta)
 		if streaming_enabled: stream.update_rewards()
 		_update_exploration()
@@ -286,6 +299,11 @@ func lock_on_targets() -> Array:
 	var candidates := targets_for(0, player.polarity, player.global_position)
 	for index in range(mini(T.HOMING_VOLLEY_SIZE if player.homing_charges > 0 else 0, candidates.size())):
 		marked.append(candidates[index])
+	for missile in projectiles.get_children():
+		if not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion(): continue
+		var target = missile.target
+		if is_instance_valid(target) and not target.dead and not target.is_queued_for_deletion() and target.get_parent() == world and is_on_screen(target.position, 12) and not marked.has(target):
+			marked.append(target)
 	return marked
 
 func _update_lock_marks() -> void:
@@ -385,17 +403,18 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		return
 	defeated_enemies[actor.spawn_id] = true
 	if is_instance_valid(player) and not player.dead:
-		player.add_homing_charges(T.BOSS_CHARGE_REWARD if actor.kind == "boss" else T.ENEMY_CHARGE_REWARD)
+		var reward := T.ENEMY_CHARGE_REWARD
+		if actor.kind == "boss":
+			reward = {"guardian": T.BOSS_CHARGE_REWARD, "final": T.FINAL_BOSS_CHARGE_REWARD, "secret": T.SECRET_BOSS_CHARGE_REWARD}[actor.boss_role]
+		player.add_homing_charges(reward)
 	if stream != null and actor.kind != "boss": stream.remember_enemy(actor)
 	effect(actor.position, T.COLORS[actor.polarity], "defeat")
 	if actor.kind == "boss":
 		if defeated_bosses.has(actor.boss_id):
 			return
 		defeated_bosses[actor.boss_id] = true
-		score += T.BOSS_SCORE
-		if defeated_bosses.size() == 3 and not ending:
-			ending = true
-			call_deferred("_finish_run")
+		score += {"guardian": T.BOSS_SCORE, "final": T.FINAL_BOSS_SCORE, "secret": T.SECRET_BOSS_SCORE}[actor.boss_role]
+		boss_cycle.defeated(actor)
 	else:
 		score += T.ENEMY_SCORE
 		kills += 1
@@ -403,7 +422,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 func _finish_run() -> void:
 	if not is_instance_valid(player) or player.dead:
 		show_menu("lost")
-	elif defeated_bosses.size() == 3:
+	elif boss_cycle.phase == "complete":
 		show_menu("won")
 	else:
 		ending = false
@@ -457,3 +476,7 @@ func new_action() -> void:
 
 func clock_text() -> String:
 	return "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60]
+
+func announce(message: String) -> void:
+	announcement = message
+	announcement_remaining = T.BOSS_ANNOUNCEMENT_TIME

@@ -309,8 +309,8 @@ func run() -> void:
 		game.actor_defeated(next_guardian)
 		await frames(3)
 		check(game.defeated_bosses.size() == index + 2 and game.score == (index + 2) * T.BOSS_SCORE, "distinct guardian %d counted once" % (index + 2))
-		check(game.state == ("won" if index == remaining.size() - 1 else "playing"), "clear requires all three distinct guardians")
-	check(game.ui.menu.visible and game.defeated_bosses.size() == 3, "third guardian opens clear screen")
+		check(game.state == "playing", "guardian defeats keep exploration running")
+	check(not game.ui.menu.visible and game.defeated_bosses.size() == 3 and game.boss_cycle.phase == "final", "third guardian unlocks final boss without clear screen")
 	game.primary_action()
 	await frames(3)
 	check(game.state == "playing" and game.score == 0 and game.kills == 0 and game.player.hp == T.PLAYER_HP and game.player.gauge == 0, "clear retry resets player and score")
@@ -498,7 +498,7 @@ func verify_multi_lock() -> void:
 			counts[index] += 1
 	check(counts == [2, 1, 1], "four missiles cover three enemies with assignment difference at most one")
 	game._update_lock_marks()
-	check(game.lock_on_targets().is_empty() and enemies.all(func(actor): return not actor.lock_marked), "preview clears when no next volley is available")
+	check(game.lock_on_targets() == enemies and enemies.all(func(actor): return actor.lock_marked), "flying missiles retain marks with no next volley")
 	# All missiles at enemy 0 rebalance using the current live counts.
 	enemies[0].dead = true
 	var first_missile = game.projectiles.get_child(0)
@@ -635,8 +635,8 @@ func verify_guardian_orders() -> void:
 			var context := "order %s after %d guardian(s)" % [str(order), count]
 			check(game.defeated_bosses.size() == count and game.defeated_enemies.size() == count, context + ": unique progress")
 			check(game.score == count * T.BOSS_SCORE, context + ": unique score")
-			check(game.state == ("won" if count == 3 else "playing"), context + ": correct win state")
-			check(game.result_menu_count == result_count + (1 if count == 3 else 0), context + ": result opens exactly once")
+			check(game.state == "playing", context + ": guardians alone never clear the run")
+			check(game.result_menu_count == result_count, context + ": guardian cycle opens no result screen")
 	# Both notifications arrive during one frame: player death takes precedence
 	# over completing the third guardian, regardless of the queued finish order.
 	game.start_run(37)

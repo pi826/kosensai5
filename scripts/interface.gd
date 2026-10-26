@@ -30,6 +30,7 @@ var minimap: Control
 var location_label: Label
 var objective_label: Label
 var angle_label: Label
+var announcement_label: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -115,6 +116,13 @@ func _ready() -> void:
 	hint_label.add_theme_font_size_override("font_size", 20)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(hint_label)
+	announcement_label = label("", 24, Color("fff0bb"))
+	place(announcement_label, Vector2(80, 235), Vector2(1120, 64))
+	announcement_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	announcement_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	announcement_label.add_theme_color_override("font_shadow_color", Color("07111d"))
+	announcement_label.add_theme_constant_override("shadow_outline_size", 6)
+	hud.add_child(announcement_label)
 	controls_label = label("", 14, Color("97b3c5"))
 	place(controls_label, Vector2(24, 670), Vector2(1232, 45))
 	controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -131,7 +139,7 @@ func _ready() -> void:
 	card.add_theme_stylebox_override("panel", panel_style(Color("102235f5"), Color("3e5d72")))
 	place(card, Vector2(260, 134), Vector2(760, 520))
 	menu.add_child(card)
-	var eyebrow := label("2色   /   3体のガーディアン   /   探索", 14, Color("81a6be"))
+	var eyebrow := label("2色   /   ガーディアン・ラスボス・裏ボス   /   探索", 14, Color("81a6be"))
 	place(eyebrow, Vector2(300, 160), Vector2(680, 24))
 	menu.add_child(eyebrow)
 	menu_title = label("", 48)
@@ -217,20 +225,19 @@ func update_hud() -> void:
 		return
 	progress_label.text = "探索  %d区画   ·   シード %d" % [explored_sector_count(), game.current_seed]
 	progress_bar.max_value = 3
-	progress_bar.value = game.defeated_bosses.size()
+	progress_bar.value = game.boss_cycle.final_clears if game.boss_cycle != null else 0
 	var at: Vector2 = game.player.position if live else game.stage.start_position
 	location_label.text = T.BIOME_NAMES[game.biome_at(at)]
-	var marks: Array[String] = []
-	for boss_id in range(3):
-		marks.append("◆" if game.defeated_bosses.has(boss_id) else "◇")
-	objective_label.text = "ガーディアン  %s  %d / 3 撃破" % ["  ".join(marks), game.defeated_bosses.size()]
+	objective_label.text = game.boss_cycle.objective()
+	announcement_label.text = game.announcement
+	announcement_label.visible = game.announcement_remaining > 0 and game.state == "playing"
 	minimap.update_map()
 	var boss_visible: bool = is_instance_valid(game.boss) and not game.boss.dead and game.is_on_screen(game.boss.position)
 	boss_hp_label.visible = boss_visible
 	boss_label.visible = boss_visible
 	if boss_visible:
 		boss_hp_label.text = str(game.boss.hp)
-		boss_label.text = "ガーディアン %d  /  %s" % [game.boss.boss_id + 1, T.COLOR_NAMES[game.boss.polarity]]
+		boss_label.text = "%s  /  %s" % [preload("res://scripts/boss_cycle.gd").name_for(game.boss.boss_role), T.COLOR_NAMES[game.boss.polarity]]
 	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0
 
 func explored_sector_count() -> int:
@@ -244,20 +251,20 @@ func show_menu(next_state: String) -> void:
 	match next_state:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
-			menu_subtitle.text = "3地域を探索し、3体のガーディアンを倒す。"
-			menu_detail.text = "敵と違う色で攻撃。撃破・同色吸収で誘導弾を最大%d回。\nハートと箱で回復。敵・箱・ハートは視界外で復活。\n倒れたら全リセット。目標プレイ時間 5〜10分。" % T.HOMING_CHARGE_CAPACITY
+			menu_subtitle.text = "ガーディアンとラスボスを巡り、裏ボスを倒す。"
+			menu_detail.text = "3体撃破でラスボス出現。倒すとガーディアンが別の場所へ。\nラスボス3回撃破で裏ボス出現。裏ボス撃破でクリア。\n同色吸収・撃破で誘導弾。ハートと箱で回復。倒れたら全リセット。"
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":
 			menu_title.text = "一時停止"
 			menu_subtitle.text = "ひと休み。準備ができたら再開。"
-			menu_detail.text = "スコア  %06d     /     シード  %d\nガーディアン %d / 3 撃破    ·    探索 %d区画" % [game.score, game.current_seed, game.defeated_bosses.size(), explored_sector_count()]
+			menu_detail.text = "スコア  %06d     /     シード  %d\n%s    ·    探索 %d区画" % [game.score, game.current_seed, game.boss_cycle.objective(), explored_sector_count()]
 			primary_button.text = "再開  /  " + game.key_bindings.get_binding_text("pause_game")
 			new_button.text = "同じマップを最初から"
 		"lost", "won":
 			menu_title.text = "クリア" if next_state == "won" else "失敗"
-			menu_subtitle.text = "3体のガーディアンをすべて撃破。" if next_state == "won" else "再挑戦は同じ地形で最初から。ガーディアンも復活。"
-			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d / 3    ·    通常敵 %d撃破\n探索 %d区画    ·    シード %d" % [game.score, game.clock_text(), game.defeated_bosses.size(), game.kills, explored_sector_count(), game.current_seed]
+			menu_subtitle.text = "裏ボスを撃破。探索を完遂。" if next_state == "won" else "再挑戦は同じ地形で最初から。ボスの進行もリセット。"
+			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d体 · ラスボス %d回 · 裏ボス %d体\n通常敵 %d撃破 · 探索 %d区画 · シード %d" % [game.score, game.clock_text(), game.boss_cycle.guardian_kills, game.boss_cycle.final_clears, game.boss_cycle.secret_kills, game.kills, explored_sector_count(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
 			new_button.text = "新しいマップで開始"
 	update_hud()

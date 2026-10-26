@@ -111,6 +111,7 @@ func _draw() -> void:
 		draw_line(Vector2(-8, 15), Vector2(-8, 24), tint, 5)
 		draw_line(Vector2(8, 15), Vector2(8, 24), tint, 5)
 	elif kind == "boss":
+		draw_set_transform(Vector2.ZERO, 0, body_size / T.BOSS_SIZE)
 		var points := PackedVector2Array([Vector2(-53, -32), Vector2(-30, -58), Vector2(30, -58), Vector2(53, -32), Vector2(53, 36), Vector2(28, 58), Vector2(-28, 58), Vector2(-53, 36)])
 		draw_colored_polygon(points, Color("152d40"))
 		points.append(points[0])
@@ -119,6 +120,14 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, 29, 0, TAU, 36, tint, 3, true)
 		draw_line(Vector2(-58, -12), Vector2(-30, -12), tint, 10)
 		draw_line(Vector2(-58, 22), Vector2(-30, 22), tint, 10)
+		if body_size.x > T.BOSS_SIZE.x:
+			var crown := PackedVector2Array([Vector2(-43, -36), Vector2(-34, -55), Vector2(-12, -38), Vector2(0, -56), Vector2(12, -38), Vector2(34, -55), Vector2(43, -36)])
+			draw_polyline(crown, Color("fff0bb"), 3, true)
+			draw_arc(Vector2.ZERO, 42, 0, TAU, 40, tint, 2, true)
+		if body_size.x == T.SECRET_BOSS_SIZE.x:
+			for side in [-1, 1]:
+				draw_colored_polygon(PackedVector2Array([Vector2(side * 35, -25), Vector2(side * 52, -45), Vector2(side * 50, 27), Vector2(side * 35, 40)]), Color("ead6ff"))
+		draw_set_transform(Vector2.ZERO)
 	elif kind == "flyer":
 		draw_colored_polygon(PackedVector2Array([Vector2(-19, 6), Vector2(-34, -18), Vector2(-10, -9), Vector2(0, -20), Vector2(10, -9), Vector2(34, -18), Vector2(19, 6), Vector2(0, 22)]), tint.darkened(0.65))
 		draw_polyline(PackedVector2Array([Vector2(-34, -18), Vector2(-19, 6), Vector2(0, 22), Vector2(19, 6), Vector2(34, -18)]), tint, 3, true)

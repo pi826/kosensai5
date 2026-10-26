@@ -13,7 +13,10 @@ func _initialize():
 	if OS.get_cmdline_user_args().has("--streaming"):
 		output = "res://builds/qa/streaming/"
 		call_deferred("run_streaming")
-	else: call_deferred("run")
+	elif OS.get_cmdline_user_args().has("--rewards"): call_deferred("run")
+	else:
+		output = "res://builds/qa/bosses/"
+		call_deferred("run_bosses")
 func frames(n: int):
 	for i in range(n):
 		await physics_frame
@@ -95,6 +98,91 @@ func run():
 	quit(0 if failures == 0 else 1)
 
 # Keep the Task 5B streaming captures available with -- --streaming.
+func boss_actor(id: int) -> Node2D:
+	for e in get_nodes_in_group("enemies"):
+		if e.get_parent() == game.world and e.kind == "boss" and e.boss_id == id and not e.dead and not e.is_queued_for_deletion(): return e
+	return null
+
+func wait_boss_selection():
+	for tick in range(30000):
+		game.boss_cycle.service()
+		if game.boss_cycle.selection == null: return
+		await frames(1)
+		OS.delay_msec(1)
+	failures += 1
+
+func kill_boss(e: Node2D):
+	e.receive_hit(1-e.polarity,9999)
+	await frames(2)
+	await wait_boss_selection()
+
+func live_records(role: String) -> Array:
+	return game.boss_cycle.records.values().filter(func(r): return r.role == role and r.alive)
+
+func show_boss(record: Dictionary) -> Node2D:
+	await show(record.position + Vector2(240, 25))
+	game.player.invulnerability = 10000
+	return boss_actor(record.boss_id)
+
+func kill_guardians():
+	for record: Dictionary in live_records("guardian"):
+		var e = await show_boss(record)
+		await kill_boss(e)
+
+func run_bosses():
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.start_run(37)
+	game.elapsed = 9
+	for at: Vector2i in S.guardian_sectors(37):
+		await show(Vector2(at)*T.SECTOR_SIZE+T.SECTOR_START)
+		var id := S.guardian_sectors(37).find(at)
+		var e = boss_actor(id)
+		await show(e.position+Vector2(240,25))
+		game.player.invulnerability = 10000
+		if id == 0:
+			await capture("guardian_move_before")
+			var before: Vector2 = e.position
+			e.set_physics_process(true)
+			await frames(100)
+			e.set_physics_process(false)
+			if before.distance_to(e.position) < 10: failures += 1
+			await capture("guardian_move_after")
+		await kill_boss(e)
+	await capture("final_spawn")
+	await capture("final_map_edge")
+	var final: Dictionary = live_records("final")[0]
+	var e = await show_boss(final)
+	game.announcement_remaining = 0
+	e.set_physics_process(true)
+	await frames(100)
+	e.set_physics_process(false)
+	await capture("final_boss")
+	await capture("final_map_inside")
+	await kill_boss(e)
+	await capture("guardian_revival")
+	for cycle in range(2):
+		await kill_guardians()
+		e = await show_boss(live_records("final")[0])
+		await kill_boss(e)
+	await capture("secret_spawn")
+	e = await show_boss(live_records("secret")[0])
+	game.announcement_remaining = 0
+	e.set_physics_process(true)
+	await frames(100)
+	e.set_physics_process(false)
+	await capture("secret_boss")
+	game.elapsed = 1062
+	await kill_boss(e)
+	await capture("clear_result")
+	if game.state != "won": failures += 1
+	FileAccess.open(output+"visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name(),"note":"boss progression and time are controlled QA fixtures"},"\t"))
+	game.free()
+	print("VISUAL CHECK: %d captures, %d failures" % [captures,failures])
+	quit(0 if failures==0 else 1)
+
 func run_streaming():
 	DirAccess.make_dir_recursive_absolute(output)
 	game = Main.new()
