@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const S := preload("res://scripts/sector_generator.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const T := preload("res://scripts/tuning.gd")
@@ -59,6 +59,7 @@ func record_diversity(s: Dictionary):
 		check(reached.size() == s.connection_nodes.size(), "tree connects every mouth and chamber")
 
 func measured(seed_value: int, at: Vector2i) -> Dictionary:
+	test_progress()
 	var begin := Time.get_ticks_usec()
 	var s := S.generate(seed_value, at)
 	check(S.heart_errors(s).is_empty(), "heart sites exclude rock blocks and enemy patrol/flight areas")

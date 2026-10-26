@@ -89,7 +89,7 @@ func rebuild() -> void:
 		for cell: Vector2i in _cells_in(bounds): occupied[cell] = true
 	for bounds: Rect2 in stage.get("erodible_surfaces", []):
 		for cell: Vector2i in _cells_in(bounds):
-			if occupied.has(cell) and not _protected(Rect2(Vector2(cell) * TILE_SIZE, Vector2.ONE * TILE_SIZE)):
+			if occupied.has(cell) and not _protected(Rect2(pixel_of_cell(cell), Vector2.ONE * TILE_SIZE)):
 				surface_cells[cell] = true
 				_set_row_cell(cell, 1, true)
 	for bounds: Rect2 in stage.get("breakables", []):
@@ -109,8 +109,8 @@ func rebuild() -> void:
 	for shelf in shelves:
 		for y in range(floori(shelf.position.y / DRAW_CHUNK_SIZE), ceili(shelf.end.y / DRAW_CHUNK_SIZE)):
 			for x in range(floori(shelf.position.x / DRAW_CHUNK_SIZE), ceili(shelf.end.x / DRAW_CHUNK_SIZE)):
-				var key := Vector2i(x, y)
-				var clip := Rect2(Vector2(key) * DRAW_CHUNK_SIZE, Vector2.ONE * DRAW_CHUNK_SIZE)
+				var key := Vector2i(x, y) + chunk_origin()
+				var clip := Rect2(pixel_of_chunk(key), Vector2.ONE * DRAW_CHUNK_SIZE)
 				_chunk(key).shelves.append(shelf.intersection(clip))
 	for chunk: Node2D in draw_chunks.values():
 		chunk.queue_redraw()
@@ -120,10 +120,26 @@ func _protected(bounds: Rect2) -> bool:
 	return stage.get("protected_rects", []).any(func(rect): return rect.intersects(bounds))
 func _cells_in(bounds: Rect2) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
+	var origin := cell_origin()
 	for y in range(floori(bounds.position.y / TILE_SIZE), ceili(bounds.end.y / TILE_SIZE)):
 		for x in range(floori(bounds.position.x / TILE_SIZE), ceili(bounds.end.x / TILE_SIZE)):
-			result.append(Vector2i(x, y))
+			result.append(Vector2i(x, y) + origin)
 	return result
+
+func cell_origin() -> Vector2i:
+	return stage.get("origin_sector", Vector2i.ZERO) * Vector2i(T.SECTOR_SIZE / TILE_SIZE)
+
+func chunk_origin() -> Vector2i:
+	return stage.get("origin_sector", Vector2i.ZERO) * Vector2i(T.SECTOR_SIZE / DRAW_CHUNK_SIZE)
+
+func cell_at(point: Vector2) -> Vector2i:
+	return Vector2i((point / TILE_SIZE).floor()) + cell_origin()
+
+func pixel_of_cell(cell: Vector2i) -> Vector2:
+	return Vector2(cell - cell_origin()) * TILE_SIZE
+
+func pixel_of_chunk(key: Vector2i) -> Vector2:
+	return Vector2(key - chunk_origin()) * DRAW_CHUNK_SIZE
 
 func _chunk_key(cell: Vector2i) -> Vector2i:
 	return Vector2i(floori(cell.x * TILE_SIZE / float(DRAW_CHUNK_SIZE)), floori(cell.y * TILE_SIZE / float(DRAW_CHUNK_SIZE)))
@@ -141,7 +157,7 @@ func _rebuild_row(key: Vector2i) -> void:
 	if row_bodies.has(key):
 		for body: StaticBody2D in row_bodies[key]:
 			body.collision_layer = 0
-			collision_root.remove_child(body)
+			body.get_parent().remove_child(body)
 			body.queue_free()
 	row_bodies[key] = []
 	var columns: Array = row_cells.get(key, {}).keys()
@@ -154,7 +170,7 @@ func _rebuild_row(key: Vector2i) -> void:
 		while index < columns.size() and columns[index] == last + 1:
 			last = columns[index]
 			index += 1
-		row_bodies[key].append(_add_collision(Rect2(first * TILE_SIZE, key.y * TILE_SIZE, (last - first + 1) * TILE_SIZE, TILE_SIZE), key.x))
+		row_bodies[key].append(_add_collision(Rect2(pixel_of_cell(Vector2i(first,key.y)), Vector2((last-first+1)*TILE_SIZE,TILE_SIZE)), key.x))
 
 func _changed(cells: Array[Vector2i], layer: int) -> void:
 	if cells.is_empty():
@@ -181,7 +197,7 @@ func explode(center: Vector2, radius: float = T.BOMB_RADIUS) -> Array[Vector2i]:
 	var removed: Array[Vector2i] = []
 	# Only examine the small blast bounding box, independent of world size.
 	for cell: Vector2i in _cells_in(Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2)):
-		if (Vector2(cell) * TILE_SIZE + Vector2.ONE * TILE_SIZE / 2).distance_squared_to(center) > radius * radius:
+		if (pixel_of_cell(cell) + Vector2.ONE * TILE_SIZE / 2).distance_squared_to(center) > radius * radius:
 			continue
 		if surface_cells.has(cell) and occupied.has(cell):
 			occupied.erase(cell)
@@ -195,7 +211,7 @@ func explode(center: Vector2, radius: float = T.BOMB_RADIUS) -> Array[Vector2i]:
 	_changed(removed, 1)
 	var removed_walls: Array[Vector2i] = []
 	for cell: Vector2i in _cells_in(Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2)):
-		if wall_cells.has(cell) and (Vector2(cell) * TILE_SIZE + Vector2.ONE * TILE_SIZE / 2).distance_squared_to(center) <= radius * radius:
+		if wall_cells.has(cell) and (pixel_of_cell(cell) + Vector2.ONE * TILE_SIZE / 2).distance_squared_to(center) <= radius * radius:
 			var id: int = wall_cells[cell]
 			walls[id].cells.erase(cell)
 			_erase_wall_cell(cell)
@@ -217,7 +233,7 @@ func _remove_block(id: int, removed: Array[Vector2i], player_attack: bool = fals
 	block_removed.emit(bounds, player_attack)
 
 func damage_at(point: Vector2, damage: int, player_attack: bool = false) -> bool:
-	var cell := Vector2i(floori(point.x / TILE_SIZE), floori(point.y / TILE_SIZE))
+	var cell := cell_at(point)
 	if block_cells.has(cell):
 		var id: int = block_cells[cell]
 		breakables[id].hp -= damage
@@ -237,7 +253,7 @@ func damage_at(point: Vector2, damage: int, player_attack: bool = false) -> bool
 func is_cell_solid(cell: Vector2i, include_walls: bool = true) -> bool:
 	if occupied.has(cell) or include_walls and wall_cells.has(cell):
 		return true
-	var area := Rect2(Vector2(cell) * TILE_SIZE, Vector2.ONE * TILE_SIZE)
+	var area := Rect2(pixel_of_cell(cell), Vector2.ONE * TILE_SIZE)
 	for solid: Rect2 in stage.get("solids", []):
 		if solid.size.y <= 20 and area.intersects(solid):
 			return true
@@ -268,7 +284,7 @@ func can_place_wall(bounds: Rect2, owner_id: int) -> bool:
 	for cell: Vector2i in _cells_in(bounds):
 		if is_cell_solid(cell):
 			return false
-	var support := Vector2i(floori(bounds.position.x / TILE_SIZE), floori(bounds.end.y / TILE_SIZE))
+	var support := cell_at(Vector2(bounds.position.x, bounds.end.y))
 	# Shelves and temporary walls cannot support another wall.
 	if not occupied.has(support):
 		return false
@@ -286,7 +302,7 @@ func find_wall_plan(builder: CharacterBody2D, player: CharacterBody2D) -> Rect2:
 		if direction < 0 and (left + TILE_SIZE >= builder.position.x or left < player_body.end.x + T.WALL_MIN_DISTANCE):
 			continue
 		for row in range(floori((floor_y - T.BUILD_SUPPORT_RANGE) / TILE_SIZE), floori((floor_y + T.BUILD_SUPPORT_RANGE) / TILE_SIZE) + 1):
-			if not occupied.has(Vector2i(column, row)):
+			if not occupied.has(Vector2i(column, row) + cell_origin()):
 				continue
 			for height in [T.WALL_MAX_HEIGHT, T.WALL_MIN_HEIGHT]:
 				var bounds := Rect2(left, row * TILE_SIZE - height, TILE_SIZE, height)
@@ -348,7 +364,7 @@ func map_geometry(area: Rect2) -> Array[Rect2]:
 	var fragments: Array[Rect2] = []
 	for cell: Vector2i in _cells_in(area):
 		if occupied.has(cell):
-			fragments.append(area.intersection(Rect2(Vector2(cell) * TILE_SIZE, Vector2.ONE * TILE_SIZE)))
+			fragments.append(area.intersection(Rect2(pixel_of_cell(cell), Vector2.ONE * TILE_SIZE)))
 	for solid: Rect2 in stage.get("solids", []):
 		if solid.size.y <= 20 and area.intersects(solid):
 			fragments.append(area.intersection(solid))
@@ -361,7 +377,7 @@ func draw_wall(canvas: Node2D, cell: Vector2i) -> void:
 	var tint := Color("dbbd84")
 	if wall.remaining <= T.WALL_BLINK_TIME and int(wall.remaining * 10) % 2 == 0:
 		tint.a = 0.35
-	var rect := Rect2(Vector2(cell) * TILE_SIZE - canvas.position + Vector2.ONE, Vector2.ONE * (TILE_SIZE - 2))
+	var rect := Rect2(pixel_of_cell(cell) - canvas.position + Vector2.ONE, Vector2.ONE * (TILE_SIZE - 2))
 	canvas.draw_rect(rect, Color(tint, tint.a * 0.25))
 	canvas.draw_rect(rect, tint, false, 2)
 	canvas.draw_line(rect.position, rect.end, tint, 2)
@@ -370,7 +386,7 @@ func _chunk(key: Vector2i) -> DrawChunk:
 	if not draw_chunks.has(key):
 		var chunk := DrawChunk.new()
 		chunk.terrain = self
-		chunk.position = Vector2(key) * DRAW_CHUNK_SIZE
+		chunk.position = pixel_of_chunk(key)
 		render_root.add_child(chunk)
 		draw_chunks[key] = chunk
 	return draw_chunks[key]
@@ -409,9 +425,10 @@ func mask_for_cell(cell: Vector2i) -> int:
 	if w and n and occupied.has(cell + Vector2i(-1, -1)): mask |= NORTH_WEST
 	return mask
 
-static func regional_theme(point: Vector2, seed_value: int) -> Dictionary:
+static func regional_theme(point: Vector2, seed_value: int, origin: Vector2i = Vector2i.ZERO) -> Dictionary:
 	var coord := Vector2i((point / T.SECTOR_SIZE).floor())
 	var local := point - Vector2(coord) * T.SECTOR_SIZE
+	coord += origin
 	var lo := coord
 	var hi := coord
 	var blend := Vector2.ZERO
@@ -433,20 +450,20 @@ static func regional_theme(point: Vector2, seed_value: int) -> Dictionary:
 	return result
 
 func theme_at(point: Vector2) -> Dictionary:
-	if stage.has("seed"): return regional_theme(point, stage.seed)
+	if stage.has("seed"): return regional_theme(point, stage.seed, stage.get("origin_sector", Vector2i.ZERO))
 	return theme_at_x(point.x)
 
 func theme_at_x(x: float) -> Dictionary:
 	return regional_theme(Vector2(x, 0), int(stage.get("seed", 0)))
 
 func draw_tile(canvas: Node2D, cell: Vector2i, mask: int) -> void:
-	var world_at := Vector2(cell) * TILE_SIZE
+	var world_at := pixel_of_cell(cell)
 	var at := world_at - canvas.position
 	var theme := theme_at(world_at + Vector2.ONE * TILE_SIZE / 2.0)
 	canvas.draw_rect(Rect2(at, Vector2.ONE * TILE_SIZE), theme.body)
 	if mask == 255 and not block_cells.has(cell): return
 	canvas.draw_line(at + Vector2(0, 31), at + Vector2(32, 31), theme.shadow, 1.0)
-	if (cell.x + cell.y) % 3 == 0:
+	if posmod(cell.x + cell.y, 3) == 0:
 		canvas.draw_line(at + Vector2(13, 12), at + Vector2(20, 12), theme.inner, 1.0)
 	if not mask & NORTH:
 		canvas.draw_rect(Rect2(at, Vector2(32, 7)), theme.inner)

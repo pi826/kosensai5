@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const T := preload("res://scripts/tuning.gd")
 const FIXTURE_SIZE := Vector2(12288, 3072)
 const Actor := preload("res://scripts/combatant.gd")
@@ -43,7 +43,9 @@ func check(condition: bool, message: String) -> void:
 
 func frames(count: int) -> void:
 	for i in range(count):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 
 func tap(action_name: String) -> void:
@@ -252,50 +254,7 @@ func run() -> void:
 	hidden.position = game.player.position + Vector2(3000, 0)
 	await frames(120)
 	check(game.projectiles.get_child_count() == 0 and hidden.action == "idle" and not hidden.was_visible, "offscreen enemies keep physics but do not attack")
-	# A boss warning retains the old collision color until it completes.
-	prepare_fixture()
-	var guardian = boss_enemies()[0]
-	guardian.position = at(780, 582)
-	guardian.set_physics_process(true)
-	game.player.position = at(560, 618)
-	game._update_camera(1.0, true)
-	await frames(3)
-	game.boss.wake_delay = 0
-	game.boss.switch_clock = 0
-	game.boss.shot_clock = 10
-	game.boss.action = "idle"
-	var boss_old_color: int = game.boss.polarity
-	await frames(1)
-	check(game.boss.action == "windup_switch", "boss announces color change")
-	await frames(25)
-	check(game.boss.polarity == boss_old_color, "warning retains old color")
-	await frames(28)
-	check(game.boss.polarity != boss_old_color and game.boss.pattern == 1, "boss switches color and attack pattern after warning")
-	for actor in get_nodes_in_group("enemies"):
-		actor.set_physics_process(false)
-	game.boss.polarity = 1
-	game.player.polarity = 0
-	game.player.position = Vector2(game.boss.position.x + 220, at(0, 618).y)
-	game.player.facing = 1
-	await frames(2)
-	clear_bullets()
-	game.fire_special(game.player, 2)
-	check(game.projectiles.get_child(0).direction.x < 0, "homing launches toward target behind player")
-	await frames(45)
-	check(game.boss.hp == 72, "homing hits rear target without orbiting")
-	check(game.ui.boss_hp_label.text == "72", "boss HUD displays remaining integer HP only")
-	check(game.effects.damage_numbers.size() == 2 and game.effects.damage_numbers[0].amount == 4 and game.effects.damage_numbers[1].amount == 4, "homing hits display separate damage numbers")
-	check(game.effects.damage_numbers[0].lane != game.effects.damage_numbers[1].lane, "simultaneous numbers use different horizontal lanes")
-	await frames(60)
-	check(game.effects.damage_numbers.is_empty(), "floating damage numbers expire")
-	guardian.hp = T.BOSS_HP
-	guardian.receive_hit(1 - guardian.polarity, 180)
-	game.actor_defeated(guardian)
-	game.actor_defeated(guardian)
-	await frames(3)
-	check(game.state == "playing" and game.score == T.BOSS_SCORE and game.defeated_bosses.size() == 1, "first guardian defeat adds score without ending exploration")
-	check(game.defeated_enemies.size() == 1, "duplicate guardian notifications award neither score nor progress twice")
-	check(game.effects.damage_numbers.size() == 1 and game.effects.damage_numbers[0].amount == 80, "lethal overkill displays HP removed and survives actor deletion")
+	await verify_boss_warning()
 	# Finish the other guardians in reverse ID order. The win condition depends
 	# on three distinct guardians, not a fixed order or repeated notifications.
 	var remaining := boss_enemies()
@@ -765,7 +724,10 @@ func check_ui_language(node: Node) -> void:
 func verify_ui_language() -> void:
 	game.start_run(37)
 	prepare_fixture()
-	var guardian = boss_enemies()[0]
+	var guardians := boss_enemies()
+	check(not guardians.is_empty(), "guardian fixture exists before UI checks")
+	if guardians.is_empty(): return
+	var guardian = guardians[0]
 	guardian.position = game.player.position + Vector2(250, -36)
 	game._update_exploration()
 	game.ui.update_hud()
@@ -786,3 +748,54 @@ func verify_ui_language() -> void:
 		game.ui.update_hud()
 		check(game.ui.angle_label.text == "射撃方向 " + ["前", "上", "下"][index], "HUD names the selected direction")
 	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.hint_label.text.contains("前→上→下"), "help and start hint describe the direction sequence")
+
+func verify_boss_warning() -> void:
+	# A boss warning retains the old collision color until it completes.
+	prepare_fixture()
+	var guardians := boss_enemies()
+	check(not guardians.is_empty(), "guardian fixture exists before boss warning checks")
+	if guardians.is_empty(): return
+	var guardian = guardians[0]
+	guardian.position = at(780, 582)
+	guardian.set_physics_process(true)
+	game.player.position = at(560, 618)
+	game._update_camera(1.0, true)
+	var ready := await wait_until(func(): return game.world.process_mode != Node.PROCESS_MODE_DISABLED and is_instance_valid(game.boss) and game.boss == guardian)
+	check(ready, "guardian detected after world preparation within deadline")
+	if not ready: return
+	game.boss.wake_delay = 0
+	game.boss.switch_clock = 0
+	game.boss.shot_clock = 10
+	game.boss.action = "idle"
+	var boss_old_color: int = game.boss.polarity
+	await frames(1)
+	check(game.boss.action == "windup_switch", "boss announces color change")
+	await frames(25)
+	check(game.boss.polarity == boss_old_color, "warning retains old color")
+	await frames(28)
+	check(game.boss.polarity != boss_old_color and game.boss.pattern == 1, "boss switches color and attack pattern after warning")
+	for actor in get_nodes_in_group("enemies"):
+		actor.set_physics_process(false)
+	game.boss.polarity = 1
+	game.player.polarity = 0
+	game.player.position = Vector2(game.boss.position.x + 220, at(0, 618).y)
+	game.player.facing = 1
+	await frames(2)
+	clear_bullets()
+	game.fire_special(game.player, 2)
+	check(game.projectiles.get_child(0).direction.x < 0, "homing launches toward target behind player")
+	await frames(45)
+	check(game.boss.hp == 72, "homing hits rear target without orbiting")
+	check(game.ui.boss_hp_label.text == "72", "boss HUD displays remaining integer HP only")
+	check(game.effects.damage_numbers.size() == 2 and game.effects.damage_numbers[0].amount == 4 and game.effects.damage_numbers[1].amount == 4, "homing hits display separate damage numbers")
+	check(game.effects.damage_numbers[0].lane != game.effects.damage_numbers[1].lane, "simultaneous numbers use different horizontal lanes")
+	await frames(60)
+	check(game.effects.damage_numbers.is_empty(), "floating damage numbers expire")
+	guardian.hp = T.BOSS_HP
+	guardian.receive_hit(1 - guardian.polarity, 180)
+	game.actor_defeated(guardian)
+	game.actor_defeated(guardian)
+	await frames(3)
+	check(game.state == "playing" and game.score == T.BOSS_SCORE and game.defeated_bosses.size() == 1, "first guardian defeat adds score without ending exploration")
+	check(game.defeated_enemies.size() == 1, "duplicate guardian notifications award neither score nor progress twice")
+	check(game.effects.damage_numbers.size() == 1 and game.effects.damage_numbers[0].amount == 80, "lethal overkill displays HP removed and survives actor deletion")

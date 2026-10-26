@@ -1,12 +1,13 @@
 # CHROMA SHIFT
 
-現在は **Task 5E：タイトルから選ぶチュートリアル**です。
+現在は **Task 5F：原点の移動による遠方の精度維持**です。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
 報酬・ハート・復活の実装と検証は [Task 5C](docs/task5c_rewards.md) を参照してください。
 ボスの配置・進行・検証は [Task 5D](docs/task5d_bosses.md) を参照してください。
 チュートリアルの実装と検証は [Task 5E](docs/task5e_tutorial.md) を参照してください。
+原点の移動と遠方の精度検証は [Task 5F](docs/task5f_origin_shift.md) を参照してください。
 
 ## 遊び方
 
@@ -64,7 +65,7 @@ Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 白点が自機、枠が視界、菱形がボス、チェック印が撃破済み。最初のガーディアンは発見後、追加・復活ボスは出現時から位置を表示します。ラスボスは金、裏ボスは紫で輪を付け、範囲外なら縁の方向印を出します。文字の凡例はありません。
 HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数だけを表示します。
 
-生成に人工的な外周は設けていませんが、同梱エンジンの単精度座標には精度の限界があります。遠方の実測と運用目安は [検証報告](docs/task5b_streaming.md) を参照してください。原点移動は実装していません。
+生成に人工的な外周は設けていません。自機の相対区画座標の絶対値が2以上になった物理フレームの先頭で、全体を区画寸法の整数倍だけ移動します。物理・描画の座標を原点付近へ戻し、区画座標と区画内座標で保存記録を維持します。旧来の±262,144pxという運用目安は撤回しました。方式と実測は [Task 5F](docs/task5f_origin_shift.md) に記録します。
 
 ## 編集と検証
 
@@ -73,6 +74,7 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 | ファイル | 内容 |
 |---|---|
 | scripts/main.gd | 開始・再挑戦、カメラ、探索、HUD、戦闘の接続 |
+| scripts/origin_shift.gd | 区画と相対座標の変換、原点移動時の空間データの変換 |
 | scripts/sector_generator.gd | シードと区画座標からの生成、ゲート・地域・ガーディアン、検証 |
 | scripts/sector_job.gd / sector_stream.gd | 別スレッドの生成、座標変換、先読み・解放・状態保存 |
 | scripts/streamed_terrain.gd / world_terrain.gd | 分割追加、8近傍接続、衝突、床・ブロック・設置壁 |
@@ -86,6 +88,8 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 
 `test.cmd` は全自動検査を順番に実行して最後に停止します。個別実行は次の形式です。
 
+検査は実時間で通常15分、生成・区画・長距離走破・ボス循環は60分を上限とし、途中の進行が2分間止まった場合も終了コード1で終了します。区画準備は30秒、ボス検出は20秒以内で待ち、未成立は失敗として記録します。期限の検証には `tests/test_guard_test.gd` を使います。
+
 ```powershell
 $env:APPDATA = "$PWD\.userdata"
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . --fixed-fps 60 --script tests/streaming_test.gd
@@ -96,7 +100,7 @@ $env:APPDATA = "$PWD\.userdata"
 ```
 
 実物理のガーディアン往復、全種類の継ぎ目、先読み・解放、状態保持、遠方、生成・戦闘・操作・キー設定・地図・カメラを検査します。
-今回の全テストの項目数は [Task 5E](docs/task5e_tutorial.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
+今回の全テストの項目数と遠方の精度は [Task 5F](docs/task5f_origin_shift.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、以前の区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
 人による長時間の操作・難易度確認と、単独exeへの書き出しは未実施です。
 チュートリアルの検査数と画面確認は [Task 5E](docs/task5e_tutorial.md) に記録します。初めて遊ぶ人が説明を理解し迷わず進めるかは未確認です。ボスの強さ・難易度、1周の所要時間、回復量・復活頻度との釣り合いも未確認です。
 

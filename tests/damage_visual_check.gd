@@ -1,6 +1,8 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
+const Support := preload("res://tests/stream_test_support.gd")
+const S := preload("res://scripts/sector_generator.gd")
 const OUTPUT := "res://builds/qa/seamless/damage/"
 var game: Node2D
 
@@ -9,10 +11,13 @@ func _initialize() -> void:
 
 func frames(count: int) -> void:
 	for i in range(count):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 
 func capture(name: String) -> void:
+	test_progress()
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(OUTPUT + name + ".png")
 
@@ -39,14 +44,27 @@ func run() -> void:
 		normals[i].tick_visuals(0.2)
 	await frames(10)
 	await capture("enemy_hp_and_damage")
-	var boss_actor = get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "boss")[0]
+	var sector: Vector2i = S.guardian_sectors(37)[0]
+	if not await Support.ready(self, game, game.stream.sector_offset(sector) + T.SECTOR_START):
+		printerr("FAIL: damage capture boss sector preparation timed out")
+		quit(1)
+		return
+	var bosses := get_nodes_in_group("enemies").filter(func(actor): return actor.kind == "boss" and not actor.is_queued_for_deletion())
+	if bosses.is_empty():
+		printerr("FAIL: damage capture guardian missing after preparation")
+		quit(1)
+		return
+	var boss_actor = bosses[0]
 	game.player.position = Vector2(boss_actor.position.x + 256, boss_actor.position.y + T.BOSS_SIZE.y / 2 - T.PLAYER_SIZE.y / 2)
 	game._update_camera(0.0, true)
 	game._update_exploration()
 	game.ui.update_hud()
-	await frames(3)
-	game.boss.receive_hit(1 - game.boss.polarity, 4)
-	game.boss.tick_visuals(0.2)
+	if not await wait_until(func(): return is_instance_valid(game.boss) and game.boss == boss_actor):
+		printerr("FAIL: damage capture visible boss detection timed out")
+		quit(1)
+		return
+	boss_actor.receive_hit(1 - boss_actor.polarity, 4)
+	boss_actor.tick_visuals(0.2)
 	await frames(10)
 	await capture("boss_hp_and_damage")
 	game.queue_free()

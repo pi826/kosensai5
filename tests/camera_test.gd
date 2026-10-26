@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 ## Camera checks use the generated terrain and real player physics at 60 Hz.
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
@@ -14,7 +14,9 @@ func _initialize() -> void:
 
 func frames(count: int = 1) -> void:
 	for index in range(count):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 
 func check(condition: bool, message: String) -> void:

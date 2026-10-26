@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
@@ -18,7 +18,9 @@ func check(ok: bool, message: String):
 		printerr("FAIL: ", message)
 func frames(n: int = 1):
 	for i in range(n):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 func enemies(at: Vector2i) -> Array:
 	return get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.get_meta("sector", Vector2i(999,999)) == at and not e.dead and not e.is_queued_for_deletion())
@@ -60,13 +62,16 @@ func state_and_map():
 	var old_projectiles: int = game.projectiles.get_instance_id()
 	var world_id: int = game.world.get_instance_id()
 	check(await Support.ready(self, game, Vector2(50,-20) * T.SECTOR_SIZE + T.SECTOR_START), "far signed coordinates prepare terrain and actors")
+	game.maybe_shift_origin()
 	for i in range(80):
 		game.stream.service()
 		await frames()
 	check(not game.stream.loaded.has(at) and not game.terrain.sectors.has(at), "sector beyond hysteresis distance is actually released")
 	check(not is_instance_valid(bullet), "projectile in unloaded sector disappears")
 	check(game.stream.states.has(at) and game.stream.states[at].destroyed == destroyed, "state stored under signed integer sector key")
-	check(game.map_geometry(Rect2(Vector2(cell) * T.MAP_CELL_SIZE, Vector2.ONE * T.MAP_CELL_SIZE)) == geometry, "explored terrain remains on map while unloaded")
+	var cell_corner := Vector2(cell-game.map_origin()) * T.MAP_CELL_SIZE
+	var fragments: Array = game.map_geometry(Rect2(cell_corner, Vector2.ONE*T.MAP_CELL_SIZE))
+	check(preload("res://scripts/origin_shift.gd").geometry(fragments,-cell_corner) == preload("res://scripts/origin_shift.gd").geometry(geometry,-Vector2(cell)*T.MAP_CELL_SIZE), "explored terrain remains on map while unloaded")
 	check(game.stream.loaded.size() <= 49, "resident geometry is bounded by hysteresis window")
 	var far: Dictionary = game.stream.loaded[Vector2i(50,-20)]
 	var graph := G.navigation_graph(far)
@@ -97,7 +102,8 @@ func state_and_map():
 		await frames()
 		if game.player.gauge>0: break
 	check(game.player.gauge==1, "actual far-sector enemy projectile hits and is absorbed")
-	check(await Support.ready(self, game, T.SECTOR_START), "origin sector reloads")
+	check(await Support.ready(self, game, T.SECTOR_START-Vector2(game.origin_sector)*T.SECTOR_SIZE), "origin sector reloads")
+	game.maybe_shift_origin()
 	check(game.world.get_instance_id() == world_id and game.projectiles.get_instance_id() == old_projectiles, "streaming retains world and projectile containers")
 	check(game.terrain.snapshot(at).destroyed == destroyed and destroyed.keys().all(func(c): return not game.terrain.occupied.has(c)), "destroyed floor and collisions stay removed")
 	check(not game.terrain.block_cells.has(Vector2i((broken_at / T.TILE_SIZE).floor())), "destroyed block stays absent")
@@ -124,7 +130,7 @@ func state_and_map():
 	var guardians: Array = enemies(guardian_at).filter(func(e): return e.kind == "boss")
 	check(guardians.size() == 1, "canonical guardian sector contains one guardian")
 	var guardian_id: int = guardians[0].boss_id
-	game.discovered_bosses[guardian_id] = guardians[0].position
+	game.discovered_bosses[guardian_id] = game.stable_point(guardians[0].position)
 	guardians[0].receive_hit(1 - guardians[0].polarity, 1000)
 	await frames(2)
 	check(await Support.ready(self, game, Vector2(-50,20) * T.SECTOR_SIZE + T.SECTOR_START), "leave defeated guardian far behind")

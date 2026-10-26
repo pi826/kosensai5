@@ -245,3 +245,6 @@ const CAVE_NAV_BUCKET := 512.0 # Width of the x buckets that narrow generation-t
 # [frames the jump is held, highest rise of the feet px, landing distance on flat ground px].
 const HOP_PROFILES := [[1, 59.5, 117.2], [2, 74.2, 127.9], [4, 101.5, 154.6], [6, 125.9, 170.6], [8, 147.4, 191.9]]
 const HOP_REACH_MARGIN := 12.0
+
+# Recenter at the start of a physics tick, before any actor or ray query.
+const ORIGIN_SHIFT_SECTORS := 2

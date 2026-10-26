@@ -1,7 +1,8 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const S := preload("res://scripts/sector_generator.gd")
 const T := preload("res://scripts/tuning.gd")
+const O := preload("res://scripts/origin_shift.gd")
 var checks := 0
 var failures: Array[String] = []
 class Walker extends CharacterBody2D:
@@ -17,13 +18,16 @@ func check(ok: bool,message: String):
 func run():
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/streaming")
 	var precision: Array=[]
-	for offset in [0.0,204800.0,262144.0,1048576.0,4194304.0,8388608.0,16777216.0]:
+	# The same scene-space experiment at each integer world origin. Recenter
+	# halfway through the walk and compensate only for that exact translation.
+	for origin in [Vector2i.ZERO,Vector2i(50,-20),Vector2i(100000,-50000),Vector2i(-100000,50000)]:
+		var base := T.SECTOR_SIZE * 2
 		var floor_body:=StaticBody2D.new()
 		var floor_shape:=CollisionShape2D.new()
 		var rectangle:=RectangleShape2D.new()
 		rectangle.size=Vector2(4096,256)
 		floor_shape.shape=rectangle
-		floor_body.position=Vector2(offset+1024,offset+128)
+		floor_body.position=base+Vector2(1024,128)
 		floor_body.add_child(floor_shape)
 		root.add_child(floor_body)
 		var walker:=Walker.new()
@@ -32,20 +36,32 @@ func run():
 		body.size=T.PLAYER_SIZE
 		shape.shape=body
 		walker.add_child(shape)
-		walker.position=Vector2(offset+128,offset-22)
+		walker.position=base+Vector2(128,-22)
 		root.add_child(walker)
 		var start: Vector2=walker.position
+		var reference: Vector2i = origin
+		var stable_start := O.point(start, reference)
 		for i in range(120):
+			if i == 60:
+				floor_body.position -= base
+				walker.position -= base
+				reference += Vector2i(2,2)
+				walker.reset_physics_interpolation()
+			test_progress()
 			await physics_frame
+			test_progress()
 			await process_frame
-		var dx: float=walker.position.x-start.x
-		var delta: float=Vector2(offset+0.1,0).x-offset
-		var sample:={"offset_px":offset,"stored_0_1px":delta,"walk_120_frames_px":dx,"expected_px":640.0,"walk_error_percent":absf(dx-640)/640*100,"floor_error_px":absf(walker.position.y-(offset-22)),"grounded":walker.is_on_floor()}
+		var stable_end := O.point(walker.position, reference)
+		var dx: float = float(stable_end.sector.x-stable_start.sector.x)*T.SECTOR_SIZE.x + float(stable_end.local.x)-float(stable_start.local.x)
+		var sample:={"origin_sector":[origin.x,origin.y],"walk_120_frames_px":dx,"expected_px":640.0,"walk_error_percent":absf(dx-640)/640*100,"floor_error_px":absf(walker.position.y+22),"grounded":walker.is_on_floor(),"origin_shifts":1}
 		precision.append(sample)
-		if offset<=1048576: check(walker.is_on_floor(),"float precision experiment lands at offset %.0f" % offset)
-		if offset<=262144: check(absf(dx-640)<2 and absf(walker.position.y-(offset-22))<0.2,"practical walking accuracy at %.0f" % offset)
+		check(walker.is_on_floor(),"recentered precision experiment lands at sector %s" % origin)
+		check(absf(dx-640)<0.2 and sample.floor_error_px<0.2,"walking accuracy after recenter at sector %s" % origin)
+		check(sample.walk_120_frames_px==precision[0].walk_120_frames_px and sample.floor_error_px==precision[0].floor_error_px,"far precision equals the near-origin reference")
+		check(O.unpack(stable_start, reference).distance_to(start-base) < 0.001 and O.unpack(stable_end, reference).distance_to(walker.position) < 0.001,"sector-local positions preserve identities within 0.001px across recenter")
 		walker.free()
 		floor_body.free()
+		test_progress()
 		await process_frame
 	var game:=Main.new()
 	game.controls_path="res://builds/qa/streaming/performance_controls.cfg"
@@ -74,9 +90,12 @@ func run():
 			Input.action_release("move_left")
 			Input.action_release("move_right")
 			Input.action_press("move_right" if (frame/120)%2==0 else "move_left")
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 		if render_frames:
+			test_progress()
 			await RenderingServer.frame_post_draw
 			if frame==0: first_frame_ms=(Time.get_ticks_usec()-visible_started)/1000.0
 			else: render_samples.append((Time.get_ticks_usec()-frame_started)/1000.0)

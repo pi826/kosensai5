@@ -112,7 +112,7 @@ func _move_boss(delta: float) -> void:
 	if collision:
 		move_direction = move_direction.bounce(collision.get_normal())
 		if absf(collision.get_normal().x) > 0.5: move_direction.y *= -1
-	if game.boss_cycle.records.has(boss_id): game.boss_cycle.records[boss_id].position = position
+	game.boss_cycle.update_position(self)
 
 func _move_flyer(delta: float) -> void:
 	velocity = Vector2.ZERO

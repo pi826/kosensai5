@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 
 const Terrain := preload("res://scripts/world_terrain.gd")
 const Backdrop := preload("res://scripts/world_backdrop.gd")
@@ -108,6 +108,7 @@ func run() -> void:
 		var before: Color = terrain.theme_at_x(boundary - 0.01).body
 		var after: Color = terrain.theme_at_x(boundary + 0.01).body
 		check(before.is_equal_approx(after), "Terrain color does not create a hard region seam")
+	test_progress()
 	await process_frame
 	minimap.queue_free()
 	fixture.player.queue_free()

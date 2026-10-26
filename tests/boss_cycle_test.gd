@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
@@ -30,7 +30,9 @@ func check(ok: bool, message: String) -> bool:
 func frames(n: int = 1):
 	for i in range(n):
 		for b in game.projectiles.get_children(): b.set_physics_process(false)
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 func freeze():
 	game.set_physics_process(false)
@@ -43,7 +45,8 @@ func actor(id: int) -> Node2D:
 		if e.get_parent() == game.world and e.kind == "boss" and e.boss_id == id and not e.dead and not e.is_queued_for_deletion(): return e
 	return null
 func settle():
-	for tick in range(30000):
+	var deadline := Time.get_ticks_msec() + 30000
+	while Time.get_ticks_msec() < deadline:
 		var pending: RefCounted = game.boss_cycle.selection
 		if pending != null and WorkerThreadPool.is_task_completed(pending.task_id):
 			for site: Dictionary in pending.result:
@@ -54,13 +57,14 @@ func settle():
 		OS.delay_msec(1)
 	check(false, "boss selection completed within watchdog")
 func load_boss(record: Dictionary) -> Node2D:
-	check(await Support.ready(self, game, record.position), "boss sector and its neighbours stream in")
+	check(await Support.ready(self, game, game.boss_cycle.world_record(record).position), "boss sector and its neighbours stream in")
 	freeze()
 	await frames(2)
 	var e = actor(record.boss_id)
 	check(is_instance_valid(e), "live boss installed from run record")
 	return e
 func defeat(e: Node2D):
+	if not check(is_instance_valid(e), "boss exists before defeat"): return
 	e.receive_hit(1 - e.polarity, 9999)
 	game.actor_defeated(e)
 	await frames(2)
@@ -189,13 +193,17 @@ func persistence(record: Dictionary):
 	var position: Vector2 = e.position
 	var clock: float = e.move_clock
 	game.stream._unload(record.sector)
-	check(record.hp == 17 and record.position == position and record.saved.gauge == 3, "unload captures boss HP position and gauge in run state")
+	check(record.hp == 17 and game.boss_cycle.world_record(record).position == position and record.saved.gauge == 3, "unload captures boss HP position and gauge in run state")
 	e = await load_boss(record)
 	check(e.hp == 17 and e.gauge == 3 and e.position == position and e.move_clock == clock and e.wake_delay == T.ENEMY_WAKE_DELAY, "reload preserves live boss and restores wake delay")
 	e.hp = e.max_hp
 
 func route_to(record: Dictionary):
-	var source := Stream.coord_at(game.player.position)
+	# The route planner's small test graph uses the original frame.
+	record = record.duplicate(true)
+	record.position += Vector2(record.sector) * T.SECTOR_SIZE
+	record.arena.position += Vector2(record.sector) * T.SECTOR_SIZE
+	var source: Vector2i = game.stream.sector_at(game.player.position)
 	var source_data := S.generate(game.current_seed, source)
 	var sectors := {source: source_data}
 	var source_spawn: Dictionary = source_data.spawns.filter(func(s): return s.kind == "boss")[0]
@@ -220,7 +228,7 @@ func route_to(record: Dictionary):
 	var commands := G.path_steps(graph, origin, target, endpoint)
 	check(origin >= 0 and target >= 0 and not commands.is_empty(), "real navigation graph connects last guardian to final-boss chamber")
 	check(not G.path_steps(graph, target, origin, start).is_empty(), "boss chamber also has a return route")
-	check(await Support.ready(self, game, start), "route starts on the last guardian chamber's standing floor")
+	check(await Support.ready(self, game, start-Vector2(game.origin_sector)*T.SECTOR_SIZE), "route starts on the last guardian chamber's standing floor")
 	Support.release(self, game)
 	var driver := Driver.new()
 	driver.tree = self
@@ -235,13 +243,13 @@ func route_to(record: Dictionary):
 			arrived = true
 			break
 		replans.append(driver.error)
-		var actual := G.node_at(graph,game.player.position)
+		var actual := G.node_at(graph,driver.point())
 		if actual < 0: break
 		commands = G.path_steps(graph,actual,target,endpoint)
 		if commands.is_empty(): break
 		print("BOSS ROUTE REPLAN from ",game.player.position,": ",driver.error)
 	check(arrived, "actual movement follows generated boss route: " + driver.error)
-	check(game.player.position.distance_to(endpoint) < 8 and record.arena.has_point(game.player.position), "player physically arrives inside final-boss chamber")
+	check(driver.point().distance_to(endpoint) < 8 and record.arena.has_point(driver.point()), "player physically arrives inside final-boss chamber")
 	check(driver.max_player_step < 25 and game.world.get_instance_id() == world_id and driver.incomplete_views == 0, "boss route uses continuous loaded terrain without warps")
 	travel = {"frames": driver.frames, "jumps": driver.jumps, "max_step": driver.max_player_step, "start_sector":str(source),"boss_sector":str(record.sector),"endpoint": str(endpoint),"replans":replans}
 	driver.release()
@@ -256,7 +264,7 @@ func run():
 	game.start_run(37)
 	freeze()
 	for at: Vector2i in S.guardian_sectors(37):
-		check(await Support.ready(self, game, Vector2(at)*T.SECTOR_SIZE+T.SECTOR_START), "initial guardian sector loads")
+		check(await Support.ready(self, game, Vector2(at-game.origin_sector)*T.SECTOR_SIZE+T.SECTOR_START), "initial guardian sector loads")
 		freeze()
 		var id := S.guardian_sectors(37).find(at)
 		var e = actor(id)
@@ -266,8 +274,8 @@ func run():
 		await defeat(actor(id))
 	check(game.state == "playing" and not game.ui.menu.visible and game.boss_cycle.phase == "final", "three guardians unlock final boss without clear")
 	var first: Dictionary = current("final")[0]
-	var delta: Vector2i = first.sector - Stream.coord_at(game.player.position)
-	check(Stream.distance(first.sector, Stream.coord_at(game.player.position)) in range(2,6), "final-boss distance measured from last guardian defeat")
+	var delta: Vector2i = first.sector - game.stream.sector_at(game.player.position)
+	check(Stream.distance(first.sector, game.stream.sector_at(game.player.position)) in range(2,6), "final-boss distance measured from last guardian defeat")
 	check(game.announcement == game.boss_cycle.spawn_message(first) and game.announcement.contains(T.BIOME_NAMES[first.region]) and game.announcement.contains("約%d区画先" % maxi(absi(delta.x),absi(delta.y))), "spawn banner has region direction and distance")
 	game.ui.update_hud()
 	check(game.ui.announcement_label.visible and game.ui.objective_label.text == "ラスボスを倒せ（1回目）", "banner and first final-boss objective displayed")
@@ -284,7 +292,7 @@ func run():
 			var normal: Dictionary = game.stream.loaded[record.sector].spawns.filter(func(s): return s.kind != "boss")[0].duplicate(true)
 			normal.id = "arena_respawn_fixture"
 			normal.chamber_id = record.chamber_id
-			normal.position = record.position
+			normal.position = game.boss_cycle.world_record(record).position
 			game.stream._spawn(normal)
 			check(not get_nodes_in_group("enemies").any(func(n): return n.get_parent() == game.world and n.spawn_id == normal.id), "future normal spawn is suppressed inside boss chamber")
 			var camera_at: Vector2 = game.camera.position
@@ -301,7 +309,7 @@ func run():
 		check(game.score == score_before+T.FINAL_BOSS_SCORE and game.player.homing_charges == T.FINAL_BOSS_CHARGE_REWARD, "final boss score and stock rewarded once")
 		check(game.boss_cycle.final_clears == cycle and not record.alive and not game.stream.missing.has(record.id), "final boss count persists and bypasses 5C respawn")
 		game.stream._unload(record.sector)
-		await Support.ready(self,game,record.position)
+		await Support.ready(self,game,game.boss_cycle.world_record(record).position)
 		freeze()
 		check(actor(record.boss_id) == null, "defeated boss never returns on sector reload")
 		if cycle == 3: break

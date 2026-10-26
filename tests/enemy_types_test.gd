@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Terrain := preload("res://scripts/terrain.gd")
@@ -20,7 +20,9 @@ func check(condition: bool, message: String) -> void:
 
 func frames(count: int) -> void:
 	for index in range(count):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 
 func fixture() -> void:

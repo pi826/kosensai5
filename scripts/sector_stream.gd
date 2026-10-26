@@ -6,6 +6,7 @@ const Enemy := preload("res://scripts/enemy.gd")
 const Backdrop := preload("res://scripts/world_backdrop.gd")
 const Heart := preload("res://scripts/heart.gd")
 const S := preload("res://scripts/sector_generator.gd")
+const O := preload("res://scripts/origin_shift.gd")
 var missing: Dictionary = {}
 var game: Node2D
 var loaded: Dictionary = {}
@@ -25,6 +26,37 @@ var priority_point := Vector2.ZERO
 static func coord_at(point: Vector2) -> Vector2i:
 	return Vector2i(floori(point.x / T.SECTOR_SIZE.x), floori(point.y / T.SECTOR_SIZE.y))
 
+func sector_at(point: Vector2) -> Vector2i:
+	return _origin() + coord_at(point)
+
+func _origin() -> Vector2i:
+	return game.origin_sector if is_instance_valid(game) else Vector2i.ZERO
+
+func sector_offset(at: Vector2i) -> Vector2:
+	return O.offset(at, game.origin_sector)
+
+func _take_result(job: RefCounted) -> void:
+	# The worker's origin is immutable. Never touch its result before joining it.
+	if job.origin != game.origin_sector:
+		O.payload(job.result, O.offset(job.origin, game.origin_sector))
+		job.origin = game.origin_sector
+
+func shift_origin(delta: Vector2) -> void:
+	priority_point += delta
+	for at: Vector2i in loaded:
+		loaded[at] = O.geometry(loaded[at], delta)
+		game.terrain.sectors[at].data = loaded[at]
+	if active_job != null:
+		O.payload(active_job.result, delta, false)
+		active_job.origin = game.origin_sector
+	for background: Node2D in backdrops.values():
+		background.stage.bounds.position += delta
+		background.stage.origin_sector = game.origin_sector
+		for chunk: Node2D in background.get_children():
+			chunk.position += delta
+			chunk.bounds.position += delta
+	_refresh_stage()
+
 static func distance(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
 
@@ -42,6 +74,7 @@ func initialize() -> void:
 		var job: RefCounted = jobs[at]
 		WorkerThreadPool.wait_for_task_completion(job.task_id)
 		generation_times.append(job.generation_ms)
+		_take_result(job)
 		game.terrain.begin_sector(job.result)
 		while not game.terrain.build_step(): pass
 		loaded[at] = job.result.data
@@ -56,12 +89,13 @@ func _launch(at: Vector2i) -> void:
 	var job := Job.new()
 	job.seed_value = game.current_seed
 	job.coord = at
+	job.origin = game.origin_sector
 	job.saved = states.get(at, {}).duplicate(true)
 	jobs[at] = job
 	job.task_id = WorkerThreadPool.add_task(job.run, false, "sector %s" % at)
 
 func request_around(point: Vector2, velocity: Vector2 = Vector2.ZERO) -> void:
-	center = coord_at(point)
+	center = sector_at(point)
 	var ahead := Vector2(signf(velocity.x)*T.MOVE_SPEED,signf(velocity.y)*T.MAX_FALL_SPEED)
 	priority_point = point+ahead*T.STREAM_LOOK_AHEAD_SECONDS
 	for y in range(-T.STREAM_LOAD_RADIUS, T.STREAM_LOAD_RADIUS + 1):
@@ -73,7 +107,7 @@ func request_around(point: Vector2, velocity: Vector2 = Vector2.ZERO) -> void:
 	while jobs.size() < T.STREAM_WORKERS and not waiting.is_empty(): _launch(waiting.pop_front())
 
 func priority_score(at: Vector2i) -> float:
-	return (Vector2(at)*T.SECTOR_SIZE+T.SECTOR_SIZE/2).distance_squared_to(priority_point)
+	return (sector_offset(at)+T.SECTOR_SIZE/2).distance_squared_to(priority_point)
 
 func service() -> void:
 	var begin := Time.get_ticks_usec()
@@ -93,6 +127,7 @@ func service() -> void:
 			jobs.erase(at)
 			generation_times.append(job.generation_ms)
 			if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE: continue
+			_take_result(job)
 			active_job = job
 			actor_index = 0
 			game.terrain.begin_sector(job.result)
@@ -127,7 +162,7 @@ func service() -> void:
 
 func _add_backdrop(at: Vector2i) -> void:
 	var background := Backdrop.new()
-	background.stage = {"seed": game.current_seed, "bounds": Rect2(Vector2(at) * T.SECTOR_SIZE, T.SECTOR_SIZE), "streaming": true}
+	background.stage = {"seed": game.current_seed, "bounds": Rect2(sector_offset(at), T.SECTOR_SIZE), "streaming": true, "origin_sector": game.origin_sector}
 	game.world.add_child(background)
 	backdrops[at] = background
 
@@ -136,11 +171,11 @@ func _spawn(spawn: Dictionary) -> void:
 	var record: Dictionary = {}
 	if spawn.kind == "boss":
 		if game.boss_cycle.records.has(spawn.boss_id):
-			record = game.boss_cycle.records[spawn.boss_id]
+			record = game.boss_cycle.world_record(game.boss_cycle.records[spawn.boss_id])
 		else:
 			var data: Dictionary = loaded.get(spawn.sector, {})
 			if data.is_empty() and active_job != null and active_job.coord == spawn.sector: data = active_job.result.data
-			record = game.boss_cycle.initial_spawn(spawn, data)
+			record = game.boss_cycle.world_record(game.boss_cycle.initial_spawn(spawn, data))
 		if record.is_empty() or not record.alive: return
 		if game.get_tree().get_nodes_in_group("enemies").any(func(e): return e.get_parent() == game.world and e.spawn_id == spawn.id and not e.is_queued_for_deletion()): return
 	elif game.boss_cycle.blocks_normal(spawn): return
@@ -160,7 +195,7 @@ func _spawn(spawn: Dictionary) -> void:
 	enemy.set_meta("sector", spawn.sector)
 	enemy.set_meta("chamber_id", spawn.chamber_id)
 	game.world.add_child(enemy)
-	var saved: Dictionary = states.get(spawn.sector, {}).get("actors", {}).get(spawn.id, {})
+	var saved: Dictionary = O.actor(states.get(spawn.sector, {}).get("actors", {}).get(spawn.id, {}), sector_offset(spawn.sector))
 	if not record.is_empty():
 		saved = record.saved
 		enemy.hp = record.hp
@@ -180,7 +215,7 @@ func install_bosses(at: Vector2i) -> void:
 			enemy.set_physics_process(false)
 			enemy.queue_free()
 	for record: Dictionary in game.boss_cycle.records.values():
-		if record.sector == at and record.alive: _spawn(record)
+		if record.sector == at and record.alive: _spawn(game.boss_cycle.world_record(record))
 
 func _spawn_heart(spawn: Dictionary) -> void:
 	if missing.has(spawn.id): return
@@ -194,11 +229,11 @@ func _spawn_heart(spawn: Dictionary) -> void:
 
 func _remember(id: String, category: String, at: Vector2i, descriptor: Dictionary, area: Rect2) -> void:
 	if missing.has(id): return
-	missing[id] = {"id": id, "category": category, "sector": at, "descriptor": descriptor.duplicate(true), "area": area,
+	missing[id] = {"id": id, "category": category, "sector": at, "descriptor": O.geometry(descriptor, -sector_offset(at)), "area": Rect2(area.position - sector_offset(at), area.size), "sector_local": true,
 		"removed_at": game.elapsed, "stamp": roundi(game.elapsed * 1000000.0), "next_attempt": 0}
 
 func remember_enemy(actor: CharacterBody2D) -> void:
-	var at: Vector2i = actor.get_meta("sector", coord_at(actor.position))
+	var at: Vector2i = actor.get_meta("sector", sector_at(actor.position))
 	if not loaded.has(at): return
 	for spawn: Dictionary in loaded[at].spawns:
 		if spawn.id == actor.spawn_id and spawn.kind != "boss":
@@ -208,9 +243,13 @@ func remember_enemy(actor: CharacterBody2D) -> void:
 static func block_id(rect: Rect2) -> String:
 	return "block:%d:%d" % [int(rect.position.x), int(rect.position.y)]
 
+func stable_block_id(rect: Rect2) -> String:
+	# Scalar arithmetic is float64; never round an absolute position through Vector2.
+	return "block:%d:%d" % [int(rect.position.x) + int(game.origin_sector.x) * int(T.SECTOR_SIZE.x), int(rect.position.y) + int(game.origin_sector.y) * int(T.SECTOR_SIZE.y)]
+
 func remember_block(rect: Rect2) -> void:
-	var at := coord_at(rect.get_center())
-	if loaded.has(at) and loaded[at].breakables.has(rect): _remember(block_id(rect), "block", at, {"bounds": rect}, rect)
+	var at := sector_at(rect.get_center())
+	if loaded.has(at) and loaded[at].breakables.has(rect): _remember(stable_block_id(rect), "block", at, {"bounds": rect}, rect)
 
 func remember_heart(spawn: Dictionary) -> void:
 	_remember(spawn.id, "heart", spawn.sector, spawn, Rect2(spawn.position - T.HEART_SIZE / 2, T.HEART_SIZE).grow(T.HEART_BOB_HEIGHT))
@@ -221,8 +260,20 @@ static func respawn_roll(seed_value: int, id: String, stamp: int, attempt: int) 
 	return rng.randf()
 
 func _return_area_clear(record: Dictionary) -> bool:
-	if record.category == "enemy" and game.boss_cycle.blocks_normal(record.descriptor): return false
+	if record.category == "enemy" and game.boss_cycle.blocks_normal(record.descriptor, record.get("sector_local", false)): return false
+	if record.get("sector_local", false) and not loaded.has(record.sector) and distance(record.sector, center) >= T.STREAM_UNLOAD_DISTANCE:
+		# Distant saved sectors are checked entirely in sector coordinates.
+		# Converting them to scene vectors would reintroduce float32 rounding.
+		for actor: Dictionary in states.get(record.sector, {}).get("actors", {}).values():
+			var size: Vector2 = actor.get("body_size", T.ENEMY_SIZE)
+			if Rect2(actor.position - size / 2, size).intersects(record.area): return false
+		if record.category == "enemy" and record.descriptor.kind != "flyer":
+			var floor_area := Rect2(record.area.position + Vector2(0, record.area.size.y), Vector2(record.area.size.x, 1))
+			for cell: Vector2i in Job.cells(floor_area):
+				if states.get(record.sector, {}).get("destroyed", {}).has(cell): return false
+		return true
 	var area: Rect2 = record.area
+	if record.get("sector_local", false): area.position += sector_offset(record.sector)
 	if game.view_rect().grow(T.RESPAWN_VIEW_MARGIN).intersects(area): return false
 	if is_instance_valid(game.player) and Rect2(game.player.position - game.player.body_size / 2, game.player.body_size).intersects(area): return false
 	for actor in game.get_tree().get_nodes_in_group("enemies"):
@@ -231,17 +282,17 @@ func _return_area_clear(record: Dictionary) -> bool:
 	if not loaded.has(record.sector):
 		for actor: Dictionary in states.get(record.sector, {}).get("actors", {}).values():
 			var size: Vector2 = actor.get("body_size", T.ENEMY_SIZE)
-			if Rect2(actor.position - size / 2, size).intersects(area): return false
-	for cell: Vector2i in Job.cells(area):
+			if Rect2(actor.position + sector_offset(record.sector) - size / 2, size).intersects(area): return false
+	for cell: Vector2i in game.terrain._cells_in(area):
 		if game.terrain.wall_cells.has(cell): return false
 		if loaded.has(record.sector) and game.terrain.occupied.has(cell): return false
 	# Never restore a grounded enemy into the void after erosion. Floors stay destroyed.
 	if record.category == "enemy" and record.descriptor.kind != "flyer":
 		var floor_area := Rect2(area.position + Vector2(0, area.size.y), Vector2(area.size.x, 1))
-		for cell: Vector2i in Job.cells(floor_area):
+		for cell: Vector2i in game.terrain._cells_in(floor_area):
 			if loaded.has(record.sector):
 				if game.terrain.destroyed_cells.has(cell): return false
-			elif states.get(record.sector, {}).get("destroyed", {}).has(cell): return false
+			elif states.get(record.sector, {}).get("destroyed", {}).has(cell - record.sector * Vector2i(T.SECTOR_SIZE / T.TILE_SIZE)): return false
 	return true
 
 func update_rewards() -> void:
@@ -265,19 +316,20 @@ func update_rewards() -> void:
 
 func _restore(record: Dictionary) -> void:
 	var at: Vector2i = record.sector
+	var descriptor: Dictionary = O.geometry(record.descriptor, sector_offset(at)) if loaded.has(at) else record.descriptor
 	match record.category:
 		"enemy":
 			game.defeated_enemies.erase(record.id)
 			if states.has(at): states[at].get("actors", {}).erase(record.id)
-			if loaded.has(at): _spawn(record.descriptor)
+			if loaded.has(at): _spawn(descriptor)
 		"block":
-			var rect: Rect2 = record.descriptor.bounds
-			if states.has(at): states[at].blocks[rect.position] = T.TERRAIN_HP
+			var rect: Rect2 = descriptor.bounds
+			if states.has(at): states[at].blocks[record.descriptor.bounds.position] = T.TERRAIN_HP
 			if loaded.has(at): game.terrain.restore_block(at, rect)
 		"heart":
 			# _spawn_heart checks missing, so clear this record before installation.
 			missing.erase(record.id)
-			if loaded.has(at): _spawn_heart(record.descriptor)
+			if loaded.has(at): _spawn_heart(descriptor)
 
 func _unload(at: Vector2i) -> void:
 	var saved: Dictionary = game.terrain.snapshot(at)
@@ -294,8 +346,10 @@ func _unload(at: Vector2i) -> void:
 	for heart in game.get_tree().get_nodes_in_group("hearts"):
 		if heart.get_parent() == game.world and heart.spawn.sector == at: heart.free()
 	for cell: Vector2i in game.explored_by_sector.get(at, {}):
-		game.explored_geometry[cell] = game.terrain.map_geometry(Rect2(Vector2(cell) * T.MAP_CELL_SIZE, Vector2.ONE * T.MAP_CELL_SIZE))
-	states[at] = saved
+		var local_cell: Vector2i = cell - game.map_origin()
+		var corner := Vector2(local_cell) * T.MAP_CELL_SIZE
+		game.explored_geometry[cell] = O.geometry(game.terrain.map_geometry(Rect2(corner, Vector2.ONE * T.MAP_CELL_SIZE)), -corner)
+	states[at] = O.snapshot(saved, -sector_offset(at))
 	game.terrain.unload(at)
 	if backdrops.has(at):
 		backdrops[at].free()
@@ -303,7 +357,7 @@ func _unload(at: Vector2i) -> void:
 	loaded.erase(at)
 	unload_count += 1
 	for projectile in game.projectiles.get_children():
-		if coord_at(projectile.global_position) == at or projectile.get_meta("source_sector", Vector2i(2147483647,2147483647)) == at: projectile.queue_free()
+		if sector_at(projectile.global_position) == at or projectile.get_meta("source_sector", Vector2i(2147483647,2147483647)) == at: projectile.queue_free()
 	_refresh_stage()
 
 func _refresh_stage() -> void:
@@ -328,13 +382,13 @@ func _refresh_stage() -> void:
 	game.total_enemies = game.get_tree().get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss").size()
 
 func contains(point: Vector2) -> bool:
-	return loaded.has(coord_at(point))
+	return loaded.has(sector_at(point))
 
 func contains_rect(rect: Rect2) -> bool:
-	var start := coord_at(rect.position)
+	var start := sector_at(rect.position)
 	# Half-open rectangles: subtract an integer sector, not a tiny pixel epsilon
 	# that rounds away in float32 when the player travels farther from the origin.
-	var end := Vector2i(ceili(rect.end.x/T.SECTOR_SIZE.x)-1,ceili(rect.end.y/T.SECTOR_SIZE.y)-1)
+	var end: Vector2i = _origin() + Vector2i(ceili(rect.end.x/T.SECTOR_SIZE.x)-1,ceili(rect.end.y/T.SECTOR_SIZE.y)-1)
 	for y in range(start.y, end.y + 1):
 		for x in range(start.x, end.x + 1):
 			if not loaded.has(Vector2i(x, y)): return false
@@ -344,6 +398,6 @@ func neighbourhood_ready(point: Vector2, delta: float) -> bool:
 	# Reserve all eight neighbours before crossing, including a possible input
 	# acceleration or ceiling correction in the player's next physics callback.
 	var margin := Vector2(T.MOVE_SPEED,T.MAX_FALL_SPEED)*delta+Vector2.ONE*T.CEILING_CORRECTION
-	var first := coord_at(point-margin)-Vector2i.ONE
-	var last := coord_at(point+margin)+Vector2i.ONE
-	return contains_rect(Rect2(Vector2(first)*T.SECTOR_SIZE,Vector2(last-first+Vector2i.ONE)*T.SECTOR_SIZE))
+	var first := sector_at(point-margin)-Vector2i.ONE
+	var last := sector_at(point+margin)+Vector2i.ONE
+	return contains_rect(Rect2(sector_offset(first),Vector2(last-first+Vector2i.ONE)*T.SECTOR_SIZE))

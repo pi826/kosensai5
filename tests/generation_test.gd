@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const S := preload("res://scripts/sector_generator.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const T := preload("res://scripts/tuning.gd")
@@ -17,6 +17,7 @@ func run():
 	var samples: Array[float] = []
 	var fallbacks := 0
 	for value in range(1000):
+		test_progress()
 		var coord := Vector2i(value % 7 - 3, (value / 7) % 7 - 3)
 		if value % 5 == 0: coord = Vector2i.ZERO
 		var begin := Time.get_ticks_usec()

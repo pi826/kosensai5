@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const Driver := preload("res://tests/tutorial_driver.gd")
 const T := preload("res://scripts/tuning.gd")
@@ -14,7 +14,9 @@ func check(ok: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 func frames(count: int) -> void:
 	for i in range(count):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 func raw_key(code: int, pressed: bool) -> void:
 	var event := InputEventKey.new()

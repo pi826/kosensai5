@@ -12,6 +12,74 @@ const Effects := preload("res://scripts/effects.gd")
 const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
 const BossCycle := preload("res://scripts/boss_cycle.gd")
+const O := preload("res://scripts/origin_shift.gd")
+var origin_sector := Vector2i.ZERO
+var origin_shift_count := 0
+var origin_shift_times: Array[float] = []
+
+func map_origin() -> Vector2i:
+	return origin_sector * Vector2i(T.SECTOR_SIZE / T.MAP_CELL_SIZE)
+
+func stable_point(point: Vector2) -> Dictionary:
+	return O.point(point, origin_sector)
+
+func local_point(point: Dictionary) -> Vector2:
+	return O.unpack(point, origin_sector)
+
+func boss_mark(id: int) -> Vector2:
+	var mark = discovered_bosses[id]
+	return local_point(mark) if mark is Dictionary else mark
+
+func maybe_shift_origin() -> Vector2:
+	var at := SectorStream.coord_at(player.position)
+	if maxi(absi(at.x), absi(at.y)) < T.ORIGIN_SHIFT_SECTORS: return Vector2.ZERO
+	return shift_origin(at)
+
+func shift_origin(sectors: Vector2i) -> Vector2:
+	if sectors == Vector2i.ZERO: return Vector2.ZERO
+	var began := Time.get_ticks_usec()
+	var delta := -Vector2(sectors) * T.SECTOR_SIZE
+	# Called before world physics, never deferred across actor callbacks.
+	origin_sector += sectors
+	origin_shift_count += 1
+	stage.origin_sector = origin_sector
+	terrain.shift_origin(delta, origin_sector)
+	stream.shift_origin(delta)
+	for actor: Node in world.get_children():
+		if actor == player or actor is Enemy:
+			actor.position += delta
+			if actor == player: player.drop_clear_y += delta.y
+			if actor is Enemy:
+				actor.patrol += Vector2.ONE * delta.x
+				actor.flight_center_y += delta.y
+				actor.resting_position += delta
+				actor.arena.position += delta
+				actor.roam.position += delta
+				actor.wall_plan.position += delta
+			actor.force_update_transform()
+			actor.reset_physics_interpolation()
+		elif actor.is_in_group("hearts"):
+			actor.position += delta
+			actor.spawn = O.geometry(actor.spawn, delta)
+			actor.reset_physics_interpolation()
+	for shot: Node2D in projectiles.get_children():
+		shot.position += delta
+		if shot is Bullet: shot.trail = O.points(shot.trail, delta)
+		elif shot is LaserBeam:
+			shot.curve = O.points(shot.curve, delta)
+			shot.path = O.points(shot.path, delta)
+		elif shot is Bomb: shot.target += delta
+		shot.reset_physics_interpolation()
+	for field in ["bursts", "damage_numbers", "player_hp_numbers", "charge_numbers"]:
+		for entry: Dictionary in effects.get(field): entry.at += delta
+	for display: Node2D in effects.get_children(): display.position += delta
+	effects.queue_redraw()
+	camera.position += delta
+	camera.reset_physics_interpolation()
+	camera.force_update_scroll()
+	origin_shift_times.append((Time.get_ticks_usec()-began)/1000.0)
+	if origin_shift_times.size() > T.STREAM_METRIC_SAMPLES: origin_shift_times.pop_front()
+	return delta
 
 class PhysicsProbe extends Node:
 	var game: Node
@@ -109,6 +177,7 @@ func return_to_title() -> void:
 	show_menu("title")
 
 func _ready() -> void:
+	process_physics_priority = -100
 	_register_inputs()
 	camera = Camera2D.new()
 	camera.position = T.VIEW_SIZE / 2
@@ -139,7 +208,10 @@ func start_run(stage_seed: int) -> void:
 		remove_child(world)
 		world.free()
 	current_seed = stage_seed
-	stage = {"seed": stage_seed, "streaming": true, "bounds": Rect2(), "start_position": T.SECTOR_START}
+	origin_sector = Vector2i.ZERO
+	origin_shift_count = 0
+	origin_shift_times.clear()
+	stage = {"seed": stage_seed, "streaming": true, "bounds": Rect2(), "start_position": T.SECTOR_START, "origin_sector": origin_sector}
 	score = 0
 	elapsed = 0.0
 	kills = 0
@@ -193,7 +265,7 @@ func start_run(stage_seed: int) -> void:
 	_update_exploration()
 	get_viewport().gui_release_focus()
 	ui.update_hud()
-	last_start_metrics = {"seed": stage_seed, "generation_ms": stream.generation_times.reduce(func(a, b): return a + b, 0.0), "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_root.get_child_count(), "actors": stage.spawns.size() + 1}
+	last_start_metrics = {"seed": stage_seed, "generation_ms": stream.generation_times.reduce(func(a, b): return a + b, 0.0), "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_body_count(), "actors": stage.spawns.size() + 1}
 
 func _exit_tree() -> void:
 	if boss_cycle != null: boss_cycle.shutdown()
@@ -205,7 +277,8 @@ func loaded_contains(point: Vector2) -> bool:
 
 func map_geometry(area: Rect2) -> Array:
 	if is_instance_valid(terrain) and (not streaming_enabled or stream.contains(area.get_center())): return terrain.map_geometry(area)
-	return explored_geometry.get(Vector2i((area.position / T.MAP_CELL_SIZE).floor()), [])
+	var cell := Vector2i((area.position / T.MAP_CELL_SIZE).floor())
+	return O.geometry(explored_geometry.get(cell + map_origin(), []), Vector2(cell) * T.MAP_CELL_SIZE)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_game") and not event.is_echo():
@@ -221,9 +294,10 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	physics_frame_started = 0
 	if state == "playing" and is_instance_valid(player):
-		boss_cycle.service()
 		var begin := Time.get_ticks_usec()
 		physics_frame_started = begin
+		if streaming_enabled: maybe_shift_origin()
+		boss_cycle.service()
 		if streaming_enabled:
 			stream.request_around(player.position,player.velocity)
 			stream.service()
@@ -273,7 +347,7 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 		camera.reset_smoothing()
 
 func biome_at(point: Vector2) -> int:
-	return preload("res://scripts/sector_generator.gd").region_at(current_seed, SectorStream.coord_at(point))
+	return preload("res://scripts/sector_generator.gd").region_at(current_seed, origin_sector + SectorStream.coord_at(point))
 
 func _update_exploration() -> void:
 	if not is_instance_valid(player) or player.dead:
@@ -286,18 +360,19 @@ func _update_exploration() -> void:
 			var cell := Vector2i(x, y)
 			var center := (Vector2(cell) + Vector2.ONE * 0.5) * T.MAP_CELL_SIZE
 			if center.distance_to(player.position) <= radius:
-				explored_cells[cell] = true
-				var at := SectorStream.coord_at(center)
+				var stable_cell := cell + map_origin()
+				explored_cells[stable_cell] = true
+				var at := origin_sector + SectorStream.coord_at(center)
 				if not explored_by_sector.has(at): explored_by_sector[at] = {}
-				explored_by_sector[at][cell] = true
-	visited_sectors[SectorStream.coord_at(player.position)] = true
+				explored_by_sector[at][stable_cell] = true
+	visited_sectors[origin_sector + SectorStream.coord_at(player.position)] = true
 	boss = null
 	var distance := INF
 	for actor in get_tree().get_nodes_in_group("enemies"):
 		if actor.get_parent() != world or actor.kind != "boss" or actor.dead or actor.is_queued_for_deletion():
 			continue
 		if is_on_screen(actor.position, 20):
-			discovered_bosses[actor.boss_id] = actor.position
+			discovered_bosses[actor.boss_id] = stable_point(actor.position)
 			var separation := player.position.distance_squared_to(actor.position)
 			if separation < distance:
 				distance = separation
@@ -396,7 +471,7 @@ func spawn_laser(actor: CharacterBody2D) -> Node2D:
 	var beam := LaserBeam.new()
 	beam.game = self
 	beam.source = actor
-	beam.set_meta("source_sector", SectorStream.coord_at(actor.position))
+	beam.set_meta("source_sector", origin_sector + SectorStream.coord_at(actor.position))
 	beam.polarity = actor.polarity
 	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
 	projectiles.add_child(beam)
@@ -407,7 +482,7 @@ func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
 	var bomb := Bomb.new()
 	bomb.game = self
 	bomb.source = actor
-	bomb.set_meta("source_sector", SectorStream.coord_at(actor.position))
+	bomb.set_meta("source_sector", origin_sector + SectorStream.coord_at(actor.position))
 	bomb.polarity = actor.polarity
 	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
 	projectiles.add_child(bomb)

@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const KeyBindings := preload("res://scripts/key_bindings.gd")
 const SettingsPanel := preload("res://scripts/key_settings_panel.gd")
 
@@ -178,9 +178,11 @@ func run() -> void:
 	panel.bindings = reloaded
 	panel.settings_path = _new_path()
 	root.add_child(panel)
+	test_progress()
 	await process_frame
 	check(not panel.visible, "settings panel initially hidden")
 	panel.open()
+	test_progress()
 	await process_frame
 	check(panel.visible and panel.get_rect().end.x <= 1280 and panel.get_rect().end.y <= 720, "settings panel fits 1280 by 720")
 	check(panel._buttons.has("interact"), "settings panel includes interaction action")
@@ -196,12 +198,15 @@ func run() -> void:
 	panel._reset()
 	check(panel._list_scroll.size.y < panel._list_scroll.get_child(0).size.y, "ten action rows scroll inside a fixed-height panel")
 	panel._buttons["pause_game"][0].grab_focus()
+	test_progress()
 	await process_frame
+	test_progress()
 	await process_frame
 	var pause_button: Button = panel._buttons["pause_game"][0]
 	var scroll_rect: Rect2 = panel._list_scroll.get_global_rect()
 	check(pause_button.get_global_rect().position.y >= scroll_rect.position.y and pause_button.get_global_rect().end.y <= scroll_rect.end.y, "keyboard focus scrolls the final action into view")
 	panel._focus_controls[0].grab_focus()
+	test_progress()
 	await process_frame
 	_tap(KEY_ENTER)
 	check(panel._waiting_action == "move_left" and panel._waiting_slot == 0, "Enter selects focused key slot")
@@ -236,6 +241,7 @@ func run() -> void:
 	check(input_spy.unhandled_keys > 0, "hidden panel no longer intercepts keys")
 	panel.queue_free()
 	input_spy.queue_free()
+	test_progress()
 	await process_frame
 	# Temporary files include panel saves; the player's actual settings stay intact.
 	for test_path in _test_paths:

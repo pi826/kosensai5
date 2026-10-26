@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const T := preload("res://scripts/tuning.gd")
@@ -14,7 +14,9 @@ func check(ok: bool, message: String):
 		printerr("FAIL: ",message)
 func frames(n: int = 1):
 	for i in range(n):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 func quiet():
 	for enemy in get_nodes_in_group("enemies"): enemy.set_physics_process(false)

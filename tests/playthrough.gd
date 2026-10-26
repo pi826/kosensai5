@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const T := preload("res://scripts/tuning.gd")
 const Main := preload("res://scripts/main.gd")
 const S := preload("res://scripts/sector_generator.gd")
@@ -40,10 +40,10 @@ func run_seed(value: int, damaged: bool = false) -> bool:
 	for route: Dictionary in routes:
 		print("ROUTE seed=", value, " guardian=", route.boss_id, " commands=", route.outward.size(), "/", route.returning.size())
 		if not check(await driver.follow(route.outward), "seed %d damaged=%s outward guardian %d: %s" % [value, damaged, route.boss_id, driver.error]): return false
-		check(game.player.position.distance_to(route.end) < 8, "physically reached guardian sector")
+		check(driver.point().distance_to(route.end) < 8, "physically reached guardian sector")
 		check(game.discovered_bosses.has(route.boss_id), "actual loaded guardian discovered")
 		if not check(await driver.follow(route.returning), "seed %d damaged=%s return guardian %d: %s" % [value, damaged, route.boss_id, driver.error]): return false
-		check(game.player.position.distance_to(T.SECTOR_START) < 8, "physically returned to original start")
+		check(driver.point().distance_to(T.SECTOR_START) < 8, "physically returned to original start")
 		check(game.world.get_instance_id() == world_id and game.player.get_instance_id() == player_id, "world and player never replaced")
 		reached += 1
 	check(game.stream.unload_count > 0, "travel actually unloads distant sectors")

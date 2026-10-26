@@ -3,6 +3,7 @@ extends RefCounted
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
 const Job := preload("res://scripts/sector_job.gd")
+const O := preload("res://scripts/origin_shift.gd")
 var game: Node2D
 var round_number := 1
 var final_clears := 0
@@ -74,12 +75,12 @@ static func select_sites(seed_value: int, center: Vector2i, cycle: int, roles: A
 		var region := S.region_at(seed_value, at)
 		if roles.size() > 1 and regions.has(region): continue
 		var role: String = roles[result.size()]
-		var data := Job.world_data(S.generate(seed_value, at))
+		var data := S.generate(seed_value, at)
 		for room: Dictionary in data.chambers:
 			if room.kind != "normal" or room.rect.size.x < T.BOSS_ROOM_MIN.x or room.rect.size.y < T.BOSS_ROOM_MIN.y: continue
 			var roam := roam_rect(data, room.rect, role)
 			if not roam.has_area(): continue
-			result.append({"sector": at, "chamber_id": room.id, "arena": room.rect, "roam": roam,
+			result.append({"sector": at, "sector_local": true, "chamber_id": room.id, "arena": room.rect, "roam": roam,
 				"position": roam.get_center(), "region": region, "role": role})
 			regions.append(region)
 			break
@@ -88,6 +89,21 @@ static func select_sites(seed_value: int, center: Vector2i, cycle: int, roles: A
 
 func initialize() -> void:
 	used_sectors = S.guardian_sectors(game.current_seed)
+
+func world_record(record: Dictionary) -> Dictionary:
+	if record.is_empty(): return {}
+	var out := record.duplicate(true)
+	if not record.get("sector_local", false): return out
+	var delta: Vector2 = game.stream.sector_offset(record.sector)
+	for field in ["position", "arena", "roam"]: out[field] = O.geometry(record[field], delta)
+	out.patrol += Vector2.ONE * delta.x
+	out.saved = O.actor(record.saved, delta)
+	return out
+
+func update_position(actor: CharacterBody2D) -> void:
+	if records.has(actor.boss_id):
+		var record: Dictionary = records[actor.boss_id]
+		record.position = actor.position - game.stream.sector_offset(record.sector)
 
 func shutdown() -> void:
 	if selection != null:
@@ -109,6 +125,10 @@ func initial_spawn(spawn: Dictionary, data: Dictionary) -> Dictionary:
 	record.alive = true
 	record.revealed = false
 	record.saved = {}
+	var delta: Vector2 = -game.stream.sector_offset(spawn.sector)
+	for field in ["position", "arena", "roam"]: record[field] = O.geometry(record[field], delta)
+	record.patrol += Vector2.ONE * delta.x
+	record.sector_local = true
 	records[spawn.boss_id] = record
 	return record
 
@@ -117,7 +137,7 @@ func request(roles: Array[String]) -> void:
 	selection = Selection.new()
 	selection.select = select_sites
 	selection.seed_value = game.current_seed
-	selection.center = game.stream.coord_at(game.player.position)
+	selection.center = game.stream.sector_at(game.player.position)
 	selection.round_number = round_number
 	selection.roles = roles
 	selection.excluded = used_sectors.duplicate()
@@ -148,7 +168,7 @@ func service() -> void:
 		records[id] = site
 		used_sectors.append(site.sector)
 		if site.role == "guardian": guardian_ids.append(id)
-		game.discovered_bosses[id] = site.position
+		game.discovered_bosses[id] = {"sector": site.sector, "local": site.position}
 		game.stream.install_bosses(site.sector)
 	if phase == "guardians":
 		game.announce("ガーディアンが復活した！（%d周目）" % round_number)
@@ -161,7 +181,7 @@ func next_id() -> int:
 	return result
 
 func spawn_message(record: Dictionary) -> String:
-	var offset: Vector2i = record.sector - game.stream.coord_at(game.player.position)
+	var offset: Vector2i = record.sector - game.stream.sector_at(game.player.position)
 	var direction := ("右" if offset.x > 0 else ("左" if offset.x < 0 else "")) + ("下" if offset.y > 0 else ("上" if offset.y < 0 else ""))
 	return "%sが%sに出現！（%s 約%d区画先）" % [name_for(record.role), T.BIOME_NAMES[record.region], direction, maxi(absi(offset.x), absi(offset.y))]
 
@@ -204,16 +224,16 @@ func objective() -> String:
 		"complete": return "裏ボス撃破・クリア"
 	return "ガーディアン %d / 3 撃破%s" % [current_guardian_defeats(), "（%d周目）" % round_number if round_number > 1 else ""]
 
-func blocks_normal(spawn: Dictionary) -> bool:
+func blocks_normal(spawn: Dictionary, sector_local: bool = false) -> bool:
 	for record: Dictionary in records.values():
 		# Keep the arena clear for the rest of this run, including 5C respawns.
-		if record.revealed and record.sector == spawn.sector and (record.chamber_id == spawn.chamber_id or record.arena.has_point(spawn.position)): return true
+		if record.revealed and record.sector == spawn.sector and (record.chamber_id == spawn.chamber_id or record.arena.has_point(spawn.position if sector_local else spawn.position - game.stream.sector_offset(spawn.sector))): return true
 	return false
 
 func remember(actor: CharacterBody2D, saved: Dictionary) -> void:
 	if not records.has(actor.boss_id): return
 	var record: Dictionary = records[actor.boss_id]
-	record.saved = saved.duplicate(true)
+	record.saved = O.actor(saved, -game.stream.sector_offset(record.sector))
 	record.hp = actor.hp
-	record.position = actor.position
-	if record.revealed or game.discovered_bosses.has(actor.boss_id): game.discovered_bosses[actor.boss_id] = actor.position
+	update_position(actor)
+	if record.revealed or game.discovered_bosses.has(actor.boss_id): game.discovered_bosses[actor.boss_id] = game.stable_point(actor.position)

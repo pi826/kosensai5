@@ -41,7 +41,8 @@ func get_visible_bosses() -> Array:
 	for boss_id in game.discovered_bosses:
 		var role := "guardian"
 		if "boss_cycle" in game and game.boss_cycle != null: role = game.boss_cycle.records.get(boss_id, {}).get("role", "guardian")
-		result.append({"id": int(boss_id), "position": game.discovered_bosses[boss_id], "defeated": game.defeated_bosses.has(boss_id), "role": role})
+		var position: Vector2 = game.boss_mark(boss_id) if game.has_method("boss_mark") else game.discovered_bosses[boss_id]
+		result.append({"id": int(boss_id), "position": position, "defeated": game.defeated_bosses.has(boss_id), "role": role})
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.id) < int(b.id))
 	return result
 
@@ -75,7 +76,8 @@ func displayed_cells() -> Array[Vector2i]:
 	for y in range(floori(area.position.y / CELL_SIZE), ceili(area.end.y / CELL_SIZE)):
 		for x in range(floori(area.position.x / CELL_SIZE), ceili(area.end.x / CELL_SIZE)):
 			var cell := Vector2i(x, y)
-			if game.explored_cells.get(cell, false): out.append(cell)
+			var stable_cell: Vector2i = cell + (game.map_origin() if game.has_method("map_origin") else Vector2i.ZERO)
+			if game.explored_cells.get(stable_cell, false): out.append(cell)
 	return out
 
 func guardian_marks() -> Array:

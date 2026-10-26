@@ -3,6 +3,8 @@ extends RefCounted
 const S := preload("res://scripts/sector_generator.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const T := preload("res://scripts/tuning.gd")
+const O := preload("res://scripts/origin_shift.gd")
+var origin := Vector2i.ZERO
 var seed_value: int
 var coord: Vector2i
 var saved: Dictionary = {}
@@ -10,11 +12,12 @@ var result: Dictionary = {}
 var task_id := -1
 var generation_ms := 0.0
 
-static func world_data(local: Dictionary) -> Dictionary:
-	var offset := Vector2(local.coord) * T.SECTOR_SIZE
+static func world_data(local: Dictionary, origin_at: Vector2i = Vector2i.ZERO) -> Dictionary:
+	var offset := O.offset(local.coord, origin_at)
 	var data: Dictionary = _translate(local, offset)
 	data.coord = local.coord
-	data.gates = local.gates # Already expressed in world coordinates.
+	data.gates = {}
+	for side: Vector2i in S.SIDES: data.gates[side] = S.boundary_gates(local.seed, local.coord, side, origin_at)
 	for i in range(data.spawns.size()):
 		data.spawns[i].id = "%d,%d:%s" % [local.coord.x, local.coord.y, local.spawns[i].id]
 		data.spawns[i].patrol = local.spawns[i].patrol + Vector2.ONE * offset.x
@@ -42,7 +45,8 @@ func run() -> void:
 	var begin := Time.get_ticks_usec()
 	var local := S.generate(seed_value, coord)
 	generation_ms = (Time.get_ticks_usec() - begin) / 1000.0
-	var data := world_data(local)
+	var data := world_data(local, origin)
+	saved = O.snapshot(saved, O.offset(coord, origin))
 	var occupied := {}
 	var surfaces := {}
 	var shelves: Array = []
@@ -65,7 +69,11 @@ func run() -> void:
 		var block_cells := cells(rect)
 		blocks.append({"bounds": rect, "cells": block_cells, "hp": hp})
 		for cell: Vector2i in block_cells: occupied[cell] = true
-	result = {"data": data, "occupied": occupied.keys(), "surfaces": surfaces, "destroyed": destroyed,
+	# Cell identities stay integer world keys. Only pixels sent to the scene
+	# are relative to this job's origin.
+	var grid_origin := origin * Vector2i(T.SECTOR_SIZE / T.TILE_SIZE)
+	for block: Dictionary in blocks: block.cells = O.cells(block.cells, grid_origin)
+	result = {"data": data, "occupied": O.cells(occupied.keys(), grid_origin), "surfaces": O.keyed(surfaces, grid_origin), "destroyed": O.keyed(destroyed, grid_origin),
 		"blocks": blocks, "shelves": shelves, "collisions": G.subtract_rects(data.solids, data.erodible_surfaces)}
 
 static func cells(rect: Rect2) -> Array[Vector2i]:

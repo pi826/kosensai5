@@ -33,13 +33,13 @@ static func guardian_sectors(seed_value: int) -> Array[Vector2i]:
 
 # Canonical edge: right/down belongs to this cell, left/up to its neighbor.
 # Gate rects are in world coordinates so independent callers obtain identical data.
-static func boundary_gates(seed_value: int, at: Vector2i, side: Vector2i) -> Array:
+static func boundary_gates(seed_value: int, at: Vector2i, side: Vector2i, reference: Vector2i = Vector2i.ZERO) -> Array:
 	assert(side in SIDES)
 	var owner := at + side if side in [Vector2i.LEFT, Vector2i.UP] else at
 	var horizontal := side.x != 0
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _key(seed_value, owner, "east" if horizontal else "south")
-	var origin := Vector2(owner) * T.SECTOR_SIZE
+	var origin := Vector2(owner - reference) * T.SECTOR_SIZE
 	var result: Array = []
 	var positions: Array = []
 	for i in range(rng.randi_range(1, 2)):

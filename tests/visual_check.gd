@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
@@ -46,11 +46,14 @@ func run_tutorial():
 	quit(0 if failures == 0 else 1)
 func frames(n: int):
 	for i in range(n):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 func capture(name: String):
 	game.ui.update_hud()
 	await frames(2)
+	test_progress()
 	await RenderingServer.frame_post_draw
 	var code := root.get_texture().get_image().save_png(output + name + ".png")
 	captures += 1
@@ -58,16 +61,17 @@ func capture(name: String):
 		failures += 1
 		printerr("CAPTURE FAILED ", name)
 	else: print("CAPTURE ", name)
-func show(point: Vector2):
+func show(point: Vector2) -> bool:
 	if not await Support.ready(self, game, point):
 		failures += 1
-		return
+		return false
 	game.player.position = point
 	game.player.velocity = Vector2.ZERO
 	game._update_camera(0, true)
 	game._update_exploration()
 	game.ui.update_hud()
 	await frames(3)
+	return true
 func run():
 	DirAccess.make_dir_recursive_absolute(OUTPUT)
 	game = Main.new()
@@ -131,7 +135,8 @@ func boss_actor(id: int) -> Node2D:
 	return null
 
 func wait_boss_selection():
-	for tick in range(30000):
+	var deadline := Time.get_ticks_msec() + 30000
+	while Time.get_ticks_msec() < deadline:
 		game.boss_cycle.service()
 		if game.boss_cycle.selection == null: return
 		await frames(1)
@@ -139,6 +144,7 @@ func wait_boss_selection():
 	failures += 1
 
 func kill_boss(e: Node2D):
+	if not require_boss(e): return
 	e.receive_hit(1-e.polarity,9999)
 	await frames(2)
 	await wait_boss_selection()
@@ -147,13 +153,25 @@ func live_records(role: String) -> Array:
 	return game.boss_cycle.records.values().filter(func(r): return r.role == role and r.alive)
 
 func show_boss(record: Dictionary) -> Node2D:
-	await show(record.position + Vector2(240, 25))
+	if not await show(game.boss_cycle.world_record(record).position + Vector2(240, 25)): return null
 	game.player.invulnerability = 10000
+	if not await wait_until(func(): return is_instance_valid(boss_actor(record.boss_id))):
+		failures += 1
+		printerr("FAIL: visual boss detection timed out")
+		return null
 	return boss_actor(record.boss_id)
+
+func require_boss(e: Node2D) -> bool:
+	if is_instance_valid(e): return true
+	failures += 1
+	printerr("FAIL: visual guardian/boss missing after sector preparation")
+	quit(1)
+	return false
 
 func kill_guardians():
 	for record: Dictionary in live_records("guardian"):
 		var e = await show_boss(record)
+		if not require_boss(e): return
 		await kill_boss(e)
 
 func run_bosses():
@@ -167,6 +185,7 @@ func run_bosses():
 		await show(Vector2(at)*T.SECTOR_SIZE+T.SECTOR_START)
 		var id := S.guardian_sectors(37).find(at)
 		var e = boss_actor(id)
+		if not require_boss(e): return
 		await show(e.position+Vector2(240,25))
 		game.player.invulnerability = 10000
 		if id == 0:
@@ -182,6 +201,7 @@ func run_bosses():
 	await capture("final_map_edge")
 	var final: Dictionary = live_records("final")[0]
 	var e = await show_boss(final)
+	if not require_boss(e): return
 	game.announcement_remaining = 0
 	e.set_physics_process(true)
 	await frames(100)
@@ -196,6 +216,7 @@ func run_bosses():
 		await kill_boss(e)
 	await capture("secret_spawn")
 	e = await show_boss(live_records("secret")[0])
+	if not require_boss(e): return
 	game.announcement_remaining = 0
 	e.set_physics_process(true)
 	await frames(100)

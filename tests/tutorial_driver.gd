@@ -30,7 +30,9 @@ func release() -> void:
 
 func frames(count: int) -> void:
 	for i in range(count):
+		tree.test_progress()
 		await tree.physics_frame
+		tree.test_progress()
 		await tree.process_frame
 		largest_step = maxf(largest_step, previous_position.distance_to(game.player.position))
 		previous_position = game.player.position

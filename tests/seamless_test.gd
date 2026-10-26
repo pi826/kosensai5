@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/test_tree.gd"
 const Main := preload("res://scripts/main.gd")
 const T := preload("res://scripts/tuning.gd")
 const S := preload("res://scripts/sector_generator.gd")
@@ -22,7 +22,7 @@ func check(ok: bool, message: String):
 		printerr("FAIL: ", message)
 func setup(point: Vector2):
 	driver.release()
-	check(await Support.ready(self,game,point),"crossing viewport prepared before input")
+	check(await Support.ready(self,game,driver.local(point)),"crossing viewport prepared before input")
 	Support.release(self,game)
 	await driver.tick(3)
 func continuity_fixture(gate: Dictionary) -> Dictionary:
@@ -41,21 +41,21 @@ func continuity_fixture(gate: Dictionary) -> Dictionary:
 	var source:=Enemy.new()
 	source.game=game
 	source.kind="laser"
-	source.position=Vector2(x+280,floor_y-22)
+	source.position=driver.local(Vector2(x+280,floor_y-22))
 	source.patrol=Vector2(source.position.x,source.position.x)
 	source.spawn_id="seam_laser_fixture"
 	game.world.add_child(source)
 	var warning=game.spawn_laser(source)
 	var active=game.spawn_laser(source)
 	for beam in [warning,active]:
-		beam.build_curve(Vector2(x+300,floor_y-64),Vector2(x+380,floor_y-64),1)
+		beam.build_curve(driver.local(Vector2(x+300,floor_y-64)),driver.local(Vector2(x+380,floor_y-64)),1)
 		beam.clip_path()
 	active.fire()
 	var flyer:=Enemy.new()
 	flyer.game=game
 	flyer.kind="flyer"
-	flyer.position=Vector2(x+180,floor_y-112)
-	flyer.patrol=Vector2(x+96,x+256)
+	flyer.position=driver.local(Vector2(x+180,floor_y-112))
+	flyer.patrol=Vector2(x+96,x+256)-Vector2.ONE*float(game.origin_sector.x)*T.SECTOR_SIZE.x
 	flyer.spawn_id="seam_flyer_fixture"
 	game.world.add_child(flyer)
 	flyer.hp=1
@@ -72,7 +72,7 @@ func continuity_fixture(gate: Dictionary) -> Dictionary:
 	bomb.fire()
 	bomb.position=Vector2(bomb_x,room.end.y-64)
 	bomb.velocity=Vector2(0,-250)
-	game.show_damage(game.player.position,1)
+	game.show_damage(driver.point(),1)
 	return {"destroyed":game.terrain.destroyed_cells.duplicate(),"wall":wall,"wall_remaining":game.terrain.walls[wall].remaining,"warning":warning,"active":active,"curve":warning.curve.duplicate(),"flyer":flyer,"flyer_position":flyer.position,"bomb":bomb,"bomb_position":bomb.position,"damage_sequence":game.effects.damage_sequence}
 func horizontal(gate: Dictionary):
 	var x: float = gate.rect.position.x
@@ -92,23 +92,23 @@ func horizontal(gate: Dictionary):
 		witness.gauge=3
 		var witness_id: int=witness.get_instance_id()
 		var bullet=game.spawn_bullet(game.player,Vector2(direction,0))
-		bullet.position=Vector2(x-direction*48,floor_y-64)
+		bullet.position=driver.local(Vector2(x-direction*48,floor_y-64))
 		var bullet_id: int=bullet.get_instance_id()
 		var continuity: Dictionary=continuity_fixture(gate) if crossings==0 else {}
 		Input.action_press("move_right" if direction>0 else "move_left")
 		var max_height_error:=0.0
 		var seam_speed:=0.0
 		for i in range(40):
-			var before: Vector2=game.player.position
+			var before: Vector2=driver.point()
 			await driver.tick()
-			max_height_error=maxf(max_height_error,absf(game.player.position.y-(floor_y-22)))
-			if (before.x-x)*direction<=0 and (game.player.position.x-x)*direction>0: seam_speed=absf(game.player.velocity.x)
-			if i==7: check(is_instance_valid(bullet) and bullet.get_instance_id()==bullet_id and (bullet.position.x-x)*direction>0,"actual projectile crosses horizontal seam with launch color")
+			max_height_error=maxf(max_height_error,absf(driver.point().y-(floor_y-22)))
+			if (before.x-x)*direction<=0 and (driver.point().x-x)*direction>0: seam_speed=absf(game.player.velocity.x)
+			if i==7: check(is_instance_valid(bullet) and bullet.get_instance_id()==bullet_id and (driver.world_point(bullet).x-x)*direction>0,"actual projectile crosses horizontal seam with launch color")
 			if i==7 and not continuity.is_empty():
 				check(is_instance_valid(continuity.warning) and continuity.warning.phase=="warning" and continuity.warning.elapsed>0 and continuity.warning.curve==continuity.curve,"laser warning preserves its fixed curve and elapsed time across seam")
 				check(is_instance_valid(continuity.active) and continuity.active.phase=="beam" and continuity.active.remaining<T.LASER_DURATION,"active irradiation continues across seam")
 		driver.release()
-		check((game.player.position.x-x)*direction>64,"real walking crosses gate in both directions")
+		check((driver.point().x-x)*direction>64,"real walking crosses gate in both directions")
 		check(max_height_error<0.2 and absf(seam_speed-T.MOVE_SPEED)<0.1,"no floor gap height step or horizontal velocity loss at seam")
 		check(game.world.get_instance_id()==world_id and game.player.get_instance_id()==player_id and game.terrain.get_instance_id()==terrain_id,"seam never replaces world player or terrain")
 		check(is_instance_id_valid(witness_id) and witness.hp==1 and witness.gauge==3 and game.player.hp==88 and game.player.gauge==3 and game.player.homing_charges==T.HOMING_CHARGE_CAPACITY and game.score==200,"crossing preserves HP absorption meter homing stocks and enemy combat state")
@@ -119,11 +119,11 @@ func horizontal(gate: Dictionary):
 			check(is_instance_valid(continuity.flyer) and continuity.flyer.hp==1 and continuity.flyer.gauge==3 and continuity.flyer.flight_clock>0 and continuity.flyer.position!=continuity.flyer_position,"live flyer retains HP gauge and flight phase across seam")
 			check(game.effects.damage_sequence==continuity.damage_sequence and not game.effects.damage_numbers.is_empty(),"seam preserves damage effects")
 			driver.live_enemies.clear()
-			var before: Vector2=game.player.position
+			var before: Vector2=driver.point()
 			driver.input("interact",true)
 			driver.input("interact",false)
 			await driver.tick()
-			check(game.player.position.distance_to(before)<24 and game.world.get_instance_id()==world_id,"interaction cannot warp or regenerate the world")
+			check(driver.point().distance_to(before)<24 and game.world.get_instance_id()==world_id,"interaction cannot warp or regenerate the world")
 		samples.append({"axis":"x","at":gate.rect.position,"direction":direction,"height_error":max_height_error,"speed":seam_speed})
 		crossings+=1
 func vertical(gate: Dictionary):
@@ -134,27 +134,27 @@ func vertical(gate: Dictionary):
 	var crossed:=false
 	for i in range(80):
 		await driver.tick()
-		if game.player.position.y>y+24:
+		if driver.point().y>y+24:
 			Input.action_release("move_down")
 			crossed=true
 		if crossed and game.player.is_on_floor(): break
-	check(crossed and absf(game.player.position.y-(y+96-22))<0.5,"held down crosses vertical seam and lands on canonical lower shelf")
-	check(absf(game.player.position.x-x)<0.1,"vertical crossing never changes x")
+	check(crossed and absf(driver.point().y-(y+96-22))<0.5,"held down crosses vertical seam and lands on canonical lower shelf")
+	check(absf(driver.point().x-x)<0.1,"vertical crossing never changes x")
 	var bullet=game.spawn_bullet(game.player,Vector2.UP)
-	bullet.position=Vector2(x,y+16)
+	bullet.position=driver.local(Vector2(x,y+16))
 	await driver.tick(2)
-	check(is_instance_valid(bullet) and bullet.position.y<y,"actual upward projectile crosses vertical seam")
+	check(is_instance_valid(bullet) and driver.world_point(bullet).y<y,"actual upward projectile crosses vertical seam")
 	driver.input("jump",true)
-	var highest: float=game.player.position.y
+	var highest: float=driver.point().y
 	for i in range(45):
 		await driver.tick()
-		highest=minf(highest,game.player.position.y)
+		highest=minf(highest,driver.point().y)
 	driver.input("jump",false)
 	await driver.tick(8)
-	check(highest<y-22 and game.player.is_on_floor() and absf(game.player.position.y-(y-32-22))<0.5,"held normal jump crosses upward and lands on upper shelf")
-	check(absf(game.player.position.x-x)<0.1,"upward seam has no sideways correction or warp")
+	check(highest<y-22 and game.player.is_on_floor() and absf(driver.point().y-(y-32-22))<0.5,"held normal jump crosses upward and lands on upper shelf")
+	check(absf(driver.point().x-x)<0.1,"upward seam has no sideways correction or warp")
 	crossings+=2
-	samples.append({"axis":"y","at":gate.rect.position,"highest":highest,"landed":game.player.position})
+	samples.append({"axis":"y","at":gate.rect.position,"highest":highest,"landed":driver.point()})
 func run():
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/streaming")
 	game=Main.new()
@@ -176,19 +176,23 @@ func run():
 	check(driver.incomplete_views==0,"every crossing frame displays only completely ready sectors")
 	check(driver.max_player_step<25 and driver.max_camera_step<32,"all seam movement and camera steps continuous")
 	game.show_menu("paused")
-	var before: Vector2=game.player.position
+	var before: Vector2=driver.point()
 	var elapsed: float=game.elapsed
 	Input.action_press("move_right")
 	for i in range(20):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
 	Input.action_release("move_right")
-	check(game.player.position==before and game.elapsed==elapsed,"pause freezes world and clock")
+	check(driver.point()==before and game.elapsed==elapsed,"pause freezes world and clock")
 	game.open_key_settings()
 	for i in range(5):
+		test_progress()
 		await physics_frame
+		test_progress()
 		await process_frame
-	check(game.player.position==before and game.elapsed==elapsed,"settings freezes world without regeneration")
+	check(driver.point()==before and game.elapsed==elapsed,"settings freezes world without regeneration")
 	FileAccess.open("res://builds/qa/streaming/seam_results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"crossings":crossings,"samples":samples,"max_player_step":driver.max_player_step,"max_camera_step":driver.max_camera_step},"\t"))
 	game.free()
 	print("STREAM SEAMS: %d checks, %d failures, %d physical crossings" % [checks,failures.size(),crossings])
