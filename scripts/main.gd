@@ -428,6 +428,23 @@ func view_rect() -> Rect2:
 func is_on_screen(point: Vector2, inset: float = 0.0) -> bool:
 	return view_rect().grow(-inset).has_point(point)
 
+func boss_arrow_progress() -> String:
+	if is_tutorial() or kills >= T.BOSS_ARROW_KILLS: return ""
+	return "ボスの方角まで あと%d体" % (T.BOSS_ARROW_KILLS - kills)
+
+func boss_arrow_state() -> Dictionary:
+	if is_tutorial() or state != "playing" or kills < T.BOSS_ARROW_KILLS or not is_instance_valid(player) or player.dead or boss_cycle == null: return {}
+	var target: Dictionary = boss_cycle.nearest_target(player.position)
+	if target.is_empty(): return {}
+	var bounds := Rect2(target.offset - BossCycle.size_for(target.role) / 2, BossCycle.size_for(target.role))
+	var view := view_rect()
+	if bounds.intersects(Rect2(view.position - player.position, view.size)): return {}
+	var sectors: float = (target.offset / T.SECTOR_SIZE).length()
+	target.direction = target.offset.normalized()
+	target.distance = target.offset.length()
+	target.distance_text = "約%d区画" % maxi(1, roundi(sectors)) if sectors >= 1.0 else "近い"
+	return target
+
 func targets_for(side: int, color: int, origin: Vector2) -> Array:
 	var candidates: Array = []
 	var group := "enemies" if side == 0 else "players"
@@ -601,6 +618,8 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	else:
 		score += T.ENEMY_SCORE
 		kills += 1
+		if kills == T.BOSS_ARROW_KILLS and not is_tutorial():
+			announce("ボスの方角が分かるようになった")
 
 func _finish_run() -> void:
 	if not is_instance_valid(player) or player.dead:

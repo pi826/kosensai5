@@ -30,6 +30,7 @@ func _ready() -> void:
 	body_size = T.BOSS_SIZE if kind == "boss" else T.ENEMY_SIZE
 	max_hp = T.BOSS_HP if kind == "boss" else T.ENEMY_HP
 	if kind == "boss":
+		game.boss_cycle.live_actors[boss_id] = weakref(self)
 		body_size = preload("res://scripts/boss_cycle.gd").size_for(boss_role)
 		max_hp = preload("res://scripts/boss_cycle.gd").hp_for(boss_role)
 	hp = max_hp

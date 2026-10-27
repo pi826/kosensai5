@@ -3,6 +3,7 @@ const T := preload("res://scripts/tuning.gd")
 const KeySettingsPanel := preload("res://scripts/key_settings_panel.gd")
 const Minimap := preload("res://scripts/minimap.gd")
 const ShopPanel := preload("res://scripts/shop_panel.gd")
+const BossArrow := preload("res://scripts/boss_arrow.gd")
 var game: Node2D
 var menu: Control
 var health_label: Label
@@ -40,6 +41,8 @@ var loot_label: Label
 var loot_notice: Label
 var shop_panel: Control
 var equipment_button: Button
+var boss_arrow: Control
+var boss_arrow_label: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -55,6 +58,10 @@ func _ready() -> void:
 	var hud := Control.new()
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hud)
+	boss_arrow = BossArrow.new()
+	boss_arrow.game = game
+	boss_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(boss_arrow)
 	var top := Panel.new()
 	top.add_theme_stylebox_override("panel", panel_style(Color("0d1b2be8")))
 	place(top, Vector2(24, 18), Vector2(1232, 88))
@@ -116,6 +123,9 @@ func _ready() -> void:
 	objective_label = label("", 15, Color("a3b4bd"))
 	place(objective_label, Vector2(44, 151), Vector2(365, 28))
 	hud.add_child(objective_label)
+	boss_arrow_label = label("", 14, Color("a3b4bd"))
+	place(boss_arrow_label, Vector2(44, 182), Vector2(365, 24))
+	hud.add_child(boss_arrow_label)
 	minimap = Minimap.new()
 	minimap.game = game
 	place(minimap, Vector2(936, 122), Vector2(320, 104))
@@ -256,6 +266,8 @@ func refresh_bindings() -> void:
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
 
 func update_hud() -> void:
+	boss_arrow_label.text = game.boss_arrow_progress()
+	boss_arrow_label.visible = not game.is_tutorial() and game.state == "playing" and not boss_arrow_label.text.is_empty()
 	var live: bool = is_instance_valid(game.player) and not game.player.dead
 	var health: int = game.player.hp if live else 0
 	var maximum: int = game.player.max_hp if live else T.PLAYER_HP

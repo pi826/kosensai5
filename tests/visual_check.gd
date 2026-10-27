@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--merchant"):
+	if OS.get_cmdline_user_args().has("--boss-arrow"):
+		output = "res://builds/qa/boss_arrow/"
+		call_deferred("run_boss_arrow")
+	elif OS.get_cmdline_user_args().has("--merchant"):
 		output = "res://builds/qa/merchant/"
 		call_deferred("run_merchant")
 	elif OS.get_cmdline_user_args().has("--abilities"):
@@ -33,6 +36,55 @@ func action_input(action: String, pressed: bool) -> void:
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
+
+func run_boss_arrow() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.start_run(37)
+	game.elapsed = 9
+	if not await show(T.SECTOR_START): quit(1); return
+	for e in get_nodes_in_group("enemies"): e.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	# Defeats use the real reward/unlock handler. Positions below are QA fixtures.
+	var normals := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss")
+	for i in range(7): normals[i].receive_hit(1 - normals[i].polarity, 999)
+	await capture("arrow_progress")
+	for i in range(7, 10): normals[i].receive_hit(1 - normals[i].polarity, 999)
+	await capture("arrow_unlock")
+	game.announcement_remaining = 0
+	game.effects.show_player_health(game.player, 100, 70)
+	game.player.hp = 70
+	# One controlled record for repeatable directions, no terrain generation.
+	game.boss_cycle.phase = "final"
+	var id := 900
+	var directions := {"right": Vector2.RIGHT, "left": Vector2.LEFT, "up": Vector2.UP,
+		"down": Vector2.DOWN, "upper_right": Vector2(1, -1).normalized()}
+	for name: String in directions:
+		var point: Dictionary = game.stable_point(game.player.position + directions[name] * 8500)
+		game.boss_cycle.records[id] = {"boss_id": id, "role": "final", "alive": true,
+			"sector": point.sector, "sector_local": true, "position": point.local}
+		if game.boss_arrow_state().is_empty(): failures += 1
+		await capture("arrow_" + name)
+	# Use an actual boss body to verify disappearance when the target is visible.
+	var boss := Enemy.new()
+	boss.game = game
+	boss.kind = "boss"
+	boss.boss_role = "final"
+	boss.boss_id = id
+	boss.spawn_id = "arrow_visual_boss"
+	boss.position = game.player.position + Vector2(240, -40)
+	game.world.add_child(boss)
+	boss.set_physics_process(false)
+	game._update_exploration()
+	if not game.boss_arrow_state().is_empty(): failures += 1
+	await capture("arrow_target_on_screen")
+	FileAccess.open(output + "visual_results.json", FileAccess.WRITE).store_string(JSON.stringify({"captures": captures,
+		"failures": failures, "renderer": RenderingServer.get_video_adapter_name(), "note": "directions and visible boss use controlled QA positions; kills use actual defeat handler"}, "\t"))
+	game.free()
+	print("BOSS ARROW VISUAL: %d captures, %d failures" % [captures, failures])
+	quit(0 if failures == 0 else 1)
 
 func run_merchant() -> void:
 	DirAccess.make_dir_recursive_absolute(output)

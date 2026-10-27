@@ -180,6 +180,16 @@ const BOSS_FAN_ANGLE := 0.17
 const BOSS_FAN_COUNT := 5
 const SECRET_BOSS_FAN_COUNT := 7
 const BOSS_ANNOUNCEMENT_TIME := 6.0
+# Boss direction aid (unlocked for the rest of the current run).
+const BOSS_ARROW_KILLS := 10
+const BOSS_ARROW_RADIUS := 70.0
+const BOSS_ARROW_LENGTH := 16.0
+const BOSS_ARROW_WIDTH := 20.0
+const BOSS_ARROW_COLOR := Color("f4f58a")
+const BOSS_ARROW_OUTLINE := Color("121c27")
+const BOSS_ARROW_OUTLINE_WIDTH := 2.0
+const BOSS_ARROW_FONT_SIZE := 16
+const BOSS_ARROW_LABEL_GAP := 18.0
 const PLAYER_BULLET_SPEED := 760.0
 const ENEMY_BULLET_SPEED := 260.0
 const PLAYER_HOMING_SPEED := 540.0

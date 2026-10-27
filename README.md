@@ -1,6 +1,6 @@
 # CHROMA SHIFT
 
-**Task 6B：商人・3枠の装備・回復薬**まで実装済みです。
+**Task 6C：通常敵10体撃破でボスの方角を表示**まで実装済みです。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
@@ -8,7 +8,8 @@ Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 ボスの配置・進行・検証は [Task 5D](docs/task5d_bosses.md) を参照してください。
 チュートリアルの実装と検証は [Task 5E](docs/task5e_tutorial.md) を参照してください。
 原点の移動と遠方の精度検証は [Task 5F](docs/task5f_origin_shift.md) を参照してください。
-通貨・鍵と宝箱・能力・寄り道は [Task 6A](docs/task6a_keys_abilities.md)、商人・装備・回復薬と今回の検証は [Task 6B](docs/task6b_merchant.md) を参照してください。
+通貨・鍵と宝箱・能力・寄り道は [Task 6A](docs/task6a_keys_abilities.md)、商人・装備・回復薬は [Task 6B](docs/task6b_merchant.md) を参照してください。
+ボスへの矢印の実装・検証は [Task 6C](docs/task6c_boss_arrow.md) に記録します。
 
 ## 遊び方
 
@@ -21,6 +22,8 @@ Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 最初の3体のガーディアンはシードで決まる別々の地域にいます。撃破順は自由です。
 3体を倒すとラスボスが出現し、地域名・方角・区画距離を6秒表示します。倒すと別の場所にガーディアン3体が復活します。
 この循環でラスボスを3回倒すと裏ボスが出現し、裏ボス撃破でクリアです。結果にはスコア・時間・各ボスの撃破数を表示します。
+通常敵を累計10体倒すと、その挑戦の間、今倒すべき最寄りの生きたボスの方角を淡い黄の矢印で自機の周囲に表示します。復活した通常敵も数え、ボスは数えません。解禁までは左上に残り数、解禁時に一度だけ通知を出します。
+矢印は直線方向を指し、「約2区画」などの距離の目安を添えます。未読込の最初のガーディアンは区画の中心を目安にし、読み込まれたら実際の位置へ切り替えます。対象が画面内・出現場所の決定中・クリア後は非表示。再挑戦で撃破数とともにリセットし、チュートリアルでは表示しません。
 
 | 既定キー | 操作 |
 |---|---|
@@ -99,6 +102,7 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 | scripts/loot.gd / loot_generator.gd | 鍵・宝箱・結晶、能力の箱の配置、能力が必要な寄り道 |
 | scripts/merchant.gd / merchant_generator.gd / shop_panel.gd | 商人の配置と品揃え、購入、装備画面 |
 | scripts/boss_cycle.gd | ボスの進行、配置ジョブ、区画から独立した生存・HP・移動状態 |
+| scripts/boss_arrow.gd | 自機の周囲のボス方向と区画距離。HUD上に描画 |
 | scripts/tutorial.gd / tutorial_player.gd / tutorial_target.gd | 独立した練習場、課題判定、死亡防止、練習用の的 |
 | scripts/projectile.gd / laser_beam.gd / bomb.gd | 通常弾・誘導弾、レーザー、砲弾 |
 
@@ -117,12 +121,15 @@ $env:APPDATA = "$PWD\.userdata"
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --abilities
 # 商人・店・装備・三連射撃・回復薬・HUD・地図は builds/qa/merchant/ に保存
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --merchant
+# ボスへの矢印・距離・解禁前後・画面内での非表示は builds/qa/boss_arrow/ に保存
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --boss-arrow
 ```
 
 実物理のガーディアン往復、全種類の継ぎ目、先読み・解放、状態保持、遠方、生成・戦闘・操作・キー設定・地図・カメラを検査します。
 2026-10-27の継続検証は全25本・94,091項目・失敗0。ボス検査の負荷回帰3回と通常描画11枚も確認しました。1,000標本の区画生成は平均155.408msです。
 同日の6B-fixでは外殻の付け外しによる回復を修正し、区画・生成の2本を除く23本・4,424項目が失敗0、全て終了コード0でした。装備検査は68→180項目。通常描画11枚も更新し、説明文の収まりを確認しました。記録は `builds/qa/task6b-fix/` に保存しています。
-今回の検査は [Task 6B](docs/task6b_merchant.md)、通貨・能力は [Task 6A](docs/task6a_keys_abilities.md)、原点移動時の項目数と遠方の精度は [Task 5F](docs/task5f_origin_shift.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、以前の区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
+今回の検査は [Task 6C](docs/task6c_boss_arrow.md)、商人・装備は [Task 6B](docs/task6b_merchant.md)、通貨・能力は [Task 6A](docs/task6a_keys_abilities.md)、原点移動時の項目数と遠方の精度は [Task 5F](docs/task5f_origin_shift.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、以前の区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
+Task 6Cの最終検証は全26本・94,296項目・失敗0、全て終了コード0。通常描画8枚も保存・確認しました。各テストの項目数・ログ・調整値は [検証記録](docs/task6c_boss_arrow.md) を参照してください。実操作中の矢印の見やすさと、10体という解禁数の釣り合いは未確認です。
 人による長時間の操作・難易度確認と、単独exeへの書き出しは未実施です。
 チュートリアルの検査数と画面確認は [Task 5E](docs/task5e_tutorial.md) に記録します。初めて遊ぶ人が説明を理解し迷わず進めるかは未確認です。ボスの強さ・難易度、1周の所要時間、回復量・復活頻度との釣り合いも未確認です。
 

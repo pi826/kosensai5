@@ -14,6 +14,38 @@ var guardian_ids: Array[int] = [0, 1, 2]
 var guardian_kills := 0
 var secret_kills := 0
 var selection: RefCounted
+var live_actors: Dictionary = {} # Weak references; unloading never retains a node.
+
+func nearest_target(from: Vector2) -> Dictionary:
+	if selection != null or phase == "complete": return {}
+	var ids: Array = guardian_ids if phase == "guardians" else records.keys()
+	var origin: Dictionary = game.stable_point(from)
+	var best := {}
+	var nearest := INF
+	for id: int in ids:
+		if game.defeated_bosses.has(id): continue
+		var record: Dictionary = records.get(id, {})
+		var point := {}
+		var role := "guardian"
+		if not record.is_empty():
+			role = record.role
+			if not record.alive or role != ("guardian" if phase == "guardians" else phase): continue
+			point = {"sector": record.sector, "local": record.position} if record.get("sector_local", false) else game.stable_point(record.position)
+		elif phase == "guardians" and round_number == 1 and id >= 0 and id < 3:
+			# initialize() caches the seeded sectors; never generate terrain for the aid.
+			point = {"sector": used_sectors[id], "local": T.SECTOR_SIZE / 2}
+		else: continue
+		var actor = live_actors[id].get_ref() if live_actors.has(id) else null
+		if is_instance_valid(actor) and actor.get_parent() == game.world:
+			if actor.dead or actor.is_queued_for_deletion(): continue
+			point = game.stable_point(actor.position)
+		# Subtract integer sectors before converting to float, including at distant origins.
+		var offset: Vector2 = Vector2(point.sector - origin.sector) * T.SECTOR_SIZE + (point.local - origin.local)
+		var distance := offset.length_squared()
+		if distance < nearest:
+			nearest = distance
+			best = {"boss_id": id, "offset": offset, "role": role}
+	return best
 
 class Selection extends RefCounted:
 	var seed_value: int
