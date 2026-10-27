@@ -135,10 +135,30 @@ func _draw() -> void:
 		else:
 			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -3.5), at + Vector2(3.5, 0), at + Vector2(0, 3.5), at + Vector2(-3.5, 0)]), tint)
 			if boss.role != "guardian": draw_arc(at, 5, 0, TAU, 16, tint, 1, true)
+	for mark: Dictionary in loot_marks():
+		var at: Vector2 = origin + mark.position * scale_factor
+		if not map_area.has_point(at): continue
+		var tint := T.CRYSTAL_COLOR if mark.ability else Color("ffdf80")
+		if mark.kind == "key":
+			draw_circle(at, 2.5, tint, false, 1.5, true)
+			draw_line(at + Vector2(2, 2), at + Vector2(5, 5), tint, 1.5)
+		elif mark.ability:
+			draw_colored_polygon(PackedVector2Array([at+Vector2(0,-4),at+Vector2(4,0),at+Vector2(0,4),at+Vector2(-4,0)]), tint)
+		else: draw_rect(Rect2(at - Vector2(3,2), Vector2(6,4)), tint, false, 1.5)
 	if is_instance_valid(game.player):
 		var at: Vector2 = origin + game.player.position * scale_factor
 		draw_circle(at, 3.0, Color("0d1721"))
 		draw_circle(at, 2.0, Color.WHITE)
+
+func loot_marks() -> Array:
+	var out: Array = []
+	if game == null or game.get("discovered_loot") == null: return out
+	for id: String in game.discovered_loot:
+		if game.loot_taken.has(id): continue
+		var mark: Dictionary = game.discovered_loot[id].duplicate()
+		mark.position = game.local_point(mark)
+		out.append(mark)
+	return out
 
 func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

@@ -5,6 +5,7 @@ const Job := preload("res://scripts/sector_job.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Backdrop := preload("res://scripts/world_backdrop.gd")
 const Heart := preload("res://scripts/heart.gd")
+const Loot := preload("res://scripts/loot.gd")
 const S := preload("res://scripts/sector_generator.gd")
 const O := preload("res://scripts/origin_shift.gd")
 var missing: Dictionary = {}
@@ -82,6 +83,7 @@ func initialize() -> void:
 		for spawn: Dictionary in loaded[at].spawns: _spawn(spawn)
 		install_bosses(at)
 		for h: Dictionary in loaded[at].hearts: _spawn_heart(h)
+		install_loot(at)
 	jobs.clear()
 	_refresh_stage()
 
@@ -147,6 +149,7 @@ func service() -> void:
 		loaded[active_job.coord] = data
 		install_bosses(active_job.coord)
 		for h: Dictionary in data.hearts: _spawn_heart(h)
+		install_loot(active_job.coord)
 		_add_backdrop(active_job.coord)
 		active_job = null
 		_refresh_stage()
@@ -226,6 +229,28 @@ func _spawn_heart(spawn: Dictionary) -> void:
 	heart.z_index = 1
 	heart.add_to_group("hearts")
 	game.world.add_child(heart)
+
+func _spawn_loot(spawn: Dictionary) -> void:
+	if spawn.kind != "chest" and game.loot_taken.has(spawn.id): return
+	for item in game.get_tree().get_nodes_in_group("loot"):
+		if item.get_parent() == game.world and item.spawn.id == spawn.id: return
+	var item := Loot.new()
+	item.game = game
+	item.spawn = spawn.duplicate(true)
+	item.position = spawn.position
+	item.z_index = 1
+	game.world.add_child(item)
+
+func spawn_loot_drop(drop: Dictionary) -> void:
+	if not loaded.has(drop.sector): return
+	var spawn := drop.duplicate(true)
+	spawn.position = game.local_point(drop)
+	_spawn_loot(spawn)
+
+func install_loot(at: Vector2i) -> void:
+	for spawn: Dictionary in loaded[at].get("loot", []): _spawn_loot(spawn)
+	for drop: Dictionary in game.loot_drops.values():
+		if drop.sector == at: spawn_loot_drop(drop)
 
 func _remember(id: String, category: String, at: Vector2i, descriptor: Dictionary, area: Rect2) -> void:
 	if missing.has(id): return
@@ -345,6 +370,8 @@ func _unload(at: Vector2i) -> void:
 		enemy.free()
 	for heart in game.get_tree().get_nodes_in_group("hearts"):
 		if heart.get_parent() == game.world and heart.spawn.sector == at: heart.free()
+	for item in game.get_tree().get_nodes_in_group("loot"):
+		if item.get_parent() == game.world and item.spawn.sector == at: item.free()
 	for cell: Vector2i in game.explored_by_sector.get(at, {}):
 		var local_cell: Vector2i = cell - game.map_origin()
 		var corner := Vector2(local_cell) * T.MAP_CELL_SIZE
@@ -363,7 +390,7 @@ func _unload(at: Vector2i) -> void:
 func _refresh_stage() -> void:
 	# Compatibility view used by geometry queries/tests. It is the union of ready sectors,
 	# never an enclosing rectangle treated as a guarantee that holes are loaded.
-	for key in ["solids", "spawns", "hearts", "breakables", "erodible_surfaces", "protected_rects", "chambers", "tunnels", "shafts", "landmarks", "biomes", "navigation_bounds"]: game.stage[key] = []
+	for key in ["solids", "spawns", "hearts", "loot", "detours", "optional_surfaces", "breakables", "erodible_surfaces", "protected_rects", "chambers", "tunnels", "shafts", "landmarks", "biomes", "navigation_bounds"]: game.stage[key] = []
 	var first := true
 	for data: Dictionary in loaded.values():
 		game.stage.bounds = data.bounds if first else game.stage.bounds.merge(data.bounds)
@@ -379,6 +406,7 @@ func _refresh_stage() -> void:
 			merged.chamber_id += base
 			game.stage.spawns.append(merged)
 		for key in ["solids", "hearts", "breakables", "erodible_surfaces", "protected_rects", "tunnels", "shafts", "landmarks", "biomes"]: game.stage[key].append_array(data[key])
+		for key in ["loot", "detours", "optional_surfaces"]: game.stage[key].append_array(data.get(key, []))
 	game.total_enemies = game.get_tree().get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss").size()
 
 func contains(point: Vector2) -> bool:
@@ -397,7 +425,7 @@ func contains_rect(rect: Rect2) -> bool:
 func neighbourhood_ready(point: Vector2, delta: float) -> bool:
 	# Reserve all eight neighbours before crossing, including a possible input
 	# acceleration or ceiling correction in the player's next physics callback.
-	var margin := Vector2(T.MOVE_SPEED,T.MAX_FALL_SPEED)*delta+Vector2.ONE*T.CEILING_CORRECTION
+	var margin := Vector2(T.AIR_DASH_SPEED,T.MAX_FALL_SPEED)*delta+Vector2.ONE*T.CEILING_CORRECTION
 	var first := sector_at(point-margin)-Vector2i.ONE
 	var last := sector_at(point+margin)+Vector2i.ONE
 	return contains_rect(Rect2(sector_offset(first),Vector2(last-first+Vector2i.ONE)*T.SECTOR_SIZE))

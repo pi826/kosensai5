@@ -62,6 +62,7 @@ func run() -> void:
 	var expected := {
 		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
 		"jump": [KEY_SPACE, KEY_W], "move_down": [KEY_S, KEY_DOWN],
+		"dash": [KEY_SHIFT, KEY_NONE],
 		"shoot": [KEY_J, KEY_NONE], "switch_color": [KEY_K, KEY_NONE],
 		"aim_cycle": [KEY_L, KEY_NONE], "special": [KEY_SEMICOLON, KEY_NONE],
 		"interact": [KEY_E, KEY_NONE], "pause_game": [KEY_ESCAPE, KEY_NONE],
@@ -99,7 +100,9 @@ func run() -> void:
 	check(not keys.try_bind("jump", 1, KEY_A | KEY_MASK_SHIFT).is_empty(), "modifier combinations rejected")
 	check(not keys.try_bind("unknown", 0, KEY_Q).is_empty(), "unknown action rejected")
 	check(not keys.try_bind("jump", 2, KEY_Q).is_empty(), "invalid slot rejected")
-	check(keys.try_bind("jump", 1, KEY_SHIFT).is_empty(), "standalone Shift accepted")
+	check(not keys.try_bind("jump", 1, KEY_SHIFT).is_empty(), "dash default rejects duplicate Shift")
+	check(keys.try_bind("dash", 0, KEY_CTRL).is_empty(), "dash can be rebound to standalone Control")
+	check(keys.try_bind("jump", 1, KEY_SHIFT).is_empty(), "freed standalone Shift accepted")
 	check(keys.try_bind("jump", 1, KEY_Q).is_empty(), "second slot can be changed")
 	check(keys.try_bind("jump", 0, KEY_NONE).is_empty(), "first slot can be removed when second remains")
 	check(keys.get_key("jump", 0) == KEY_NONE and keys.get_key("jump", 1) == KEY_Q, "slot placement retained")

@@ -41,6 +41,7 @@ static func roam_rect(data: Dictionary, room: Rect2, role: String, preferred: Ve
 	# Thus reflections never lead into a rock, a tunnel or a vertical shaft.
 	var extent: Vector2 = size_for(role) + T.BOSS_ROAM_TRAVEL[role] + Vector2.ONE * T.BOSS_CLEARANCE * 2
 	var obstacles: Array = data.solids + data.breakables
+	for item: Dictionary in data.get("loot", []): obstacles.append(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE).grow(T.BOSS_CLEARANCE))
 	var best := Rect2()
 	var best_distance := INF
 	for y in range(int(room.end.y - extent.y), int(room.position.y) - 1, -T.TILE_SIZE):

@@ -26,6 +26,9 @@ static func world_data(local: Dictionary, origin_at: Vector2i = Vector2i.ZERO) -
 	for h: Dictionary in data.hearts:
 		h.id = "%d,%d:%s" % [local.coord.x, local.coord.y, h.id]
 		h.sector = local.coord
+	for item: Dictionary in data.get("loot", []):
+		item.id = "%d,%d:%s" % [local.coord.x, local.coord.y, item.id]
+		item.sector = local.coord
 	return data
 
 static func _translate(value, offset: Vector2):

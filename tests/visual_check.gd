@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--tutorial"):
+	if OS.get_cmdline_user_args().has("--abilities"):
+		output = "res://builds/qa/abilities/"
+		call_deferred("run_abilities")
+	elif OS.get_cmdline_user_args().has("--tutorial"):
 		output = "res://builds/qa/tutorial/"
 		call_deferred("run_tutorial")
 	elif OS.get_cmdline_user_args().has("--streaming"):
@@ -20,6 +23,94 @@ func _initialize():
 	else:
 		output = "res://builds/qa/bosses/"
 		call_deferred("run_bosses")
+
+func action_input(action: String, pressed: bool) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	Input.parse_input_event(event)
+	Input.flush_buffered_events()
+
+func run_abilities() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.key_bindings.reset_defaults()
+	game.start_run(37)
+	game.elapsed = 9
+	var loot: Array = get_nodes_in_group("loot").filter(func(i): return i.get_parent() == game.world and i.spawn.sector == Vector2i.ZERO)
+	var key = loot.filter(func(i): return i.spawn.kind == "key")[0]
+	var chest = loot.filter(func(i): return i.spawn.kind == "chest" and i.spawn.contents[0].kind == "ability")[0]
+	await show(key.position - Vector2(64, 0))
+	await capture("key_and_map")
+	await show(chest.position - Vector2(32, 0))
+	await capture("ability_chest_closed")
+	game.player.position = chest.position
+	chest.try_open()
+	await capture("key_required")
+	game.keys = 1
+	chest.try_open()
+	game.player.position = chest.position - Vector2(56,0)
+	await capture("ability_learned_and_open_chest")
+	for ability: int in [T.ABILITY_DASH,T.ABILITY_GLIDE]:
+		game.grant_loot({"kind":"ability","ability":ability})
+		await capture("dash_learned" if ability==T.ABILITY_DASH else "glide_learned")
+	var ordinary = loot.filter(func(i): return i.spawn.kind == "chest" and i.spawn.contents[0].kind == "crystal")[0]
+	await show(ordinary.position - Vector2(56, 0))
+	await capture("normal_chest_closed")
+	game.keys = 1
+	ordinary.try_open()
+	await capture("normal_chest_open_crystals")
+	var branch: Dictionary = game.stream.loaded[Vector2i.ZERO].detours[0]
+	await show(branch.position - Vector2(0, 80))
+	await capture("detour")
+	var room: Dictionary = game.stream.loaded[Vector2i.ZERO].chambers.filter(func(r): return r.kind == "start")[0]
+	var start := Vector2(room.rect.position.x + 64, room.rect.end.y - 22)
+	await show(start)
+	game.loot_message_remaining = 0
+	game.streaming_enabled = false
+	game.player.abilities = 7
+	game.player.set_physics_process(true)
+	game.set_physics_process(true)
+	await frames(3)
+	action_input("jump",true)
+	await frames(T.ABILITY_SECOND_JUMP_FRAME)
+	action_input("jump",false)
+	action_input("jump",true)
+	await frames(8)
+	if not game.player.air_jump_used: failures += 1
+	await capture("double_jump")
+	game.player.facing = 1
+	action_input("dash",true)
+	await frames(3)
+	if game.player.dash_remaining <= 0: failures += 1
+	await capture("air_dash")
+	action_input("dash",false)
+	action_input("jump",false)
+	await frames(35)
+	# Rendering fixture for held-jump glide, with an already spent air jump.
+	game.player.position = start - Vector2(-180,250)
+	game.player.velocity = Vector2(0,180)
+	await frames(1)
+	game.player.coyote = 0
+	game.player.air_jump_used = true
+	action_input("jump",true)
+	await frames(5)
+	if not game.player.gliding: failures += 1
+	await capture("glide")
+	action_input("jump",false)
+	game.player.set_physics_process(false)
+	game.set_physics_process(false)
+	game.keys = 3
+	game.add_crystals(150)
+	await capture("hud_crystals_keys")
+	game.show_menu("lost")
+	await capture("result_crystals")
+	FileAccess.open(output + "visual_results.json", FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
+	game.free()
+	print("ABILITY VISUAL CHECK: %d captures, %d failures" % [captures,failures])
+	quit(0 if failures == 0 else 1)
 
 func run_tutorial():
 	DirAccess.make_dir_recursive_absolute(output)

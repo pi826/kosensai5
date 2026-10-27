@@ -35,6 +35,8 @@ var tutorial_button: Button
 var title_button: Button
 var tutorial_panel: Panel
 var tutorial_label: Label
+var loot_label: Label
+var loot_notice: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -87,6 +89,15 @@ func _ready() -> void:
 	place(score_label, Vector2(862, 27), Vector2(375, 30))
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hud.add_child(score_label)
+	loot_label = label("", 16, T.CRYSTAL_COLOR)
+	place(loot_label, Vector2(840, 80), Vector2(394, 24))
+	loot_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hud.add_child(loot_label)
+	loot_notice = label("", 20, T.CRYSTAL_COLOR)
+	place(loot_notice, Vector2(80, 570), Vector2(1120, 64))
+	loot_notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loot_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hud.add_child(loot_notice)
 	progress_label = label("", 14, Color("91acbd"))
 	place(progress_label, Vector2(44, 78), Vector2(445, 22))
 	hud.add_child(progress_label)
@@ -225,6 +236,7 @@ func refresh_bindings() -> void:
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
+	if not game.is_tutorial(): controls_label.text = controls_label.text.replace("ジャンプ", "ジャンプ / %s 空中ダッシュ（解禁後）" % keys.get_binding_text("dash"))
 	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
@@ -247,6 +259,11 @@ func update_hud() -> void:
 	var stocks: int = game.player.homing_charges if live else 0
 	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(T.HOMING_CHARGE_CAPACITY - stocks), charge, T.ABSORPTIONS_PER_CHARGE]
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
+	loot_label.text = "結晶 %d    鍵 %d" % [game.crystals, game.keys]
+	loot_label.visible = not game.is_tutorial()
+	loot_notice.visible = not game.is_tutorial() and game.state == "playing"
+	loot_notice.text = game.loot_message if game.loot_message_remaining > 0 else ("%s 調べる" % game.key_bindings.get_binding_text("interact") if game.nearest_chest() != null else "")
+	if game.loot_message_remaining > 0 and game.loot_ability != 0: loot_notice.text = game.ability_help(game.loot_ability)
 	if game.is_tutorial():
 		score_label.text = "チュートリアル  %d / 11" % mini(game.lesson + 1, 11)
 		progress_label.text = "練習中はHPが1未満になりません"
@@ -309,6 +326,7 @@ func show_menu(next_state: String) -> void:
 			menu_subtitle.text = "裏ボスを撃破。探索を完遂。" if next_state == "won" else "再挑戦は同じ地形で最初から。ボスの進行もリセット。"
 			menu_detail.text = "スコア  %06d     /     時間  %s\nガーディアン %d体 · ラスボス %d回 · 裏ボス %d体\n通常敵 %d撃破 · 探索 %d区画 · シード %d" % [game.score, game.clock_text(), game.boss_cycle.guardian_kills, game.boss_cycle.final_clears, game.boss_cycle.secret_kills, game.kills, explored_sector_count(), game.current_seed]
 			primary_button.text = "同じマップで再挑戦  /  Enter"
+			menu_detail.text += "\n獲得した結晶 %d" % game.crystals_earned
 			new_button.text = "新しいマップで開始"
 		"tutorial_complete":
 			menu_title.text = "練習完了"

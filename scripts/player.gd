@@ -10,6 +10,16 @@ var drop_remaining := 0.0
 var drop_clear_y := 0.0
 var contact_query := PhysicsShapeQueryParameters2D.new()
 var homing_charges := 0
+var abilities := 0
+var air_jump_used := false
+var air_dash_used := false
+var dash_remaining := 0.0
+var dash_direction := 1
+var pending_dash := false
+var gliding := false
+
+func has_ability(ability: int) -> bool:
+	return not game.is_tutorial() and (abilities & ability) == ability
 
 func _absorb_attack() -> void:
 	gauge = mini(T.ABSORPTIONS_PER_CHARGE, gauge + 1)
@@ -91,6 +101,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			jump_cut_requested = true
 	elif event.is_action_pressed("special"):
 		pending_special = true
+	elif event.is_action_pressed("dash"):
+		pending_dash = true
+	elif event.is_action_pressed("interact") and not game.is_tutorial():
+		game.interact()
 
 func _physics_process(delta: float) -> void:
 	if dead:
@@ -107,6 +121,10 @@ func _physics_process(delta: float) -> void:
 	elif Input.is_action_pressed("move_down") and is_on_floor():
 		dropping = _try_drop_through()
 	var grounded := is_on_floor() and not dropping
+	if grounded:
+		air_jump_used = false
+		air_dash_used = false
+		dash_remaining = 0.0
 	var acceleration: float = T.GROUND_ACCELERATION if grounded else T.AIR_ACCELERATION
 	if is_zero_approx(horizontal):
 		acceleration = T.GROUND_DECELERATION if grounded else T.AIR_DECELERATION
@@ -121,6 +139,12 @@ func _physics_process(delta: float) -> void:
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
 		game.effect(global_position + Vector2(0, 22), Color("537083"), "jump")
+	elif jump_buffer > 0 and not grounded and dash_remaining <= 0 and not air_jump_used and has_ability(T.ABILITY_DOUBLE):
+		air_jump_used = true
+		velocity.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
+		jump_buffer = 0.0
+		visual_scale = Vector2(0.82, 1.16)
+		game.effect(global_position, T.CRYSTAL_COLOR, "jump")
 	if jump_cut_requested:
 		if velocity.y < 0:
 			velocity.y = maxf(velocity.y, -T.JUMP_CUT_SPEED)
@@ -129,8 +153,25 @@ func _physics_process(delta: float) -> void:
 			jump_cut_requested = false
 	var gravity: float = T.GRAVITY if velocity.y < 0 else T.FALL_GRAVITY
 	velocity.y = minf(velocity.y + gravity * delta, T.MAX_FALL_SPEED)
+	gliding = not grounded and has_ability(T.ABILITY_GLIDE) and velocity.y > 0 and Input.is_action_pressed("jump")
+	if gliding: velocity.y = minf(velocity.y, T.GLIDE_FALL_SPEED)
+	if pending_dash and not grounded and not air_dash_used and has_ability(T.ABILITY_DASH):
+		air_dash_used = true
+		dash_remaining = T.AIR_DASH_TIME
+		dash_direction = facing
+		game.effect(global_position, T.CRYSTAL_COLOR, "dash")
+	pending_dash = false
+	var dashing := dash_remaining > 0.0
+	if dashing:
+		velocity = Vector2(dash_direction * T.AIR_DASH_SPEED, 0)
+		dash_remaining = maxf(0.0, dash_remaining - delta)
+		gliding = false
 	var before_slide_y := velocity.y
 	move_and_slide()
+	if is_on_floor(): gliding = false
+	if dashing:
+		if is_on_wall(): dash_remaining = 0.0
+		if dash_remaining <= 0: velocity.x = horizontal * T.MOVE_SPEED
 	_check_enemy_contact()
 	if dead:
 		return
@@ -168,6 +209,14 @@ func _try_drop_through() -> bool:
 	coyote = 0.0
 	jump_buffer = 0.0
 	return true
+
+func _draw() -> void:
+	super._draw()
+	if gliding:
+		draw_polyline(PackedVector2Array([Vector2(-32,-18), Vector2(-18,-30), Vector2(0,-34), Vector2(18,-30), Vector2(32,-18)]), T.CRYSTAL_COLOR, 3, true)
+	if dash_remaining > 0:
+		for i in range(3):
+			draw_line(Vector2(-facing*(22+i*12), -8+i*8), Vector2(-facing*(44+i*12), -8+i*8), Color(T.CRYSTAL_COLOR,0.7-i*0.15), 3, true)
 
 func _try_correct_ceiling(upward_velocity: float) -> bool:
 	# Nudge only a grazing corner. A real ceiling still stops the jump.

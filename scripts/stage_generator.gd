@@ -143,7 +143,7 @@ static func _carve(holes: Array, size: Vector2 = T.SECTOR_SIZE) -> Array:
 	return rects
 
 static func protected_rect(rect: Rect2, stage: Dictionary) -> bool:
-	return stage.get("protected_rects", []).any(func(p): return p.intersects(rect))
+	return _any_intersects(stage.get("protected_rects", []),rect)
 
 static func _add_surface(stage: Dictionary, left: float, right: float, y: float) -> void:
 	var span_start := -1.0
@@ -316,8 +316,12 @@ static func _room_solids(room: Rect2, solids: Array) -> Array:
 
 static func _supported(point: Vector2, size: Vector2, solids: Array) -> bool:
 	var spans: Array[Vector2] = []
+	var left := point.x-size.x/2
+	var right := point.x+size.x/2
 	for solid: Rect2 in solids:
-		if is_equal_approx(point.y + size.y / 2, solid.position.y): spans.append(Vector2(solid.position.x, solid.end.x))
+		if not is_equal_approx(point.y + size.y / 2, solid.position.y): continue
+		if solid.position.x<=left and solid.end.x>=right: return true
+		if solid.position.x<right and solid.end.x>left: spans.append(Vector2(solid.position.x,solid.end.x))
 	spans.sort_custom(func(a, b): return a.x < b.x)
 	var covered := point.x - size.x / 2
 	for span: Vector2 in spans:
@@ -327,7 +331,7 @@ static func _supported(point: Vector2, size: Vector2, solids: Array) -> bool:
 
 static func _embedded(point: Vector2, size: Vector2, solids: Array) -> bool:
 	var body := Rect2(point - size / 2, size).grow(-0.1)
-	return solids.any(func(s): return body.intersects(s))
+	return _any_intersects(solids,body)
 
 static func _subtract(spans: Array[Vector2], left: float, right: float) -> Array[Vector2]:
 	var result: Array[Vector2] = []
@@ -368,23 +372,35 @@ static func _x_buckets(rects: Array, margin: float) -> Dictionary:
 	return buckets
 
 # Candidates in their original order, so callers that depend on order behave as with the full list.
-static func _x_near(rects: Array, buckets: Dictionary, left: float, right: float) -> Array:
+static func _x_near(rects: Array, buckets: Dictionary, left: float, right: float, cache: Dictionary = {}) -> Array:
+	var span := Vector2i(floori(left/T.CAVE_NAV_BUCKET),floori(right/T.CAVE_NAV_BUCKET))
+	if cache.has(span): return cache[span]
 	var found := {}
-	for key in range(floori(left / T.CAVE_NAV_BUCKET), floori(right / T.CAVE_NAV_BUCKET) + 1):
+	for key in range(span.x,span.y+1):
 		for index: int in buckets.get(key, []): found[index] = true
 	var indices: Array = found.keys()
 	indices.sort()
 	var result: Array = []
 	for index: int in indices: result.append(rects[index])
+	cache[span] = result
 	return result
 
-static func navigation_graph(stage: Dictionary, damaged: bool = false, previous: Dictionary = {}, changed: Array = []) -> Dictionary:
+static func navigation_graph(stage: Dictionary, damaged: bool = false, previous: Dictionary = {}, changed: Array = [], abilities: int = 0, added_thin: bool = false) -> Dictionary:
 	var solids: Array = damaged_solids(stage) if damaged else stage.solids
 	var thick: Array = solids.filter(func(s): return s.size.y != 16)
 	var thick_buckets := _x_buckets(thick, 0)
 	var solid_buckets := _x_buckets(solids, 160)
+	var thick_cache := {}
+	var solid_cache := {}
 	var surfaces: Array = []
-	for solid: Rect2 in solids:
+	# An appended one-way shelf does not remove existing standing surfaces.
+	# Only this explicit append path reuses nodes; independent validation does
+	# the complete reconstruction, as before.
+	var surface_solids: Array = solids
+	if added_thin and not previous.is_empty() and not changed.is_empty() and changed.all(func(r): return r.size.y==16):
+		surfaces.append_array(previous.nodes)
+		surface_solids = changed
+	for solid: Rect2 in surface_solids:
 		var spans: Array[Vector2] = [Vector2(solid.position.x, solid.end.x)]
 		if stage.has("navigation_bounds"):
 			spans.clear()
@@ -394,7 +410,7 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false, previous:
 				var right := minf(solid.end.x, area.end.x)
 				if right > left: spans.append(Vector2(left, right))
 		elif solid.position.y < T.PLAYER_SIZE.y + 32: continue
-		for blocker: Rect2 in _x_near(thick, thick_buckets, solid.position.x, solid.end.x):
+		for blocker: Rect2 in _x_near(thick, thick_buckets, solid.position.x, solid.end.x, thick_cache):
 			if blocker.position.y < solid.position.y and blocker.end.y > solid.position.y - T.PLAYER_SIZE.y - 32:
 				spans = _subtract(spans, blocker.position.x, blocker.end.x)
 		for span: Vector2 in spans:
@@ -438,7 +454,7 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false, previous:
 		var local_thick: Array = []
 		var jump_solids: Array = []
 		var jump_thick: Array = []
-		for s: Rect2 in _x_near(solids, solid_buckets, lower.position.x, lower.end.x):
+		for s: Rect2 in _x_near(solids, solid_buckets, lower.position.x, lower.end.x, solid_cache):
 			if s.position.x >= lower.end.x + 160 or s.end.x <= lower.position.x - 160: continue
 			local_solids.append(s)
 			if s.size.y != 16: local_thick.append(s)
@@ -492,7 +508,130 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false, previous:
 			var departure := Rect2(minf(x, edge_x) - 15, lower.position.y - 44, absf(x - edge_x) + 30, 44).grow(-0.1)
 			if _any_intersects(jump_thick, departure): continue
 			_add_drop(edges[i], nodes, heights, local_solids, local_thick, lower, x, "drop")
-	return {"nodes": nodes, "edges": edges}
+	var graph := {"nodes": nodes, "edges": edges, "abilities": abilities}
+	if abilities != 0: _ability_edges(graph, solids, abilities)
+	return graph
+
+# Discrete 60 Hz schedules use the same impulses, acceleration, fall cap and
+# dash duration as player.gd. Rectangular sweeps reject rock and early landings.
+# Real CharacterBody2D measurements verify these schedules in abilities_test.
+static func flight_profiles(abilities: int) -> Array:
+	var out: Array = []
+	for required in [T.ABILITY_DOUBLE, T.ABILITY_DASH, T.ABILITY_GLIDE, 3, 5, 6, 7]:
+		if (abilities & required) != required: continue
+		out.append({"required": required, "second": T.ABILITY_SECOND_JUMP_FRAME if required & T.ABILITY_DOUBLE else -1,
+			"dash": (T.ABILITY_SECOND_JUMP_FRAME + T.ABILITY_DASH_FRAME if required & T.ABILITY_DOUBLE else T.ABILITY_DASH_FRAME) if required & T.ABILITY_DASH else -1,
+			"glide": bool(required & T.ABILITY_GLIDE)})
+	return out
+
+static func ability_arc(from: Vector2, target: Rect2, solids: Array, profile: Dictionary) -> Dictionary:
+	var half := T.PLAYER_SIZE / 2
+	var point := from
+	var speed := Vector2(0, -T.JUMP_SPEED)
+	var dash_left := 0.0
+	var dash_dir := 1.0 if target.get_center().x >= from.x else -1.0
+	var minimum := point.y
+	var samples: Array = [point]
+	for frame in range(T.ABILITY_FLIGHT_FRAMES):
+		var axis := signf(target.get_center().x - point.x) if absf(target.get_center().x - point.x) > 2 else 0.0
+		speed.x = move_toward(speed.x, axis * T.MOVE_SPEED, (T.AIR_ACCELERATION if axis != 0 else T.AIR_DECELERATION) / 60.0)
+		if frame == profile.second: speed.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
+		speed.y = minf(speed.y + (T.GRAVITY if speed.y < 0 else T.FALL_GRAVITY) / 60.0, T.MAX_FALL_SPEED)
+		if profile.glide and speed.y > 0: speed.y = minf(speed.y, T.GLIDE_FALL_SPEED)
+		if frame == profile.dash: dash_left = T.AIR_DASH_TIME
+		var was_dashing := dash_left > 0
+		if dash_left > 0:
+			speed = Vector2(dash_dir * T.AIR_DASH_SPEED, 0)
+			dash_left = maxf(0, dash_left - 1.0 / 60)
+		var next := point + speed / 60.0
+		if was_dashing and dash_left <= 0: speed.x = axis * T.MOVE_SPEED
+		var sweep := Rect2(point - half, T.PLAYER_SIZE).merge(Rect2(next - half, T.PLAYER_SIZE)).grow(-0.1)
+		for solid: Rect2 in solids:
+			if solid.size.y == 16:
+				if speed.y <= 0 or point.y + half.y > solid.position.y + 0.1 or next.y + half.y < solid.position.y: continue
+				if next.x + half.x <= solid.position.x or next.x - half.x >= solid.end.x: continue
+				if solid.position.y == target.position.y and next.x >= target.position.x + half.x + 2 and next.x <= target.end.x - half.x - 2:
+					return {"frames": frame + 1, "height": from.y - minimum, "position": Vector2(next.x, target.position.y - half.y), "samples": samples}
+				return {}
+			if not solid.intersects(sweep): continue
+			if speed.y > 0 and point.y + half.y <= solid.position.y + 0.1 and next.y + half.y >= solid.position.y and solid.position.y == target.position.y and next.x >= target.position.x + half.x + 2 and next.x <= target.end.x - half.x - 2:
+				return {"frames": frame + 1, "height": from.y - minimum, "position": Vector2(next.x, target.position.y - half.y), "samples": samples}
+			return {}
+		point = next
+		minimum = minf(minimum, point.y)
+		samples.append(point)
+	return {}
+
+static func ability_edge(lower: Rect2, upper: Rect2, solids: Array, abilities: int, profiles: Array = [], spatial: Dictionary = {}) -> Dictionary:
+	if lower.size.x < 48 or upper.size.x < 48: return {}
+	if lower.position.y - upper.position.y > 320 or upper.position.y - lower.position.y > 640: return {}
+	var tx := upper.get_center().x
+	var fx := clampf(tx, lower.position.x + 24, lower.end.x - 24)
+	if absf(fx - tx) > 1200: return {}
+	var near: Array = []
+	var filtered := false
+	if profiles.is_empty(): profiles = flight_profiles(abilities)
+	for profile: Dictionary in profiles:
+		var measured: Array = T.ABILITY_HOP_PROFILES[profile.required]
+		if lower.position.y - upper.position.y > measured[0] - T.LANDING_MARGIN: continue
+		var extra: float = maxf(0, upper.position.y - lower.position.y) / T.GLIDE_FALL_SPEED * T.MOVE_SPEED if profile.glide else maxf(0, upper.position.y - lower.position.y)
+		if absf(fx - upper.get_center().x) > measured[1] + extra - T.HOP_REACH_MARGIN: continue
+		# Most surface pairs fail the measured bounds. Filter obstacles only
+		# once a profile can actually cover this height and distance.
+		if not filtered:
+			var candidates: Array = solids
+			if not spatial.is_empty():
+				candidates = _x_near(spatial.solids,spatial.buckets,minf(fx,tx)-96,maxf(fx,tx)+96,spatial.cache).duplicate()
+				candidates.append(upper)
+			for r: Rect2 in candidates:
+				if r.position.x < maxf(fx, tx) + 96 and r.end.x > minf(fx, tx) - 96 and r.position.y < lower.position.y + 700 and r.end.y > lower.position.y - 400: near.append(r)
+			filtered = true
+		var from := Vector2(fx, lower.position.y - 22)
+		var arc := ability_arc(from, upper, near, profile)
+		if not arc.is_empty():
+			return {"action": "ability_jump", "x": fx, "position": from, "target": arc.position, "profile": profile, "required": profile.required, "frames": arc.frames}
+	return {}
+
+# Cheap rejection before trying ability arcs: the ordinary graph would already
+# connect this shelf by one of its same-column jumps. Use the identical margins
+# and obstruction rules; full graph validation still runs on accepted shelves.
+static func initial_jump_reaches(nodes: Array, upper: Rect2, solids: Array) -> bool:
+	solids = solids.filter(func(r): return r.position.x<upper.end.x+15 and r.end.x>upper.position.x-15)
+	var thick: Array = solids.filter(func(r): return r.size.y!=16)
+	for lower: Rect2 in nodes:
+		if lower.end.x<=upper.position.x or lower.position.x>=upper.end.x: continue
+		var rise := lower.position.y-upper.position.y
+		if rise<0:
+			var xs: Array = [lower.get_center().x,lower.position.x+32,lower.end.x-32]
+			for solid: Rect2 in solids:
+				if solid.size.y==16 and solid.position.y==lower.position.y: xs.append(solid.get_center().x)
+			for x: float in xs:
+				if x<lower.position.x+15 or x>lower.end.x-15 or x<upper.position.x+15 or x>upper.end.x-15: continue
+				if _ledge_in_column(thick,x,lower.position.y-0.5,lower.position.y+0.5): continue
+				var edges: Array = []
+				_add_drop(edges,[upper],[upper.position.y],solids,thick,lower,x,"drop_through")
+				if not edges.is_empty(): return true
+		if rise<=0 or rise>T.MAX_STEP_HEIGHT: continue
+		var spans: Array[Vector2] = [Vector2(maxf(lower.position.x,upper.position.x),minf(lower.end.x,upper.end.x))]
+		if spans[0].y-spans[0].x<T.PLAYER_SIZE.x+2*T.LANDING_MARGIN: continue
+		var nearby: Array = []
+		for solid: Rect2 in solids:
+			if solid.position.y>=lower.position.y or solid.end.y<=lower.position.y-256: continue
+			nearby.append(solid)
+			if solid.size.y!=16 and solid.end.y>lower.position.y-T.MAX_STEP_HEIGHT-T.LANDING_MARGIN-T.PLAYER_SIZE.y:
+				spans=_subtract(spans,solid.position.x,solid.end.x)
+		for span: Vector2 in spans:
+			if span.y-span.x>=T.PLAYER_SIZE.x+2*T.LANDING_MARGIN and not _ledge_in_column(nearby,(span.x+span.y)/2,lower.position.y-T.MAX_STEP_HEIGHT,upper.position.y): return true
+	return false
+
+static func _ability_edges(graph: Dictionary, solids: Array, abilities: int) -> void:
+	for i in range(graph.nodes.size()):
+		for j in range(graph.nodes.size()):
+			if i == j or graph.edges[i].any(func(e): return e.to == j): continue
+			var edge := ability_edge(graph.nodes[i], graph.nodes[j], solids, abilities)
+			if not edge.is_empty():
+				edge.to = j
+				graph.edges[i].append(edge)
 
 # Crosses a gap between floors of the same height with the lowest measured hop that reaches.
 # A thin platform under that arc would catch the falling player and rock would stop the head,
@@ -572,7 +711,7 @@ static func path_steps(graph: Dictionary, origin: int, target: int, end: Vector2
 		id = found[id].from
 	var result: Array = []
 	for edge: Dictionary in sequence:
-		if edge.action in ["jump", "drop_through"]: result.append({"action": "walk", "x": edge.x, "position": edge.position})
+		if edge.action in ["jump", "drop_through", "ability_jump"]: result.append({"action": "walk", "x": edge.x, "position": edge.position})
 		result.append(edge)
 	result.append({"action": "walk", "x": end.x, "position": end})
 	return result
@@ -596,6 +735,7 @@ static func connectivity_errors(stage: Dictionary, damaged: bool = false, graph:
 	var forward := _search(graph, origin)
 	var backward := _search(graph, origin, true)
 	for i in range(graph.nodes.size()):
+		if stage.get("optional_surfaces", []).any(func(r): return r.position.y == graph.nodes[i].position.y and r.position.x <= graph.nodes[i].position.x and r.end.x >= graph.nodes[i].end.x): continue
 		if not forward.has(i) or not backward.has(i): errors.append("Surface not strongly connected%s: %s" % [" after excavation" if damaged else "", graph.nodes[i]])
 	if origin < 0: errors.append("Start missing from navigation graph")
 	return errors

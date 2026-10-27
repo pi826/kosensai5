@@ -1,6 +1,6 @@
 # CHROMA SHIFT
 
-現在は **Task 5F：原点の移動による遠方の精度維持**です。
+現在は **Task 6A：結晶・鍵と宝箱・移動能力の解禁**です。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
@@ -8,6 +8,7 @@ Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 ボスの配置・進行・検証は [Task 5D](docs/task5d_bosses.md) を参照してください。
 チュートリアルの実装と検証は [Task 5E](docs/task5e_tutorial.md) を参照してください。
 原点の移動と遠方の精度検証は [Task 5F](docs/task5f_origin_shift.md) を参照してください。
+通貨・鍵と宝箱・能力・寄り道の実装と検証は [Task 6A](docs/task6a_keys_abilities.md) を参照してください。商人・装備・回復薬は次の6Bです。
 
 ## 遊び方
 
@@ -30,11 +31,19 @@ Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 | K | 青 A / 橙 B の切り替え |
 | L | 射撃方向を 前 → 上 → 下 と切り替え |
 | ; | ストックを1回分使い、誘導弾4発を一斉発射 |
-| E | 調べる。現在は対象なし |
+| E | 近くの宝箱を調べる。鍵を1つ使って開ける |
+| Shift | 解禁後、空中ダッシュ。向いている方向へ進む |
 | Esc | 一時停止・再開 |
 
 「前・上・下」は内部では0°・60°・-60°。向きを変えても仰角は維持します。開始・再挑戦で「前」に戻ります。
-タイトル・一時停止・結果画面の「キー設定」で全10操作に2キーまで割り当て、version 3形式で保存します。
+タイトル・一時停止・結果画面の「キー設定」で全11操作に2キーまで割り当て、version 3形式で保存します。以前の保存にダッシュの行がなければ既定値を補います。
+
+- 敵撃破で「結晶」を得ます。通常敵5、ガーディアン50、ラスボス150、裏ボス300。吸収では増えません。所持数はHUD、獲得合計は結果に表示します。通常の宝箱は結晶30〜80、寄り道の結晶は40です。
+- 鍵に触れて拾い、宝箱の近くで「調べる」を押すと鍵を1つ消費します。鍵がなければ開きません。ガーディアンも鍵を1つ落とします。開封・収集は区画を離れても維持し、発見した未収集の鍵・未開封の箱は地図に表示します。能力の箱は紫、通常の箱と鍵は金です。
+- 能力の箱は3つ。開始区画で二段ジャンプ、開始からチェビシェフ距離2〜3区画で空中ダッシュ、2〜4区画で滑空を覚えます。3つとも初期能力で到達・帰還できます。開封時の説明は現在のキー設定に追従します。
+- 二段ジャンプは空中でジャンプをもう一度押すと発動し、通常の85%の速度で跳びます。短押しで低く、長押しで高くなります。空中ダッシュは空中でShiftを押すと向いている方へ約0.18秒、960px/秒で水平に進み、その間は落下せず、壁で止まります。両方とも着地まで各1回です。
+- 滑空は落下中にジャンプを押し続けると落下上限が120px/秒になります。空中で押した際に二段ジャンプが残っていれば先に跳び、そのまま押し続けると下降時に滑空します。解禁後の能力で空洞上部の離れた棚へ寄り道できます。全ゲートと全ボスへの主経路は初期能力だけで往復できます。チュートリアルでは能力を使いません。
+- 倒れて再挑戦すると、結晶・鍵・全能力・開けた箱・拾った鍵も全て初期状態へ戻ります。
 
 - 同色の攻撃を吸収すると吸収メーターが1増え、4回で誘導弾のストックが1回分増えます。ストックは最大5回。上限ではメーターも4で止まり、発射後の次の吸収でストックへ変換します。異色の攻撃でHPが減り、弾は発射時の色を維持します。敵のゲージは従来どおり8で満タンです。
 - HPは100。通常敵のHPは2で、異色の通常弾2発で倒せます。敵弾は12、敵の誘導弾は18、異色の体との接触は10ダメージ。被弾後1.5秒は無敵で、無敵中も同色の弾を吸収できます。落下ダメージはありません。
@@ -82,6 +91,7 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 | scripts/world_backdrop.gd / minimap.gd / interface.gd | 地域背景、移動する探索地図、日本語画面 |
 | scripts/combatant.gd / player.gd / enemy.gd | 色判定、操作、敵の挙動 |
 | scripts/heart.gd | ハートの描画・揺れ・取得と回復 |
+| scripts/loot.gd / loot_generator.gd | 鍵・宝箱・結晶、能力の箱の配置、能力が必要な寄り道 |
 | scripts/boss_cycle.gd | ボスの進行、配置ジョブ、区画から独立した生存・HP・移動状態 |
 | scripts/tutorial.gd / tutorial_player.gd / tutorial_target.gd | 独立した練習場、課題判定、死亡防止、練習用の的 |
 | scripts/projectile.gd / laser_beam.gd / bomb.gd | 通常弾・誘導弾、レーザー、砲弾 |
@@ -97,10 +107,12 @@ $env:APPDATA = "$PWD\.userdata"
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd
 # チュートリアルの各課題・完了画面は builds/qa/tutorial/ に保存
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --tutorial
+# 鍵・宝箱・能力・地図・HUD・結果は builds/qa/abilities/ に保存
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --abilities
 ```
 
 実物理のガーディアン往復、全種類の継ぎ目、先読み・解放、状態保持、遠方、生成・戦闘・操作・キー設定・地図・カメラを検査します。
-今回の全テストの項目数と遠方の精度は [Task 5F](docs/task5f_origin_shift.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、以前の区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
+今回の検査は [Task 6A](docs/task6a_keys_abilities.md)、原点移動時の項目数と遠方の精度は [Task 5F](docs/task5f_origin_shift.md)、ボスの検証は [Task 5D](docs/task5d_bosses.md)、報酬と復活は [Task 5C](docs/task5c_rewards.md)、以前の区画読み込みの性能と精度は [Task 5B-2](docs/task5b_streaming.md) に記録します。
 人による長時間の操作・難易度確認と、単独exeへの書き出しは未実施です。
 チュートリアルの検査数と画面確認は [Task 5E](docs/task5e_tutorial.md) に記録します。初めて遊ぶ人が説明を理解し迷わず進めるかは未確認です。ボスの強さ・難易度、1周の所要時間、回復量・復活頻度との釣り合いも未確認です。
 

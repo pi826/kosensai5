@@ -57,6 +57,36 @@ const ENEMY_CHARGE_REWARD := 1
 const BOSS_CHARGE_REWARD := 2
 const HEART_HEAL := 30
 const BLOCK_HEAL := 6
+# Run progression (no experience levels; absorption never awards crystals).
+const CRYSTAL_REWARDS := {"normal": 5, "guardian": 50, "final": 150, "secret": 300}
+const CRYSTAL_COLOR := Color("e8bcff")
+const CHEST_CRYSTAL_MIN := 30
+const CHEST_CRYSTAL_MAX := 80
+const SECTOR_KEY_CHANCE := 0.82
+const SECTOR_CHEST_CHANCE := 0.65
+const INTERACT_DISTANCE := 68.0
+const LOOT_SIZE := Vector2(32, 32)
+const LOOT_SPACING := 80.0
+const LOOT_MESSAGE_TIME := 4.0
+const KEY_NEEDED_TIME := 1.4
+const ABILITY_DOUBLE := 1
+const ABILITY_DASH := 2
+const ABILITY_GLIDE := 4
+const DOUBLE_JUMP_RATIO := 0.85
+const AIR_DASH_TIME := 0.18
+const AIR_DASH_SPEED := MOVE_SPEED * 3.0
+const GLIDE_FALL_SPEED := 120.0
+const ABILITY_NAMES := {1: "二段ジャンプ", 2: "空中ダッシュ", 4: "滑空"}
+const ABILITY_SECTOR_DISTANCE := {1: Vector2i(0, 1), 2: Vector2i(2, 3), 4: Vector2i(2, 4)}
+# Input schedules shared by the planner and real-physics verification.
+const ABILITY_SECOND_JUMP_FRAME := 22
+const ABILITY_DASH_FRAME := 24
+const ABILITY_FLIGHT_FRAMES := 240
+# [measured maximum rise, flat landing reach, flight frames], from rest at 60 Hz.
+const ABILITY_HOP_PROFILES := {1: [296.8885, 357.2266, 69], 2: [173.0190, 394.5601, 54], 4: [173.0190, 575.8934, 110],
+	3: [296.8885, 549.2265, 83], 5: [296.8885, 1007.8917, 191], 6: [173.0190, 757.2260, 122], 7: [296.8885, 1183.8925, 202]}
+const DETOUR_WIDTH := 128.0
+const DETOUR_REWARD := 40
 # Tutorial geometry is fixed; no seed, generator, streaming or respawn is used.
 const TUTORIAL_BOUNDS := Rect2(0, 0, 4608, 896)
 const TUTORIAL_START := Vector2(128, 618)

@@ -39,6 +39,12 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 "tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/test_guard_test.gd
 if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/ability_physics_test.gd
+if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/abilities_test.gd
+if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/ability_generation_test.gd
+if errorlevel 1 goto failed
 echo All checks passed.
 pause
 exit /b 0

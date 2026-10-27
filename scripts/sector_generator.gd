@@ -2,6 +2,7 @@ extends RefCounted
 ## Pure local-coordinate data. No scene tree, global RNG, cache or game integration.
 const T := preload("res://scripts/tuning.gd")
 const G := preload("res://scripts/stage_generator.gd")
+const L := preload("res://scripts/loot_generator.gd")
 const SIDES := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 
 # String hashing avoids signed multiplication overflow, including INT64_MAX seeds.
@@ -62,11 +63,14 @@ static func generate(seed_value: int, at: Vector2i, attempt_limit: int = T.SECTO
 		var rng := RandomNumberGenerator.new()
 		rng.seed = _key(seed_value, at, "interior:%d" % attempt)
 		var sector := _build(seed_value, at, rng, false)
-		if not sector.is_empty(): return sector
+		if not sector.is_empty():
+			var graphs: Array = sector.get("_graphs", [])
+			sector.erase("_graphs")
+			return L.decorate(sector, graphs[0] if graphs.size() == 2 else {}, graphs[1] if graphs.size() == 2 else {})
 	return generate_fallback(seed_value, at)
 
 static func generate_fallback(seed_value: int, at: Vector2i) -> Dictionary:
-	return _fallback_build(seed_value, at)
+	return L.decorate(_fallback_build(seed_value, at))
 
 static func _shaft(s: Dictionary, holes: Array, x: int, top: int, bottom: int, gate: bool = false, width: int = 256) -> void:
 	var rect := Rect2(x, top, width, bottom - top)
@@ -321,7 +325,10 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 		var finished := _finish(s.duplicate(true), rng)
 		var graphs: Array = finished.get("_graphs", [])
 		finished.erase("_graphs")
-		if validate(finished, graphs).is_empty(): return finished
+		if validate(finished, graphs).is_empty():
+			# Hand the already checked graph to loot placement, then discard it.
+			finished._graphs = graphs
+			return finished
 	return {}
 
 static func _bridge_floors(s: Dictionary) -> void:
@@ -600,8 +607,10 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		if not s.chambers.any(func(r): return r.rect.end.y == surface.position.y and surface.position.x >= r.rect.position.x and surface.end.x <= r.rect.end.x) or not G._supported(Vector2(surface.get_center().x, surface.position.y - 22), Vector2(surface.size.x, 44), s.solids): errors.append("Erosion exposed floor")
 	var terrain := s.duplicate(false)
 	terrain.solids = s.solids + s.breakables
+	var loot_graph := {}
 	for damaged: bool in [false, true]:
 		var graph: Dictionary = generated_graphs[int(damaged)] if generated_graphs.size() == 2 else G.navigation_graph(terrain, damaged)
+		if not damaged: loot_graph = graph
 		errors.append_array(G.connectivity_errors(s, damaged, graph))
 		for point: Vector2 in gate_positions(s):
 			if G.node_at(graph, point) < 0: errors.append("Gate standing point")
@@ -653,6 +662,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		fixture.breakables.append(block)
 	if s.breakables.size() != T.SECTOR_BLOCK_COUNT: errors.append("Block count")
 	errors.append_array(_shell_errors(s))
+	if s.has("loot"): errors.append_array(L.errors(s,loot_graph))
 	return errors
 
 # Check the whole 32px strip: two neighbors retain 64px of rock outside openings.
@@ -676,18 +686,19 @@ static func _shell_errors(s: Dictionary) -> Array[String]:
 
 # Compose actual geometry, then use the same movement graph as the finite world.
 static func combined_stage(sectors: Array) -> Dictionary:
-	var merged := {"solids": [], "erodible_surfaces": [], "navigation_bounds": [], "start_position": Vector2.ZERO}
+	var merged := {"solids": [], "erodible_surfaces": [], "optional_surfaces": [], "navigation_bounds": [], "start_position": Vector2.ZERO}
 	for s: Dictionary in sectors:
 		var offset := Vector2(s.coord) * T.SECTOR_SIZE
 		merged.navigation_bounds.append(Rect2(offset, T.SECTOR_SIZE))
 		for field in ["solids", "erodible_surfaces"]:
 			for r: Rect2 in s[field]: merged[field].append(Rect2(r.position + offset, r.size))
+		for r: Rect2 in s.get("optional_surfaces", []): merged.optional_surfaces.append(Rect2(r.position + offset, r.size))
 		for block: Rect2 in s.breakables: merged.solids.append(Rect2(block.position + offset, block.size))
 		if s.coord == Vector2i.ZERO or merged.start_position == Vector2.ZERO: merged.start_position = s.start_position + offset
 	return merged
 
-static func navigation_graph(sectors: Array, damaged: bool = false) -> Dictionary:
-	return G.navigation_graph(combined_stage(sectors), damaged)
+static func navigation_graph(sectors: Array, damaged: bool = false, abilities: int = 0) -> Dictionary:
+	return G.navigation_graph(combined_stage(sectors), damaged, {}, [], abilities)
 
 static func seam_errors(a: Dictionary, b: Dictionary) -> Array[String]:
 	var errors: Array[String] = []

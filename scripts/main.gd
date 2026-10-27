@@ -58,7 +58,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 				actor.wall_plan.position += delta
 			actor.force_update_transform()
 			actor.reset_physics_interpolation()
-		elif actor.is_in_group("hearts"):
+		elif actor.is_in_group("hearts") or actor.is_in_group("loot"):
 			actor.position += delta
 			actor.spawn = O.geometry(actor.spawn, delta)
 			actor.reset_physics_interpolation()
@@ -70,7 +70,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 			shot.path = O.points(shot.path, delta)
 		elif shot is Bomb: shot.target += delta
 		shot.reset_physics_interpolation()
-	for field in ["bursts", "damage_numbers", "player_hp_numbers", "charge_numbers"]:
+	for field in ["bursts", "damage_numbers", "player_hp_numbers", "charge_numbers", "crystal_numbers"]:
 		for entry: Dictionary in effects.get(field): entry.at += delta
 	for display: Node2D in effects.get_children(): display.position += delta
 	effects.queue_redraw()
@@ -93,6 +93,15 @@ var state := "title"
 var score := 0
 var elapsed := 0.0
 var kills := 0
+var crystals := 0
+var crystals_earned := 0
+var keys := 0
+var loot_taken: Dictionary = {}
+var discovered_loot: Dictionary = {}
+var loot_drops: Dictionary = {}
+var loot_message := ""
+var loot_message_remaining := 0.0
+var loot_ability := 0
 var total_enemies := 0
 var player: CharacterBody2D
 var boss: CharacterBody2D
@@ -215,6 +224,15 @@ func start_run(stage_seed: int) -> void:
 	score = 0
 	elapsed = 0.0
 	kills = 0
+	crystals = 0
+	crystals_earned = 0
+	keys = 0
+	loot_taken.clear()
+	discovered_loot.clear()
+	loot_drops.clear()
+	loot_message = ""
+	loot_message_remaining = 0.0
+	loot_ability = 0
 	total_enemies = 0
 	ending = false
 	boss = null
@@ -310,6 +328,7 @@ func _physics_process(delta: float) -> void:
 				return
 		elapsed += delta
 		announcement_remaining = maxf(0, announcement_remaining - delta)
+		loot_message_remaining = maxf(0, loot_message_remaining - delta)
 		_update_camera(delta)
 		if streaming_enabled: stream.update_rewards()
 		_update_exploration()
@@ -366,6 +385,13 @@ func _update_exploration() -> void:
 				if not explored_by_sector.has(at): explored_by_sector[at] = {}
 				explored_by_sector[at][stable_cell] = true
 	visited_sectors[origin_sector + SectorStream.coord_at(player.position)] = true
+	for item in get_tree().get_nodes_in_group("loot"):
+		if item.get_parent() != world or item.spawn.kind == "crystal" or loot_taken.has(item.spawn.id): continue
+		if view_rect().intersects(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE)):
+			var mark := stable_point(item.position)
+			mark.kind = item.spawn.kind
+			mark.ability = item.spawn.get("contents", []).any(func(c): return c.kind == "ability")
+			discovered_loot[item.spawn.id] = mark
 	boss = null
 	var distance := INF
 	for actor in get_tree().get_nodes_in_group("enemies"):
@@ -527,9 +553,19 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 			ending = true
 			call_deferred("_finish_run")
 		return
-	if defeated_enemies.has(actor.spawn_id):
+	if actor.get_meta("defeat_rewarded", false) or defeated_enemies.has(actor.spawn_id):
 		return
+	if actor.kind == "boss" and defeated_bosses.has(actor.boss_id): return
+	actor.set_meta("defeat_rewarded", true)
 	defeated_enemies[actor.spawn_id] = true
+	if not is_tutorial():
+		add_crystals(T.CRYSTAL_REWARDS[actor.boss_role if actor.kind == "boss" else "normal"])
+		if actor.kind == "boss" and actor.boss_role == "guardian":
+			var drop := stable_point(actor.position)
+			drop.id = "guardian_key:%d" % actor.boss_id
+			drop.kind = "key"
+			loot_drops[drop.id] = drop
+			stream.spawn_loot_drop(drop)
 	if is_instance_valid(player) and not player.dead:
 		var reward := T.ENEMY_CHARGE_REWARD
 		if actor.kind == "boss":
@@ -554,6 +590,45 @@ func _finish_run() -> void:
 		show_menu("won")
 	else:
 		ending = false
+
+func add_crystals(amount: int) -> void:
+	if amount <= 0: return
+	crystals += amount
+	crystals_earned += amount
+	if is_instance_valid(player) and is_instance_valid(effects): effects.show_crystals(player.position, amount)
+
+func grant_loot(content: Dictionary) -> void:
+	match content.kind:
+		"crystal": add_crystals(content.amount)
+		"ability":
+			player.abilities |= int(content.ability)
+			loot_ability = int(content.ability)
+			loot_message = ability_help(content.ability)
+			loot_message_remaining = T.LOOT_MESSAGE_TIME
+
+func ability_help(ability: int) -> String:
+	var jump: String = key_bindings.get_binding_text("jump")
+	match ability:
+		T.ABILITY_DOUBLE: return "二段ジャンプを覚えた！ 空中で %s（着地まで1回）" % jump
+		T.ABILITY_DASH: return "空中ダッシュを覚えた！ 空中で %s（着地まで1回）" % key_bindings.get_binding_text("dash")
+		T.ABILITY_GLIDE: return "滑空を覚えた！ 落下中に %s を押し続ける" % jump
+	return ""
+
+func nearest_chest() -> Node2D:
+	if not is_instance_valid(player) or player.dead: return null
+	var best: Node2D
+	var distance := T.INTERACT_DISTANCE
+	for item in get_tree().get_nodes_in_group("loot"):
+		if item.get_parent() != world or item.spawn.kind != "chest" or item.opened: continue
+		var next: float = item.position.distance_to(player.position)
+		if next < distance or (is_equal_approx(next, distance) and (best == null or item.spawn.id < best.spawn.id)):
+			best = item
+			distance = next
+	return best
+
+func interact() -> void:
+	var chest := nearest_chest()
+	if chest != null: chest.try_open()
 
 func resume_run() -> void:
 	state = "playing"
