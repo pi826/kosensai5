@@ -17,20 +17,58 @@ var dash_remaining := 0.0
 var dash_direction := 1
 var pending_dash := false
 var gliding := false
+var equipment := {"weapon": "", "armor": "", "charm": ""}
+
+func wears(id: String) -> bool:
+	return equipment.values().has(id)
+
+func shot_interval() -> float:
+	return T.SHOT_INTERVAL * (T.RAPID_INTERVAL_RATIO if wears("rapid") else 1.0)
+
+func move_speed() -> float:
+	return T.MOVE_SPEED * (T.BOOTS_SPEED_RATIO if wears("boots") else 1.0)
+
+func charge_capacity() -> int:
+	return T.HOMING_CHARGE_CAPACITY + (T.HOMING_CAPACITY_BONUS if wears("homing") else 0)
+
+func volley_size() -> int:
+	return T.HOMING_VOLLEY_SIZE + (T.HOMING_VOLLEY_BONUS if wears("homing") else 0)
+
+func absorptions_per_charge() -> int:
+	return T.EFFICIENT_ABSORPTIONS if wears("absorb") else T.ABSORPTIONS_PER_CHARGE
+
+func hit_damage(amount: int) -> int:
+	return maxi(1, ceili(amount * T.ARMOR_DAMAGE_RATIO)) if wears("cushion") else amount
+
+func hurt_invulnerability() -> float:
+	return T.INVULNERABILITY + (T.LONG_INVULNERABILITY_BONUS if wears("invincible") else 0.0)
+
+func apply_equipment(slot: String, id: String) -> void:
+	var old_max := max_hp
+	var previous_hp := hp
+	equipment[slot] = id
+	max_hp = T.PLAYER_HP + (T.SHELL_HP_BONUS if wears("shell") else 0)
+	# Preserve missing HP across equipment changes; removal alone cannot kill.
+	if max_hp != old_max: hp = clampi(hp + max_hp - old_max, 1, max_hp)
+	if hp != previous_hp or max_hp != old_max: _hp_changed(previous_hp)
+	homing_charges = mini(homing_charges, charge_capacity())
+	gauge = mini(gauge, absorptions_per_charge())
+	invulnerability = minf(invulnerability, hurt_invulnerability())
+	shot_cooldown = minf(shot_cooldown, shot_interval())
 
 func has_ability(ability: int) -> bool:
 	return not game.is_tutorial() and (abilities & ability) == ability
 
 func _absorb_attack() -> void:
-	gauge = mini(T.ABSORPTIONS_PER_CHARGE, gauge + 1)
-	if gauge == T.ABSORPTIONS_PER_CHARGE and homing_charges < T.HOMING_CHARGE_CAPACITY:
+	gauge = mini(absorptions_per_charge(), gauge + 1)
+	if gauge == absorptions_per_charge() and homing_charges < charge_capacity():
 		gauge = 0
 		add_homing_charges(1)
 
 func add_homing_charges(amount: int) -> int:
 	if dead or amount <= 0: return 0
 	var before := homing_charges
-	homing_charges = mini(T.HOMING_CHARGE_CAPACITY, homing_charges + amount)
+	homing_charges = mini(charge_capacity(), homing_charges + amount)
 	var gained := homing_charges - before
 	if gained > 0 and is_instance_valid(game) and is_instance_valid(game.effects):
 		game.effects.show_charge(global_position, gained)
@@ -39,7 +77,7 @@ func add_homing_charges(amount: int) -> int:
 func launch_homing() -> bool:
 	if dead or homing_charges <= 0: return false
 	homing_charges -= 1
-	game.fire_special(self, T.HOMING_VOLLEY_SIZE)
+	game.fire_special(self, volley_size())
 	return true
 
 func _ready() -> void:
@@ -105,6 +143,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		pending_dash = true
 	elif event.is_action_pressed("interact") and not game.is_tutorial():
 		game.interact()
+	elif event.is_action_pressed("use_item") and not game.is_tutorial():
+		game.use_potion()
 
 func _physics_process(delta: float) -> void:
 	if dead:
@@ -128,7 +168,7 @@ func _physics_process(delta: float) -> void:
 	var acceleration: float = T.GROUND_ACCELERATION if grounded else T.AIR_ACCELERATION
 	if is_zero_approx(horizontal):
 		acceleration = T.GROUND_DECELERATION if grounded else T.AIR_DECELERATION
-	velocity.x = move_toward(velocity.x, horizontal * T.MOVE_SPEED, acceleration * delta)
+	velocity.x = move_toward(velocity.x, horizontal * move_speed(), acceleration * delta)
 	if not is_zero_approx(horizontal):
 		facing = 1 if horizontal > 0 else -1
 	coyote = 0.0 if dropping else (T.COYOTE_TIME if grounded else maxf(0.0, coyote - delta))
@@ -171,7 +211,7 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor(): gliding = false
 	if dashing:
 		if is_on_wall(): dash_remaining = 0.0
-		if dash_remaining <= 0: velocity.x = horizontal * T.MOVE_SPEED
+		if dash_remaining <= 0: velocity.x = horizontal * move_speed()
 	_check_enemy_contact()
 	if dead:
 		return
@@ -182,11 +222,16 @@ func _physics_process(delta: float) -> void:
 		game.effect(global_position + Vector2(0, 22), Color("8aa4ac"), "land")
 	visual_scale = visual_scale.lerp(Vector2.ONE, 1.0 - exp(-18.0 * delta))
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
-		game.spawn_bullet(self, shot_direction())
-		shot_cooldown = T.SHOT_INTERVAL
+		fire_normal()
+		shot_cooldown = shot_interval()
 	if pending_special:
 		launch_homing()
 	pending_special = false
+
+func fire_normal() -> void:
+	var direction := shot_direction()
+	for spread: float in ([-T.TRIPLE_SPREAD, 0.0, T.TRIPLE_SPREAD] if wears("triple") else [0.0]):
+		game.spawn_bullet(self, direction.rotated(spread))
 
 func _try_drop_through() -> bool:
 	var platform_bottom := -INF

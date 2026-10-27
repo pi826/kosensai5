@@ -2,6 +2,7 @@ extends RefCounted
 ## Dedicated salts keep progression independent of enemy/terrain RNG and order.
 const T := preload("res://scripts/tuning.gd")
 const G := preload("res://scripts/stage_generator.gd")
+const M := preload("res://scripts/merchant_generator.gd")
 
 static func ability_sectors(seed_value: int) -> Dictionary:
 	var out := {T.ABILITY_DOUBLE: Vector2i.ZERO}
@@ -33,6 +34,7 @@ static func site_valid(s: Dictionary, point: Vector2, blocked: Array = []) -> bo
 	if blocked.is_empty(): blocked = _site_obstacles(s)
 	if G._any_intersects(blocked,body): return false
 	if s.hearts.any(func(h): return h.position.distance_to(point) < T.LOOT_SPACING): return false
+	if s.get("merchants", []).any(func(h): return h.position.distance_to(point) < T.LOOT_SPACING): return false
 	return not s.get("loot", []).any(func(h): return h.position.distance_to(point) < T.LOOT_SPACING)
 
 static func _append(s: Dictionary, point: Vector2, kind: String, contents: Array = []) -> void:
@@ -81,6 +83,15 @@ static func decorate(s: Dictionary, graph: Dictionary = {}, damaged_graph: Dicti
 			_append(s, point, request.kind, request.contents)
 			break
 	_add_detour(s, graph, rng, damaged_graph)
+	M.decorate(s, sites, blocked)
+	var content_rng := RandomNumberGenerator.new()
+	content_rng.seed = ("%d:%d:%d:chest_contents" % [s.seed,s.coord.x,s.coord.y]).hash()
+	for item: Dictionary in s.loot:
+		if item.kind != "chest" or item.contents[0].kind != "crystal": continue
+		var roll := content_rng.randf()
+		if roll < T.CHEST_POTION_CHANCE: item.contents = [{"kind": "potion"}]
+		elif roll < T.CHEST_POTION_CHANCE + T.CHEST_EQUIPMENT_CHANCE:
+			item.contents = [{"kind": "equipment", "roll": content_rng.randi()}]
 	return s
 
 static func _add_detour(s: Dictionary, base: Dictionary, rng, damaged_base: Dictionary = {}) -> void:
@@ -150,6 +161,7 @@ static func errors(s: Dictionary, graph: Dictionary = {}) -> Array[String]:
 	var root := G.node_at(graph, s.start_position)
 	var forward := G._search(graph, root)
 	var backward := G._search(graph, root, true)
+	out.append_array(M.errors(s, graph, _site_obstacles(s)))
 	var ids := {}
 	for item: Dictionary in s.loot:
 		var copy := s.duplicate(false)

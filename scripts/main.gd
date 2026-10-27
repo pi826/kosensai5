@@ -58,7 +58,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 				actor.wall_plan.position += delta
 			actor.force_update_transform()
 			actor.reset_physics_interpolation()
-		elif actor.is_in_group("hearts") or actor.is_in_group("loot"):
+		elif actor.is_in_group("hearts") or actor.is_in_group("loot") or actor.is_in_group("merchants"):
 			actor.position += delta
 			actor.spawn = O.geometry(actor.spawn, delta)
 			actor.reset_physics_interpolation()
@@ -102,6 +102,13 @@ var loot_drops: Dictionary = {}
 var loot_message := ""
 var loot_message_remaining := 0.0
 var loot_ability := 0
+var potions := 0
+var owned_equipment: Dictionary = {}
+var merchant_sold: Dictionary = {}
+var discovered_merchants: Dictionary = {}
+var active_merchant: Dictionary = {}
+var shop_return_state := "playing"
+var last_shop_action_ms := -1000
 var total_enemies := 0
 var player: CharacterBody2D
 var boss: CharacterBody2D
@@ -233,6 +240,12 @@ func start_run(stage_seed: int) -> void:
 	loot_message = ""
 	loot_message_remaining = 0.0
 	loot_ability = 0
+	potions = 0
+	owned_equipment.clear()
+	merchant_sold.clear()
+	discovered_merchants.clear()
+	active_merchant.clear()
+	last_shop_action_ms = -1000
 	total_enemies = 0
 	ending = false
 	boss = null
@@ -278,6 +291,7 @@ func start_run(stage_seed: int) -> void:
 	state = "playing"
 	ui.menu.hide()
 	ui.settings_overlay.hide()
+	ui.shop_panel.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT
 	_update_camera(0.0, true)
 	_update_exploration()
@@ -385,6 +399,10 @@ func _update_exploration() -> void:
 				if not explored_by_sector.has(at): explored_by_sector[at] = {}
 				explored_by_sector[at][stable_cell] = true
 	visited_sectors[origin_sector + SectorStream.coord_at(player.position)] = true
+	for merchant in get_tree().get_nodes_in_group("merchants"):
+		if merchant.get_parent() != world: continue
+		if view_rect().intersects(Rect2(merchant.position - T.MERCHANT_SIZE / 2, T.MERCHANT_SIZE)):
+			discovered_merchants[merchant.spawn.id] = stable_point(merchant.position)
 	for item in get_tree().get_nodes_in_group("loot"):
 		if item.get_parent() != world or item.spawn.kind == "crystal" or loot_taken.has(item.spawn.id): continue
 		if view_rect().intersects(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE)):
@@ -451,7 +469,7 @@ func lock_on_targets() -> Array:
 	if not is_instance_valid(player) or player.dead:
 		return marked
 	var candidates := targets_for(0, player.polarity, player.global_position)
-	for index in range(mini(T.HOMING_VOLLEY_SIZE if player.homing_charges > 0 else 0, candidates.size())):
+	for index in range(mini(player.volley_size() if player.homing_charges > 0 else 0, candidates.size())):
 		marked.append(candidates[index])
 	for missile in projectiles.get_children():
 		if not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion(): continue
@@ -486,6 +504,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 	else:
 		bullet.speed = T.PLAYER_BULLET_SPEED if actor.faction == 0 else T.ENEMY_BULLET_SPEED
 	if actor.faction == 0 and not guided:
+		bullet.penetrations = T.BULLET_PENETRATIONS if actor.wears("pierce") else 0
 		bullet.position = actor.position + actor.muzzle_offset(bullet.direction)
 	else:
 		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
@@ -600,6 +619,26 @@ func add_crystals(amount: int) -> void:
 func grant_loot(content: Dictionary) -> void:
 	match content.kind:
 		"crystal": add_crystals(content.amount)
+		"potion":
+			if potions < T.POTION_CAPACITY:
+				potions += 1
+				loot_message = "回復薬を手に入れた（%d / %d）" % [potions, T.POTION_CAPACITY]
+			else:
+				add_crystals(T.DETOUR_REWARD)
+				loot_message = "回復薬が満杯：結晶 +%d" % T.DETOUR_REWARD
+			loot_ability = 0
+			loot_message_remaining = T.LOOT_MESSAGE_TIME
+		"equipment":
+			var available := T.EQUIPMENT.keys().filter(func(id): return not owned_equipment.has(id))
+			if available.is_empty():
+				add_crystals(T.DETOUR_REWARD)
+				loot_message = "装備を全て所持：結晶 +%d" % T.DETOUR_REWARD
+			else:
+				var id: String = available[posmod(int(content.get("roll", 0)), available.size())]
+				owned_equipment[id] = true
+				loot_message = "%sを手に入れた。店か一時停止の「装備」で付け替え" % T.EQUIPMENT[id].name
+			loot_ability = 0
+			loot_message_remaining = T.LOOT_MESSAGE_TIME
 		"ability":
 			player.abilities |= int(content.ability)
 			loot_ability = int(content.ability)
@@ -627,12 +666,105 @@ func nearest_chest() -> Node2D:
 	return best
 
 func interact() -> void:
+	if state != "playing" or is_tutorial(): return
 	var chest := nearest_chest()
-	if chest != null: chest.try_open()
+	var merchant := nearest_merchant()
+	if merchant != null and (chest == null or merchant.position.distance_to(player.position) < chest.position.distance_to(player.position)):
+		open_shop(merchant)
+	elif chest != null: chest.try_open()
+
+func nearest_merchant() -> Node2D:
+	if not is_instance_valid(player) or player.dead: return null
+	var best: Node2D
+	var distance := T.INTERACT_DISTANCE
+	for merchant in get_tree().get_nodes_in_group("merchants"):
+		if merchant.get_parent() != world or merchant.is_queued_for_deletion(): continue
+		var separation: float = player.position.distance_to(merchant.position)
+		if separation < distance or (is_equal_approx(separation, distance) and (best == null or merchant.spawn.id < best.spawn.id)):
+			best = merchant
+			distance = separation
+	return best
+
+func interaction_hint() -> String:
+	var chest := nearest_chest()
+	var merchant := nearest_merchant()
+	var key: String = key_bindings.get_binding_text("interact")
+	if merchant != null and (chest == null or merchant.position.distance_to(player.position) < chest.position.distance_to(player.position)):
+		return "%s で話す" % key
+	return "%s 調べる" % key if chest != null else ""
+
+func open_shop(merchant: Node2D) -> void:
+	if state != "playing" or not is_instance_valid(merchant) or merchant != nearest_merchant(): return
+	active_merchant = merchant.spawn.duplicate(true)
+	shop_return_state = "playing"
+	state = "shop"
+	world.process_mode = Node.PROCESS_MODE_DISABLED
+	player.pending_special = false
+	player.pending_dash = false
+	ui.menu.hide()
+	ui.shop_panel.open(true)
+
+func open_equipment() -> void:
+	if state != "paused" or is_tutorial(): return
+	active_merchant.clear()
+	shop_return_state = "paused"
+	state = "equipment"
+	world.process_mode = Node.PROCESS_MODE_DISABLED
+	ui.menu.hide()
+	ui.shop_panel.open(false)
+
+func close_shop() -> void:
+	if state not in ["shop", "equipment"]: return
+	ui.shop_panel.hide()
+	active_merchant.clear()
+	if shop_return_state == "paused": show_menu("paused")
+	else: resume_run()
+
+func purchase_reason(id: String) -> String:
+	if active_merchant.is_empty() or not active_merchant.stock.has(id): return "販売していません"
+	if id == "potion" and potions >= T.POTION_CAPACITY: return "所持数の上限"
+	if id == "key" and merchant_sold.has(active_merchant.id): return "売り切れ"
+	if T.EQUIPMENT.has(id) and owned_equipment.has(id): return "所持"
+	if crystals < item_price(id): return "結晶不足"
+	return ""
+
+func item_price(id: String) -> int:
+	if id == "potion": return T.POTION_PRICE
+	if id == "key": return T.SHOP_KEY_PRICE
+	return int(T.EQUIPMENT.get(id, {}).get("price", 0))
+
+func buy_item(id: String) -> bool:
+	if state != "shop" or not purchase_reason(id).is_empty(): return false
+	var now := Time.get_ticks_msec()
+	if now - last_shop_action_ms < int(T.SHOP_ACTION_INTERVAL * 1000): return false
+	last_shop_action_ms = now
+	crystals -= item_price(id)
+	if id == "potion": potions += 1
+	elif id == "key":
+		keys += 1
+		merchant_sold[active_merchant.id] = true
+	else: owned_equipment[id] = true
+	ui.update_hud()
+	return true
+
+func equip(slot: String, id: String) -> bool:
+	if not is_instance_valid(player) or player.dead or not T.EQUIPMENT_SLOTS.has(slot): return false
+	if not id.is_empty() and (not owned_equipment.has(id) or T.EQUIPMENT[id].slot != slot): return false
+	player.apply_equipment(slot, id)
+	ui.update_hud()
+	return true
+
+func use_potion() -> bool:
+	if state != "playing" or is_tutorial() or potions <= 0 or not is_instance_valid(player) or player.dead: return false
+	if player.heal(T.POTION_HEAL) <= 0: return false
+	potions -= 1
+	ui.update_hud()
+	return true
 
 func resume_run() -> void:
 	state = "playing"
 	ui.menu.hide()
+	ui.shop_panel.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT
 	get_viewport().gui_release_focus()
 

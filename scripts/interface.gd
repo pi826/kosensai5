@@ -2,6 +2,7 @@ extends CanvasLayer
 const T := preload("res://scripts/tuning.gd")
 const KeySettingsPanel := preload("res://scripts/key_settings_panel.gd")
 const Minimap := preload("res://scripts/minimap.gd")
+const ShopPanel := preload("res://scripts/shop_panel.gd")
 var game: Node2D
 var menu: Control
 var health_label: Label
@@ -37,6 +38,8 @@ var tutorial_panel: Panel
 var tutorial_label: Label
 var loot_label: Label
 var loot_notice: Label
+var shop_panel: Control
+var equipment_button: Button
 
 func _ready() -> void:
 	var root := Control.new()
@@ -187,6 +190,12 @@ func _ready() -> void:
 	place(new_button, Vector2(302, 541), Vector2(676, 40))
 	new_button.pressed.connect(game.new_action)
 	menu.add_child(new_button)
+	equipment_button = Button.new()
+	equipment_button.text = "装備"
+	equipment_button.add_theme_stylebox_override("normal", panel_style(Color("1a3044")))
+	place(equipment_button, Vector2(650, 541), Vector2(328, 40))
+	equipment_button.pressed.connect(game.open_equipment)
+	menu.add_child(equipment_button)
 	settings_button = Button.new()
 	settings_button.text = "キー設定"
 	settings_button.add_theme_stylebox_override("normal", panel_style(Color("1a3044")))
@@ -228,6 +237,9 @@ func _ready() -> void:
 	settings_panel.closed.connect(game.close_key_settings)
 	settings_overlay.add_child(settings_panel)
 	settings_overlay.hide()
+	shop_panel = ShopPanel.new()
+	shop_panel.game = game
+	root.add_child(shop_panel)
 	refresh_bindings()
 
 func refresh_bindings() -> void:
@@ -236,7 +248,9 @@ func refresh_bindings() -> void:
 		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
-	if not game.is_tutorial(): controls_label.text = controls_label.text.replace("ジャンプ", "ジャンプ / %s 空中ダッシュ（解禁後）" % keys.get_binding_text("dash"))
+	if not game.is_tutorial():
+		controls_label.text = controls_label.text.replace("ジャンプ", "ジャンプ / %s 空中ダッシュ（解禁後）" % keys.get_binding_text("dash"))
+		controls_label.text += " / %s 回復薬" % keys.get_binding_text("use_item")
 	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
@@ -254,15 +268,18 @@ func update_hud() -> void:
 	color_label.modulate = T.COLORS[color_index]
 	angle_label.text = "射撃方向 " + (game.player.aim_name() if live else T.AIM_NAMES[0])
 	var charge: int = game.player.gauge if live else 0
+	var required: int = game.player.absorptions_per_charge() if live else T.ABSORPTIONS_PER_CHARGE
+	gauge_bar.max_value = required
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]
 	var stocks: int = game.player.homing_charges if live else 0
-	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(T.HOMING_CHARGE_CAPACITY - stocks), charge, T.ABSORPTIONS_PER_CHARGE]
+	var capacity: int = game.player.charge_capacity() if live else T.HOMING_CHARGE_CAPACITY
+	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(capacity - stocks), charge, required]
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
-	loot_label.text = "結晶 %d    鍵 %d" % [game.crystals, game.keys]
+	loot_label.text = "結晶 %d    鍵 %d    回復薬 %d/%d" % [game.crystals, game.keys, game.potions, T.POTION_CAPACITY]
 	loot_label.visible = not game.is_tutorial()
 	loot_notice.visible = not game.is_tutorial() and game.state == "playing"
-	loot_notice.text = game.loot_message if game.loot_message_remaining > 0 else ("%s 調べる" % game.key_bindings.get_binding_text("interact") if game.nearest_chest() != null else "")
+	loot_notice.text = game.loot_message if game.loot_message_remaining > 0 else game.interaction_hint()
 	if game.loot_message_remaining > 0 and game.loot_ability != 0: loot_notice.text = game.ability_help(game.loot_ability)
 	if game.is_tutorial():
 		score_label.text = "チュートリアル  %d / 11" % mini(game.lesson + 1, 11)
@@ -305,8 +322,9 @@ func show_menu(next_state: String) -> void:
 	tutorial_panel.hide()
 	tutorial_button.visible = next_state == "title" and not game.is_tutorial()
 	title_button.visible = next_state == "paused" or next_state == "tutorial_complete"
+	equipment_button.visible = next_state == "paused" and not game.is_tutorial()
 	new_button.visible = next_state != "tutorial_complete"
-	place(new_button, Vector2(302, 541), Vector2(328 if next_state == "title" else 676, 40))
+	place(new_button, Vector2(302, 541), Vector2(328 if next_state == "title" or equipment_button.visible else 676, 40))
 	place(settings_button, Vector2(302, 594), Vector2(328 if title_button.visible else 676, 36))
 	match next_state:
 		"title":

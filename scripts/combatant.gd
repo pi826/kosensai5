@@ -53,13 +53,13 @@ func receive_hit(attack_color: int, damage: int) -> String:
 	if invulnerability > 0.0:
 		return "protected"
 	var previous_hp := hp
-	hp = maxi(0, hp - damage)
+	hp = maxi(0, hp - hit_damage(damage))
 	if hp != previous_hp:
 		_hp_changed(previous_hp)
 	hit_flash = 0.15
 	queue_redraw()
 	if faction == 0:
-		invulnerability = T.INVULNERABILITY
+		invulnerability = hurt_invulnerability()
 	if is_instance_valid(game):
 		game.effect(global_position, Color("f8f8ef"), "hit")
 		if faction == 1 and previous_hp > hp:
@@ -73,6 +73,12 @@ func receive_hit(attack_color: int, damage: int) -> String:
 
 func _hp_changed(_previous_hp: int) -> void:
 	pass
+
+func hit_damage(amount: int) -> int:
+	return amount
+
+func hurt_invulnerability() -> float:
+	return T.INVULNERABILITY
 
 func _absorb_attack() -> void:
 	gauge = mini(T.GAUGE_CAPACITY, gauge + 1)

@@ -35,6 +35,7 @@ func show_damage(at: Vector2, amount: int) -> void:
 
 func show_player_health(actor: CharacterBody2D, before: int, after: int) -> void:
 	if before == after:
+		if is_instance_valid(health_display): health_display.change(actor, before, after)
 		return
 	if not is_instance_valid(health_display):
 		health_display = PlayerHealthDisplay.new()

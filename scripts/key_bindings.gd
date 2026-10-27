@@ -12,6 +12,7 @@ const ACTIONS := {
 	"aim_cycle": "射撃方向（前→上→下）",
 	"special": "誘導弾",
 	"interact": "調べる",
+	"use_item": "アイテムを使う",
 	"pause_game": "一時停止",
 }
 const DEFAULTS := {
@@ -25,6 +26,7 @@ const DEFAULTS := {
 	"aim_cycle": [KEY_L, KEY_NONE],
 	"special": [KEY_SEMICOLON, KEY_NONE],
 	"interact": [KEY_E, KEY_NONE],
+	"use_item": [KEY_Q, KEY_NONE],
 	"pause_game": [KEY_ESCAPE, KEY_NONE],
 }
 

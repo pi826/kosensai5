@@ -11,6 +11,8 @@ var homing := false
 var target: Node2D
 var life := T.BULLET_LIFETIME
 var trail := PackedVector2Array()
+var penetrations := 0
+var hit_bodies: Array[RID] = []
 
 func _physics_process(delta: float) -> void:
 	life -= delta
@@ -32,10 +34,18 @@ func _physics_process(delta: float) -> void:
 	var mask := 1 | T.PLATFORM_LAYER | (4 | T.WALL_LAYER if faction == 0 else 2)
 	var ray := PhysicsRayQueryParameters2D.create(global_position, next_position, mask)
 	ray.hit_from_inside = true
-	var hit := get_world_2d().direct_space_state.intersect_ray(ray)
-	if not hit.is_empty():
+	ray.exclude = hit_bodies
+	# Bound the sweep by the remaining penetration budget; terrain always stops it.
+	for _hit_index in range(penetrations + 1):
+		var hit := get_world_2d().direct_space_state.intersect_ray(ray)
+		if hit.is_empty(): break
 		if hit.collider.has_method("receive_hit"):
 			hit.collider.receive_hit(polarity, damage)
+			if penetrations > 0:
+				penetrations -= 1
+				hit_bodies.append(hit.rid)
+				ray.exclude = hit_bodies
+				continue
 		else:
 			if faction == 0 and is_instance_valid(game.terrain):
 				game.terrain.damage_at(hit.position + direction * 0.5, damage, true)

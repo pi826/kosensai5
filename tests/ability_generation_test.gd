@@ -41,7 +41,7 @@ func inspect(s: Dictionary, graphs: bool) -> void:
 		if s.coord != ability_positions[ability]: continue
 		check(s.loot.any(func(item): return item.kind == "chest" and item.contents.any(func(c): return c.kind == "ability" and c.ability == ability)), "correct ability chest exists at assigned sector")
 	key_count += s.loot.filter(func(i): return i.kind == "key").size()
-	chest_count += s.loot.filter(func(i): return i.kind == "chest" and i.contents[0].kind == "crystal").size()
+	chest_count += s.loot.filter(func(i): return i.kind == "chest" and i.contents[0].kind != "ability").size()
 	for branch: Dictionary in s.detours:
 		branches[branch.required] = branches.get(branch.required,0) + 1
 		if physics_cases.filter(func(c): return c.branch.required == branch.required).size() < 3:

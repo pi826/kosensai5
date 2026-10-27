@@ -48,6 +48,12 @@ func frames(count: int) -> void:
 		test_progress()
 		await process_frame
 
+func simulation_frames(count: int) -> void:
+	# Streaming holds do not advance combat timers. Count simulation time rather
+	# than rendered frames, with the same finite wait as other async checks.
+	var target: float = game.elapsed + count / 60.0
+	check(await wait_until(func(): return game.elapsed + 0.000001 >= target), "combat simulation advances within deadline")
+
 func tap(action_name: String) -> void:
 	var event := InputEventAction.new()
 	event.action = action_name
@@ -757,38 +763,52 @@ func verify_boss_warning() -> void:
 	if guardians.is_empty(): return
 	var guardian = guardians[0]
 	guardian.position = at(780, 582)
+	# The procedural roam rectangle belongs to the original chamber. Relocating
+	# only the body would snap it back there on its next physics tick.
+	guardian.roam = Rect2(guardian.position - Vector2(20, 20), Vector2(40, 40))
 	guardian.set_physics_process(true)
 	game.player.position = at(560, 618)
 	game._update_camera(1.0, true)
 	var ready := await wait_until(func(): return game.world.process_mode != Node.PROCESS_MODE_DISABLED and is_instance_valid(game.boss) and game.boss == guardian)
 	check(ready, "guardian detected after world preparation within deadline")
 	if not ready: return
-	game.boss.wake_delay = 0
-	game.boss.switch_clock = 0
-	game.boss.shot_clock = 10
-	game.boss.action = "idle"
-	var boss_old_color: int = game.boss.polarity
-	await frames(1)
-	check(game.boss.action == "windup_switch", "boss announces color change")
-	await frames(25)
-	check(game.boss.polarity == boss_old_color, "warning retains old color")
-	await frames(28)
-	check(game.boss.polarity != boss_old_color and game.boss.pattern == 1, "boss switches color and attack pattern after warning")
+	guardian.was_visible = true
+	guardian.wake_delay = 0
+	guardian.switch_clock = 0
+	guardian.shot_clock = 10
+	guardian.action = "idle"
+	var boss_old_color: int = guardian.polarity
+	await simulation_frames(1)
+	check(guardian.action == "windup_switch", "boss announces color change")
+	# Reproduce a preparation hold and a changed HUD selection during warning.
+	# The chosen actor, not the current nearest onscreen boss, owns the timer.
+	var warning_remaining: float = guardian.action_remaining
+	game.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	game.boss = null
+	await frames(5)
+	check(guardian.action_remaining == warning_remaining and guardian.polarity == boss_old_color, "world hold and null HUD boss preserve selected guardian warning")
+	game.world.process_mode = Node.PROCESS_MODE_INHERIT
+	game.set_physics_process(true)
+	await simulation_frames(25)
+	check(guardian.polarity == boss_old_color, "warning retains old color")
+	await simulation_frames(28)
+	check(guardian.polarity != boss_old_color and guardian.pattern == 1, "boss switches color and attack pattern after warning")
 	for actor in get_nodes_in_group("enemies"):
 		actor.set_physics_process(false)
-	game.boss.polarity = 1
+	guardian.polarity = 1
 	game.player.polarity = 0
-	game.player.position = Vector2(game.boss.position.x + 220, at(0, 618).y)
+	game.player.position = Vector2(guardian.position.x + 220, at(0, 618).y)
 	game.player.facing = 1
 	await frames(2)
 	clear_bullets()
 	game.fire_special(game.player, 2)
-	check(game.projectiles.get_child(0).direction.x < 0, "homing launches toward target behind player")
-	await frames(45)
-	check(game.boss.hp == 72, "homing hits rear target without orbiting")
+	check(game.projectiles.get_child_count() == 2 and game.projectiles.get_child(0).direction.x < 0, "homing launches toward target behind player")
+	await simulation_frames(45)
+	check(guardian.hp == 72, "homing hits rear target without orbiting")
 	check(game.ui.boss_hp_label.text == "72", "boss HUD displays remaining integer HP only")
 	check(game.effects.damage_numbers.size() == 2 and game.effects.damage_numbers[0].amount == 4 and game.effects.damage_numbers[1].amount == 4, "homing hits display separate damage numbers")
-	check(game.effects.damage_numbers[0].lane != game.effects.damage_numbers[1].lane, "simultaneous numbers use different horizontal lanes")
+	check(game.effects.damage_numbers.size() == 2 and game.effects.damage_numbers[0].lane != game.effects.damage_numbers[1].lane, "simultaneous numbers use different horizontal lanes")
 	await frames(60)
 	check(game.effects.damage_numbers.is_empty(), "floating damage numbers expire")
 	guardian.hp = T.BOSS_HP

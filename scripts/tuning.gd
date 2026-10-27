@@ -87,6 +87,42 @@ const ABILITY_HOP_PROFILES := {1: [296.8885, 357.2266, 69], 2: [173.0190, 394.56
 	3: [296.8885, 549.2265, 83], 5: [296.8885, 1007.8917, 191], 6: [173.0190, 757.2260, 122], 7: [296.8885, 1183.8925, 202]}
 const DETOUR_WIDTH := 128.0
 const DETOUR_REWARD := 40
+# Merchant / run inventory. Catalog order also defines the equipment screen.
+const MERCHANT_CHANCE := 0.2
+const MERCHANT_SIZE := Vector2(30, 44)
+const MERCHANT_COLOR := Color("94edcb")
+const MERCHANT_EQUIPMENT_MIN := 3
+const MERCHANT_EQUIPMENT_MAX := 5
+const SHOP_ACTION_INTERVAL := 0.2 # Real seconds; shop simulation is paused.
+const POTION_HEAL := 40
+const POTION_PRICE := 30
+const POTION_CAPACITY := 3
+const SHOP_KEY_PRICE := 120
+const CHEST_POTION_CHANCE := 0.25
+const CHEST_EQUIPMENT_CHANCE := 0.25
+const RAPID_INTERVAL_RATIO := 0.75
+const TRIPLE_SPREAD := 0.12 # Radians to either side of the aiming direction.
+const BULLET_PENETRATIONS := 1
+const SHELL_HP_BONUS := 30
+const ARMOR_DAMAGE_RATIO := 0.75
+const LONG_INVULNERABILITY_BONUS := 0.7
+const HOMING_CAPACITY_BONUS := 1
+const HOMING_VOLLEY_BONUS := 1
+const EFFICIENT_ABSORPTIONS := 3
+const BOOTS_SPEED_RATIO := 1.12
+const EQUIPMENT_SLOTS := {"weapon": "武器", "armor": "防具", "charm": "お守り"}
+const STARTER_EQUIPMENT := ["rapid", "shell", "homing"]
+const EQUIPMENT := {
+	"rapid": {"slot": "weapon", "name": "速射の銃身", "description": "通常射撃の間隔を25%短くする", "price": 90},
+	"triple": {"slot": "weapon", "name": "三連の銃身", "description": "通常射撃が少し広がる3発になる", "price": 200},
+	"pierce": {"slot": "weapon", "name": "貫く弾", "description": "通常弾が敵を1体貫通する", "price": 180},
+	"shell": {"slot": "armor", "name": "厚い外殻", "description": "最大HP・現在HP+30。外すと現在HP−30（最低1）", "price": 100},
+	"cushion": {"slot": "armor", "name": "衝撃の緩和", "description": "受けるダメージを25%減らす（切り上げ・最低1）", "price": 150},
+	"invincible": {"slot": "armor", "name": "長い無敵", "description": "ダメージ後の無敵時間+0.7秒", "price": 120},
+	"homing": {"slot": "charm", "name": "誘導の札", "description": "誘導弾のストック上限+1、発射数+1", "price": 130},
+	"absorb": {"slot": "charm", "name": "吸収の札", "description": "ストック1回分に必要な吸収が4回から3回へ", "price": 160},
+	"boots": {"slot": "charm", "name": "軽い靴", "description": "移動速度+12%", "price": 80},
+}
 # Tutorial geometry is fixed; no seed, generator, streaming or respawn is used.
 const TUTORIAL_BOUNDS := Rect2(0, 0, 4608, 896)
 const TUTORIAL_START := Vector2(128, 618)

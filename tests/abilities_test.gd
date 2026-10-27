@@ -99,13 +99,13 @@ func run() -> void:
 	game.player.position = key.position
 	var key_id: String = key.spawn.id
 	check(key.try_collect() and game.keys == 1 and not key.try_collect(), "key increments once")
-	game.key_bindings.try_bind("jump", 0, KEY_Q)
+	game.key_bindings.try_bind("jump", 0, KEY_U)
 	game.player.position = first_chest.position
 	check(first_chest.try_open() and game.keys == 0 and game.player.abilities == 1, "chest consumes key and grants ability")
-	check(game.loot_message.contains("Q") and game.loot_message_remaining == T.LOOT_MESSAGE_TIME, "ability notice uses current binding for several seconds")
+	check(game.loot_message.contains("U") and game.loot_message_remaining == T.LOOT_MESSAGE_TIME, "ability notice uses current binding for several seconds")
 	game.key_bindings.try_bind("jump",0,KEY_R)
 	game.ui.update_hud()
-	check(game.ui.loot_notice.text.contains("R / W") and not game.ui.loot_notice.text.contains("Q"), "active notice follows binding changes on resume")
+	check(game.ui.loot_notice.text.contains("R / W") and not game.ui.loot_notice.text.contains("U"), "active notice follows binding changes on resume")
 	check(not first_chest.try_open() and game.keys == 0, "opened chest cannot consume twice")
 	var chest_id: String = first_chest.spawn.id
 	game._update_camera(0, true)
@@ -181,7 +181,7 @@ func run() -> void:
 			var held: int = game.keys
 			check(drops[0].try_collect() and not drops[0].try_collect() and game.keys == held+1, "guardian drop is collectible exactly once")
 	game.ui.update_hud()
-	check(game.ui.loot_label.text == "結晶 %d    鍵 %d" % [game.crystals,game.keys], "HUD displays crystals and keys")
+	check(game.ui.loot_label.text == "結晶 %d    鍵 %d    回復薬 %d/%d" % [game.crystals,game.keys,game.potions,T.POTION_CAPACITY], "HUD displays crystals, keys and potions")
 	check(not game.effects.crystal_numbers.is_empty() and game.effects.crystal_numbers[-1].text.begins_with("+"), "crystals have a separate floating number")
 	game.player.invulnerability = 0
 	game.player.receive_hit(1-game.player.polarity,999)

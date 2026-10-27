@@ -60,8 +60,8 @@ func run() -> void:
 	check(practice.get_world_2d() != game.get_world_2d(), "tutorial physics space is isolated from main terrain and actors")
 	check(not game.world.visible and game.world.process_mode == Node.PROCESS_MODE_DISABLED, "main world hidden and suspended during tutorial")
 	var initial_text: String = practice.lesson_text()
-	check(game.key_bindings.try_bind("move_left", 0, KEY_Q).is_empty(), "rebind move left")
-	check(practice.lesson_text() != initial_text and practice.lesson_text().contains("Q"), "current lesson text follows changed binding immediately")
+	check(game.key_bindings.try_bind("move_left", 0, KEY_U).is_empty(), "rebind move left")
+	check(practice.lesson_text() != initial_text and practice.lesson_text().contains("U"), "current lesson text follows changed binding immediately")
 	game.key_bindings.reset_defaults()
 	var driver := Driver.new()
 	driver.tree = self
@@ -94,8 +94,8 @@ func run() -> void:
 			var index: int = {"move_left":0,"move_right":0,"jump":1,"move_down":2,"shoot":3,"aim_cycle":4,"switch_color":5,"special":7,"interact":10}[action]
 			practice.lesson = index
 			var before: String = practice.lesson_text()
-			check(game.key_bindings.try_bind(action, 0, KEY_Q).is_empty(), "rebind tutorial action " + action)
-			check(practice.lesson_text() != before and practice.lesson_text().contains("Q"), "description reflects " + action)
+			check(game.key_bindings.try_bind(action, 0, KEY_U).is_empty(), "rebind tutorial action " + action)
+			check(practice.lesson_text() != before and practice.lesson_text().contains("U"), "description reflects " + action)
 			game.key_bindings.reset_defaults()
 		for index in range(11):
 			practice.lesson = index

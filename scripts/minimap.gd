@@ -145,6 +145,11 @@ func _draw() -> void:
 		elif mark.ability:
 			draw_colored_polygon(PackedVector2Array([at+Vector2(0,-4),at+Vector2(4,0),at+Vector2(0,4),at+Vector2(-4,0)]), tint)
 		else: draw_rect(Rect2(at - Vector2(3,2), Vector2(6,4)), tint, false, 1.5)
+	for mark: Dictionary in merchant_marks():
+		var at: Vector2 = origin + mark.position * scale_factor
+		if not map_area.grow(-5).has_point(at): continue
+		draw_rect(Rect2(at - Vector2(4, 1), Vector2(8, 6)), T.MERCHANT_COLOR, false, 1.5)
+		draw_colored_polygon(PackedVector2Array([at+Vector2(-5,-1),at+Vector2(0,-5),at+Vector2(5,-1)]), T.MERCHANT_COLOR)
 	if is_instance_valid(game.player):
 		var at: Vector2 = origin + game.player.position * scale_factor
 		draw_circle(at, 3.0, Color("0d1721"))
@@ -157,6 +162,16 @@ func loot_marks() -> Array:
 		if game.loot_taken.has(id): continue
 		var mark: Dictionary = game.discovered_loot[id].duplicate()
 		mark.position = game.local_point(mark)
+		out.append(mark)
+	return out
+
+func merchant_marks() -> Array:
+	var out: Array = []
+	if game == null or game.get("discovered_merchants") == null: return out
+	for id: String in game.discovered_merchants:
+		var mark: Dictionary = game.discovered_merchants[id].duplicate()
+		mark.position = game.local_point(mark)
+		mark.id = id
 		out.append(mark)
 	return out
 

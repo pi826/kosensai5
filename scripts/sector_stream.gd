@@ -6,6 +6,7 @@ const Enemy := preload("res://scripts/enemy.gd")
 const Backdrop := preload("res://scripts/world_backdrop.gd")
 const Heart := preload("res://scripts/heart.gd")
 const Loot := preload("res://scripts/loot.gd")
+const Merchant := preload("res://scripts/merchant.gd")
 const S := preload("res://scripts/sector_generator.gd")
 const O := preload("res://scripts/origin_shift.gd")
 var missing: Dictionary = {}
@@ -249,6 +250,14 @@ func spawn_loot_drop(drop: Dictionary) -> void:
 
 func install_loot(at: Vector2i) -> void:
 	for spawn: Dictionary in loaded[at].get("loot", []): _spawn_loot(spawn)
+	for spawn: Dictionary in loaded[at].get("merchants", []):
+		if game.get_tree().get_nodes_in_group("merchants").any(func(m): return m.get_parent() == game.world and m.spawn.id == spawn.id): continue
+		var merchant := Merchant.new()
+		merchant.game = game
+		merchant.spawn = spawn.duplicate(true)
+		merchant.position = spawn.position
+		merchant.z_index = 1
+		game.world.add_child(merchant)
 	for drop: Dictionary in game.loot_drops.values():
 		if drop.sector == at: spawn_loot_drop(drop)
 
@@ -372,6 +381,8 @@ func _unload(at: Vector2i) -> void:
 		if heart.get_parent() == game.world and heart.spawn.sector == at: heart.free()
 	for item in game.get_tree().get_nodes_in_group("loot"):
 		if item.get_parent() == game.world and item.spawn.sector == at: item.free()
+	for merchant in game.get_tree().get_nodes_in_group("merchants"):
+		if merchant.get_parent() == game.world and merchant.spawn.sector == at: merchant.free()
 	for cell: Vector2i in game.explored_by_sector.get(at, {}):
 		var local_cell: Vector2i = cell - game.map_origin()
 		var corner := Vector2(local_cell) * T.MAP_CELL_SIZE
@@ -390,7 +401,7 @@ func _unload(at: Vector2i) -> void:
 func _refresh_stage() -> void:
 	# Compatibility view used by geometry queries/tests. It is the union of ready sectors,
 	# never an enclosing rectangle treated as a guarantee that holes are loaded.
-	for key in ["solids", "spawns", "hearts", "loot", "detours", "optional_surfaces", "breakables", "erodible_surfaces", "protected_rects", "chambers", "tunnels", "shafts", "landmarks", "biomes", "navigation_bounds"]: game.stage[key] = []
+	for key in ["solids", "spawns", "hearts", "loot", "merchants", "detours", "optional_surfaces", "breakables", "erodible_surfaces", "protected_rects", "chambers", "tunnels", "shafts", "landmarks", "biomes", "navigation_bounds"]: game.stage[key] = []
 	var first := true
 	for data: Dictionary in loaded.values():
 		game.stage.bounds = data.bounds if first else game.stage.bounds.merge(data.bounds)
@@ -406,7 +417,7 @@ func _refresh_stage() -> void:
 			merged.chamber_id += base
 			game.stage.spawns.append(merged)
 		for key in ["solids", "hearts", "breakables", "erodible_surfaces", "protected_rects", "tunnels", "shafts", "landmarks", "biomes"]: game.stage[key].append_array(data[key])
-		for key in ["loot", "detours", "optional_surfaces"]: game.stage[key].append_array(data.get(key, []))
+		for key in ["loot", "merchants", "detours", "optional_surfaces"]: game.stage[key].append_array(data.get(key, []))
 	game.total_enemies = game.get_tree().get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss").size()
 
 func contains(point: Vector2) -> bool:

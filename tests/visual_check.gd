@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--abilities"):
+	if OS.get_cmdline_user_args().has("--merchant"):
+		output = "res://builds/qa/merchant/"
+		call_deferred("run_merchant")
+	elif OS.get_cmdline_user_args().has("--abilities"):
 		output = "res://builds/qa/abilities/"
 		call_deferred("run_abilities")
 	elif OS.get_cmdline_user_args().has("--tutorial"):
@@ -30,6 +33,61 @@ func action_input(action: String, pressed: bool) -> void:
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
+
+func run_merchant() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.key_bindings.reset_defaults()
+	game.start_run(37)
+	game.elapsed = 9
+	var npc = get_nodes_in_group("merchants").filter(func(m): return m.get_parent()==game.world and m.spawn.sector==Vector2i.ZERO)[0]
+	await show(npc.position+Vector2(-56,0))
+	game.loot_message_remaining = 0
+	await capture("merchant_and_prompt")
+	await show(T.SECTOR_START)
+	await capture("merchant_map_hud")
+	await show(npc.position+Vector2(-56,0))
+	game.crystals = 250
+	game.open_shop(npc)
+	await capture("shop_buy_available")
+	game.crystals = 5
+	game.ui.shop_panel.refresh()
+	await capture("shop_buy_insufficient")
+	game.crystals = 600
+	game.owned_equipment.rapid = true
+	game.merchant_sold[npc.spawn.id] = true
+	game.ui.shop_panel.refresh()
+	await capture("shop_buy_owned_sold")
+	for id: String in T.EQUIPMENT: game.owned_equipment[id] = true
+	game.equip("weapon","triple")
+	game.equip("armor","shell")
+	game.equip("charm","homing")
+	game.ui.shop_panel._switch_tab(false)
+	await capture("equipment_all_slots")
+	game.close_shop()
+	game.show_menu("paused")
+	await capture("pause_equipment_entry")
+	game.open_equipment()
+	await capture("pause_equipment")
+	game.close_shop()
+	game.resume_run()
+	# Display fixture; no claims about play time or crystal income.
+	await show(T.SECTOR_START)
+	game.player.fire_normal()
+	await frames(8)
+	await capture("triple_barrel")
+	game.potions = 2
+	game.player.hp = 45
+	game.use_potion()
+	await capture("potion_healing")
+	game.player.add_homing_charges(6)
+	game.ui.update_hud()
+	await capture("equipped_hud")
+	game.free()
+	print("MERCHANT VISUAL: %d captures, %d failures" % [captures,failures])
+	quit(0 if failures==0 else 1)
 
 func run_abilities() -> void:
 	DirAccess.make_dir_recursive_absolute(output)
@@ -56,7 +114,7 @@ func run_abilities() -> void:
 	for ability: int in [T.ABILITY_DASH,T.ABILITY_GLIDE]:
 		game.grant_loot({"kind":"ability","ability":ability})
 		await capture("dash_learned" if ability==T.ABILITY_DASH else "glide_learned")
-	var ordinary = loot.filter(func(i): return i.spawn.kind == "chest" and i.spawn.contents[0].kind == "crystal")[0]
+	var ordinary = loot.filter(func(i): return i.spawn.kind == "chest" and i.spawn.contents[0].kind != "ability")[0]
 	await show(ordinary.position - Vector2(56, 0))
 	await capture("normal_chest_closed")
 	game.keys = 1
