@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--ui-map"):
+	if OS.get_cmdline_user_args().has("--enemies"):
+		output = "res://builds/qa/enemies/"
+		call_deferred("run_enemies")
+	elif OS.get_cmdline_user_args().has("--ui-map"):
 		output = "res://builds/qa/ui_map/"
 		call_deferred("run_ui_map")
 	elif OS.get_cmdline_user_args().has("--boss-arrow"):
@@ -51,10 +54,12 @@ func run_boss_arrow() -> void:
 	for e in get_nodes_in_group("enemies"): e.set_physics_process(false)
 	game.world.process_mode = Node.PROCESS_MODE_DISABLED
 	# Defeats use the real reward/unlock handler. Positions below are QA fixtures.
-	var normals := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss")
+	var normals := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind not in ["boss","enhancer"])
 	for i in range(7): normals[i].receive_hit(1 - normals[i].polarity, 999)
 	await capture("arrow_progress")
 	for i in range(7, 10): normals[i].receive_hit(1 - normals[i].polarity, 999)
+	var lantern = get_nodes_in_group("enhancers").filter(func(e):return e.get_parent()==game.world)[0]
+	lantern.receive_hit(1-lantern.polarity,999)
 	await capture("arrow_unlock")
 	game.announcement_remaining = 0
 	game.effects.show_player_health(game.player, 100, 70)
@@ -591,4 +596,79 @@ func run_ui_map() -> void:
 	FileAccess.open(output + "visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name(),"metrics":metrics,"note":"exploration uses QA observation positions in actual chambers and controlled boss discovery records; performance uses synthetic 300-sector records; frame wall includes scheduling, not isolated GPU time"},"\t"))
 	game.free()
 	print("UI MAP VISUAL: %d captures, %d failures; %s" % [captures,failures,JSON.stringify(metrics)])
+	quit(0 if failures==0 else 1)
+
+func run_enemies() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.start_run(37)
+	game.set_physics_process(false)
+	game.player.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	var source = get_nodes_in_group("enhancers").filter(func(e):return e.get_parent()==game.world and e.get_meta("sector")==Vector2i.ZERO)[0]
+	var data: Dictionary = game.stream.loaded[Vector2i.ZERO]
+	var descriptor: Dictionary = data.spawns.filter(func(e):return e.id==source.spawn_id)[0]
+	# The geometry witness may stand inside a same-colour enemy. For readable
+	# captures choose an equally reachable standing point outside all bodies.
+	var observation := data.duplicate(false)
+	observation.chambers=data.chambers.duplicate()
+	var room: Dictionary = data.chambers[descriptor.chamber_id].duplicate(false)
+	room.approaches=room.approaches.filter(func(point):
+		var body := Rect2(point-T.PLAYER_SIZE/2,T.PLAYER_SIZE).grow(8)
+		return not data.spawns.any(func(e):return S.enemy_spawn_area(e).intersects(body)))
+	observation.chambers[descriptor.chamber_id]=room
+	var witness: Dictionary = preload("res://scripts/stage_generator.gd").sight_witness(descriptor,observation)
+	if witness.is_empty():
+		printerr("FAIL: no clear observation witness")
+		game.free()
+		quit(1)
+		return
+	game.player.position = witness.target
+	game.camera.position = source.position + Vector2(0,-60)
+	game._update_exploration()
+	await capture("enhancer_field_and_rings")
+	await capture("arrow_locked_hint")
+	var viewpoint: Vector2 = game.camera.position
+	var counts := {}
+	counts["stage0"] = get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and not e.dead).size()
+	await capture("population_stage0")
+	source.receive_hit(1-source.polarity,999)
+	# Physics is deliberately disabled in this fixture; refresh cached field
+	# rings as normal actor physics would do on the next rendered frame.
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.get_parent()==game.world: enemy.queue_redraw()
+	if not game.boss_arrow_unlocked or game.boss_arrow_state().is_empty(): failures += 1
+	if game.boss_arrow_state().has("distance_text"): failures += 1
+	await capture("arrow_unlocked_notice")
+	game.announcement_remaining = 0
+	await capture("arrow_only_no_distance")
+	for level in [1,3]:
+		game.boss_cycle.final_clears = level
+		game.update_loop_scaling()
+		if level==1: await capture("loop_increase_notice")
+		game.camera.position=Vector2(-20000,-20000)
+		var deadline := Time.get_ticks_msec()+30000
+		while Time.get_ticks_msec()<deadline:
+			game.stream._service_population_jobs()
+			if game.stream.population_jobs.is_empty() and game.stream.population_waiting.is_empty(): break
+			test_progress()
+			OS.delay_msec(1)
+		if not game.stream.population_jobs.is_empty() or not game.stream.population_waiting.is_empty(): failures+=1
+		for i in range(240): game.stream._service_population(Time.get_ticks_usec()+5000)
+		var player_area := Rect2(game.player.position-game.player.body_size/2,game.player.body_size)
+		for enemy in get_nodes_in_group("enemies"):
+			if enemy.get_parent()!=game.world or not enemy.spawn_id.contains(":extra_"): continue
+			if Rect2(enemy.position-enemy.body_size/2,enemy.body_size).intersects(player_area):
+				failures+=1
+				printerr("FAIL: visual population overlaps player: ",enemy.spawn_id)
+		game.camera.position=viewpoint
+		game.announcement_remaining=0
+		game.loot_message_remaining=0
+		counts["stage%d" % level]=get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and not e.dead).size()
+		await capture("population_stage%d" % level)
+	FileAccess.open(output+"visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"counts_all_loaded_sectors":counts,"renderer":RenderingServer.get_video_adapter_name(),"note":"seed 37 actual geometry and enemies; observation camera/standing witness fixed; levels 1 and 3 activated through production scaling and offscreen spawning"},"\t"))
+	game.free()
+	print("ENEMIES VISUAL: %d captures, %d failures" % [captures,failures])
 	quit(0 if failures==0 else 1)

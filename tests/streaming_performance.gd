@@ -77,6 +77,28 @@ func run():
 	if render_frames: DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	var visible_started := Time.get_ticks_usec()
 	game.start_run(37)
+	var loop_three := OS.get_cmdline_user_args().has("--loop-three")
+	if loop_three:
+		game.set_physics_process(false)
+		game.world.process_mode=Node.PROCESS_MODE_DISABLED
+		var base_count := 0
+		for data: Dictionary in game.stream.loaded.values():
+			base_count += data.spawns.filter(func(e): return e.kind != "boss").size()
+		# Finish offscreen additions before measuring, rather than waiting for
+		# the deadline on candidates intentionally deferred beside the camera.
+		game.camera.position=Vector2(-20000,-20000)
+		game.boss_cycle.final_clears=T.FINAL_BOSS_CLEARS
+		game.update_loop_scaling()
+		var deadline := Time.get_ticks_msec()+30000
+		while Time.get_ticks_msec()<deadline:
+			game.stream._service_population_jobs()
+			game.stream._service_population(Time.get_ticks_usec()+3000)
+			if game.stream.population_jobs.is_empty() and game.stream.population_waiting.is_empty() and game.stream.population_queue.is_empty(): break
+			test_progress()
+			OS.delay_msec(1)
+		check(game.stream.population_jobs.is_empty() and game.stream.population_waiting.is_empty() and game.stream.population_queue.is_empty(),"initial stage-three population and jobs complete within deadline")
+		check(get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and e.kind!="boss" and not e.dead).size()==base_count*T.LOOP_COUNT_CAP,"benchmark begins with full fourfold normal-enemy population")
+		game.world.process_mode=Node.PROCESS_MODE_INHERIT
 	game.set_physics_process(true)
 	var gate: Dictionary = S.boundary_gates(37,Vector2i.ZERO,Vector2i.RIGHT)[0]
 	game.player.position=Vector2(gate.rect.position.x-320,gate.rect.end.y-22)
@@ -104,6 +126,15 @@ func run():
 	check(game.stream.loaded.size()>9,"moving benchmark includes incremental loading")
 	check(game.physics_frame_times.size()==900,"full physics frames measured after all actor callbacks")
 	var frame_report:={"frames":game.physics_frame_times.size(),"main_mean_ms":game.frame_times.reduce(func(a,b):return a+b,0.0)/game.frame_times.size(),"main_max_ms":game.frame_times.max(),"physics_mean_ms":game.physics_frame_times.reduce(func(a,b):return a+b,0.0)/game.physics_frame_times.size(),"physics_max_ms":game.physics_frame_times.max(),"loaded_sectors":game.stream.loaded.size(),"hold_frames":game.stream.hold_frames}
+	frame_report.loop_level=game.enemy_loop_level()
+	frame_report.enemy_count=get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and not e.dead).size()
+	frame_report.worker_generation_mean_ms=game.stream.generation_times.reduce(func(a,b):return a+b,0.0)/game.stream.generation_times.size()
+	frame_report.worker_generation_max_ms=game.stream.generation_times.max()
+	if not game.stream.population_times.is_empty():
+		frame_report.population_worker_mean_ms=game.stream.population_times.reduce(func(a,b):return a+b,0.0)/game.stream.population_times.size()
+		frame_report.population_worker_max_ms=game.stream.population_times.max()
+	if loop_three:
+		check(frame_report.main_mean_ms<1000.0/60.0 and frame_report.physics_mean_ms<1000.0/60.0,"stage-three average frame processing stays within 60fps budget")
 	if render_frames:
 		frame_report.start_to_first_render_ms=first_frame_ms
 		frame_report.render_frame_mean_ms=render_samples.reduce(func(a,b):return a+b,0.0)/render_samples.size()
@@ -121,7 +152,7 @@ func run():
 				S.generate(seed_value,Vector2i(x,y))
 				samples.append((Time.get_ticks_usec()-begin)/1000.0)
 	var report:={"checks":checks,"failures":failures,"precision":precision,"starts":starts,"frame_processing":frame_report,"generation_samples":samples.size(),"generation_mean_ms":samples.reduce(func(a,b):return a+b,0.0)/samples.size(),"generation_max_ms":samples.max(),"timings_ms":samples}
-	FileAccess.open("res://builds/qa/streaming/"+("performance_render_results.json" if render_frames else "performance_results.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
+	FileAccess.open("res://builds/qa/streaming/"+("loop_three_" if loop_three else "")+("performance_render_results.json" if render_frames else "performance_results.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
 	report.erase("timings_ms")
 	print("STREAM PERFORMANCE ",JSON.stringify(report))
 	quit(0 if failures.is_empty() else 1)

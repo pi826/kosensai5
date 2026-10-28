@@ -21,6 +21,38 @@ var arena := Rect2()
 var roam := Rect2()
 var move_clock := 0.0
 var move_direction := Vector2(-1, -0.35)
+var loop_level := 0
+
+func apply_loop(level: int) -> void:
+	if kind == "boss" or game.is_tutorial(): return
+	var base: int = T.ENHANCER_HP if kind == "enhancer" else T.ENEMY_HP
+	var next_hp: int = base * (1 + T.LOOP_HP_RATIO_PER_CLEAR * level)
+	hp += next_hp - max_hp
+	max_hp = next_hp
+	loop_level = level
+	queue_redraw()
+
+func outgoing_damage(base: int) -> int:
+	return roundi(base * (1.0 + T.LOOP_DAMAGE_PER_CLEAR * loop_level)) if kind != "boss" else base
+
+func movement_ratio() -> float:
+	return 1.0 + T.LOOP_SPEED_PER_CLEAR * loop_level if kind != "boss" else 1.0
+
+func field_active() -> bool:
+	return kind == "enhancer" and not dead and not is_queued_for_deletion() and game.is_on_screen(global_position, 20.0)
+
+func enhanced() -> bool:
+	if kind in ["boss", "enhancer"] or game.is_tutorial(): return false
+	for source in get_tree().get_nodes_in_group("enhancers"):
+		if source.get_parent() == game.world and source.field_active() and global_position.distance_squared_to(source.global_position) <= T.ENHANCER_RADIUS * T.ENHANCER_RADIUS: return true
+	return false
+
+func hit_damage(amount: int) -> int:
+	return maxi(1, ceili(amount * T.ENHANCER_DAMAGE_RATIO)) if enhanced() else amount
+
+func attack_rate() -> float:
+	var rate: float = 1.0 + T.LOOP_ATTACK_PER_CLEAR * loop_level if kind != "boss" else 1.0
+	return rate / T.ENHANCER_INTERVAL_RATIO if enhanced() else rate
 
 func _hp_changed(_previous_hp: int) -> void:
 	if kind == "boss" and game.boss_cycle.records.has(boss_id): game.boss_cycle.records[boss_id].hp = hp
@@ -28,12 +60,14 @@ func _hp_changed(_previous_hp: int) -> void:
 func _ready() -> void:
 	faction = 1
 	body_size = T.BOSS_SIZE if kind == "boss" else T.ENEMY_SIZE
-	max_hp = T.BOSS_HP if kind == "boss" else T.ENEMY_HP
+	max_hp = T.BOSS_HP if kind == "boss" else (T.ENHANCER_HP if kind == "enhancer" else T.ENEMY_HP)
 	if kind == "boss":
 		game.boss_cycle.live_actors[boss_id] = weakref(self)
 		body_size = preload("res://scripts/boss_cycle.gd").size_for(boss_role)
 		max_hp = preload("res://scripts/boss_cycle.gd").hp_for(boss_role)
 	hp = max_hp
+	if kind == "enhancer": add_to_group("enhancers")
+	apply_loop(game.enemy_loop_level())
 	facing = -1
 	flight_center_y = position.y
 	if kind == "laser":
@@ -46,12 +80,15 @@ func _physics_process(delta: float) -> void:
 	if dead or not is_instance_valid(game.player):
 		return
 	var on_screen: bool = game.is_on_screen(global_position, 20.0)
+	# The cached field drawing extends beyond the body. Clear it on exit even
+	# though ordinary offscreen actors normally skip redraws.
+	if kind == "enhancer" and was_visible and not on_screen: queue_redraw()
 	tick_visuals(delta, on_screen)
 	if not on_screen:
 		was_visible = false
 		if action != "idle" or is_instance_valid(laser_beam) or is_instance_valid(bomb): cancel_attack()
 		velocity.x = 0
-		if kind != "flyer" and not (kind == "boss" and roam.has_area()):
+		if kind not in ["flyer", "enhancer"] and not (kind == "boss" and roam.has_area()):
 			var revision: int = game.terrain.revision if is_instance_valid(game.terrain) else -1
 			# A resting body only needs another physics query after terrain changes
 			# or external movement. Unsupported enemies still fall off screen.
@@ -66,10 +103,11 @@ func _physics_process(delta: float) -> void:
 		was_visible = true
 	facing = 1 if game.player.position.x > position.x else -1
 	_move_kind(delta)
+	if kind == "enhancer": return
 	wake_delay = maxf(0.0, wake_delay - delta)
 	if wake_delay > 0:
 		return
-	build_clock -= delta
+	build_clock -= delta * attack_rate()
 	if action != "idle":
 		action_remaining -= delta
 		if action_remaining <= 0:
@@ -84,6 +122,9 @@ func _move_kind(delta: float) -> void:
 	if kind == "flyer":
 		_move_flyer(delta)
 		return
+	if kind == "enhancer":
+		_move_enhancer(delta)
+		return
 	velocity.y += T.ENEMY_GRAVITY * delta
 	if kind == "walker" and action == "idle" and wake_delay <= 0:
 		var direction := -1
@@ -92,7 +133,7 @@ func _move_kind(delta: float) -> void:
 		elif position.x >= patrol.y:
 			set_meta("patrol_direction", -1)
 		direction = int(get_meta("patrol_direction", direction))
-		velocity.x = direction * T.PATROL_SPEED
+		velocity.x = direction * T.PATROL_SPEED * movement_ratio()
 	else:
 		velocity.x = 0
 	move_and_slide()
@@ -117,9 +158,9 @@ func _move_boss(delta: float) -> void:
 
 func _move_flyer(delta: float) -> void:
 	velocity = Vector2.ZERO
-	flight_clock += delta
+	flight_clock += delta * movement_ratio()
 	var direction := int(get_meta("patrol_direction", -1))
-	var next_x := position.x + direction * T.FLYER_SPEED * delta
+	var next_x := position.x + direction * T.FLYER_SPEED * movement_ratio() * delta
 	# Reflect overshoot, including large physics steps, without ever leaving the lane.
 	var width := patrol.y - patrol.x
 	if width > 0:
@@ -129,9 +170,17 @@ func _move_flyer(delta: float) -> void:
 			set_meta("patrol_direction", -direction)
 	position.y = flight_center_y + sin(flight_clock * TAU / T.FLYER_BOB_PERIOD) * T.FLYER_BOB_AMPLITUDE
 
+func _move_enhancer(delta: float) -> void:
+	flight_clock += delta * movement_ratio()
+	var center := (patrol.x + patrol.y) / 2
+	var target := Vector2(center + sin(flight_clock * T.ENHANCER_SPEED / T.ENHANCER_DRIFT) * T.ENHANCER_DRIFT,
+		flight_center_y + sin(flight_clock * TAU / T.ENHANCER_BOB_PERIOD) * T.ENHANCER_BOB_AMPLITUDE)
+	velocity = (target - position) / maxf(delta, 0.00001)
+	move_and_collide(target - position)
+
 func _choose_attack(delta: float) -> void:
-	shot_clock -= delta
-	switch_clock -= delta
+	shot_clock -= delta * attack_rate()
+	switch_clock -= delta * attack_rate()
 	if (kind == "shifter" or kind == "boss") and switch_clock <= 0:
 		next_polarity = 1 - polarity
 		_begin("windup_switch", T.SWITCH_WARNING)
@@ -167,6 +216,9 @@ func _choose_build() -> bool:
 	return wall_plan.has_area()
 
 func _shot_interval() -> float:
+	return _base_shot_interval() / attack_rate()
+
+func _base_shot_interval() -> float:
 	if kind == "boss" and boss_role == "final": return T.FINAL_BOSS_SHOT_INTERVAL
 	if kind == "boss" and boss_role == "secret": return T.SECRET_BOSS_SHOT_INTERVAL
 	if kind == "laser":
@@ -221,11 +273,17 @@ func _complete_action() -> void:
 					game.spawn_bullet(self, direction.rotated((i - (T.BOSS_FAN_COUNT - 1) / 2.0) * T.BOSS_FAN_ANGLE))
 			else:
 				game.spawn_bullet(self, direction)
-			shot_clock = _shot_interval()
+			shot_clock = _base_shot_interval()
 	action = "idle"
 
 func _draw() -> void:
+	if field_active():
+		draw_circle(Vector2.ZERO, T.ENHANCER_RADIUS, T.ENHANCER_FIELD_COLOR)
+		draw_arc(Vector2.ZERO, T.ENHANCER_RADIUS, 0, TAU, 80, Color(T.ENHANCER_RING_COLOR, 0.35), 2, true)
 	super._draw()
+	if kind == "enhancer":
+		draw_arc(Vector2.ZERO, 29, 0, TAU, 32, T.ENHANCER_RING_COLOR, 3, true)
+	if enhanced(): draw_arc(Vector2.ZERO, body_size.length()/2+6, 0, TAU, 40, T.ENHANCER_RING_COLOR, 3, true)
 	if action == "windup_build" and wall_plan.has_area():
 		var local := Rect2(to_local(wall_plan.position), wall_plan.size)
 		draw_rect(local, Color("dbbd8430"))

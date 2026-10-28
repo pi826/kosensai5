@@ -141,9 +141,22 @@ var physics_frame_started := 0
 var boss_cycle: RefCounted
 var announcement := ""
 var announcement_remaining := 0.0
+var boss_arrow_unlocked := false
 var tutorial_session: Node2D
 var tutorial_layer: CanvasLayer
 var tutorial_seed_text := ""
+
+func enemy_loop_level() -> int:
+	return clampi(boss_cycle.final_clears, 0, T.FINAL_BOSS_CLEARS) if boss_cycle != null and not is_tutorial() else 0
+
+func update_loop_scaling() -> void:
+	if is_tutorial(): return
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if enemy.get_parent() == world and not enemy.dead: enemy.apply_loop(enemy_loop_level())
+	if stream != null: stream.queue_population()
+	loot_message = T.LOOP_NOTICE
+	loot_message_remaining = T.LOOT_MESSAGE_TIME
+	loot_ability = 0
 
 func is_tutorial() -> bool:
 	return false
@@ -234,6 +247,7 @@ func start_run(stage_seed: int) -> void:
 	score = 0
 	elapsed = 0.0
 	kills = 0
+	boss_arrow_unlocked = false
 	crystals = 0
 	crystals_earned = 0
 	keys = 0
@@ -497,20 +511,18 @@ func is_on_screen(point: Vector2, inset: float = 0.0) -> bool:
 	return view_rect().grow(-inset).has_point(point)
 
 func boss_arrow_progress() -> String:
-	if is_tutorial() or kills >= T.BOSS_ARROW_KILLS: return ""
-	return "ボスの方角まで あと%d体" % (T.BOSS_ARROW_KILLS - kills)
+	if is_tutorial() or boss_arrow_unlocked: return ""
+	return T.ENHANCER_NAME + "を倒すとボスの方角が分かる"
 
 func boss_arrow_state() -> Dictionary:
-	if is_tutorial() or state != "playing" or kills < T.BOSS_ARROW_KILLS or not is_instance_valid(player) or player.dead or boss_cycle == null: return {}
+	if is_tutorial() or state != "playing" or not boss_arrow_unlocked or not is_instance_valid(player) or player.dead or boss_cycle == null: return {}
 	var target: Dictionary = boss_cycle.nearest_target(player.position)
 	if target.is_empty(): return {}
 	var bounds := Rect2(target.offset - BossCycle.size_for(target.role) / 2, BossCycle.size_for(target.role))
 	var view := view_rect()
 	if bounds.intersects(Rect2(view.position - player.position, view.size)): return {}
-	var sectors: float = (target.offset / T.SECTOR_SIZE).length()
 	target.direction = target.offset.normalized()
 	target.distance = target.offset.length()
-	target.distance_text = "約%d区画" % maxi(1, roundi(sectors)) if sectors >= 1.0 else "近い"
 	return target
 
 func targets_for(side: int, color: int, origin: Vector2) -> Array:
@@ -584,6 +596,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 		bullet.damage = T.HOMING_DAMAGE if guided else T.NORMAL_DAMAGE
 	else:
 		bullet.damage = T.ENEMY_HOMING_DAMAGE if guided else T.ENEMY_NORMAL_DAMAGE
+		if actor.has_method("outgoing_damage"): bullet.damage = actor.outgoing_damage(bullet.damage)
 	if guided:
 		bullet.speed = T.PLAYER_HOMING_SPEED if actor.faction == 0 else T.ENEMY_HOMING_SPEED
 	else:
@@ -601,6 +614,7 @@ func spawn_laser(actor: CharacterBody2D) -> Node2D:
 	var beam := LaserBeam.new()
 	beam.game = self
 	beam.source = actor
+	beam.damage = actor.outgoing_damage(T.LASER_DAMAGE)
 	beam.set_meta("source_sector", origin_sector + SectorStream.coord_at(actor.position))
 	beam.polarity = actor.polarity
 	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
@@ -612,6 +626,7 @@ func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
 	var bomb := Bomb.new()
 	bomb.game = self
 	bomb.source = actor
+	bomb.damage = actor.outgoing_damage(T.BOMB_DAMAGE)
 	bomb.set_meta("source_sector", origin_sector + SectorStream.coord_at(actor.position))
 	bomb.polarity = actor.polarity
 	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
@@ -686,7 +701,8 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	else:
 		score += T.ENEMY_SCORE
 		kills += 1
-		if kills == T.BOSS_ARROW_KILLS and not is_tutorial():
+		if actor.kind == "enhancer" and not boss_arrow_unlocked and not is_tutorial():
+			boss_arrow_unlocked = true
 			announce("ボスの方角が分かるようになった")
 
 func _finish_run() -> void:

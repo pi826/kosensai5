@@ -111,7 +111,7 @@ func _check_enemy_contact() -> void:
 			continue
 		# A color-change warning still uses polarity, never next_polarity.
 		if enemy.polarity != polarity:
-			receive_hit(enemy.polarity, T.CONTACT_DAMAGE)
+			receive_hit(enemy.polarity, enemy.outgoing_damage(T.CONTACT_DAMAGE) if enemy.has_method("outgoing_damage") else T.CONTACT_DAMAGE)
 			return
 
 func aim_angle() -> float:

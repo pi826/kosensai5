@@ -237,6 +237,15 @@ static func sight_witness(spawn: Dictionary, stage: Dictionary) -> Dictionary:
 	var chamber_id: int = spawn.get("chamber_id", -1)
 	if chamber_id < 0 or chamber_id >= stage.chambers.size(): return {}
 	var obstacles: Array = stage.solids + stage.get("breakables", [])
+	if spawn.kind == "enhancer":
+		for point: Vector2 in stage.chambers[chamber_id].approaches:
+			if not _supported(point,T.PLAYER_SIZE,stage.solids) or _embedded(point,T.PLAYER_SIZE,obstacles): continue
+			if point.distance_to(spawn.position) > T.CAVE_SIGHT_DISTANCE: continue
+			var view := Rect2(point-Vector2(T.VIEW_SIZE.x/2,T.VIEW_SIZE.y/2+T.CAMERA_VERTICAL_OFFSET),T.VIEW_SIZE).grow(-20)
+			if not view.has_point(spawn.position): continue
+			var path := homing_witness(point,spawn.position,obstacles)
+			if not path.is_empty(): return {"position":spawn.position,"target":point,"homing":true,"points":path}
+		return {}
 	var xs: Array = [spawn.position.x]
 	if spawn.kind in ["walker", "flyer"]: xs = [spawn.patrol.x, (spawn.patrol.x + spawn.patrol.y) / 2, spawn.patrol.y]
 	for x: float in xs:
@@ -739,3 +748,21 @@ static func connectivity_errors(stage: Dictionary, damaged: bool = false, graph:
 		if not forward.has(i) or not backward.has(i): errors.append("Surface not strongly connected%s: %s" % [" after excavation" if damaged else "", graph.nodes[i]])
 	if origin < 0: errors.append("Start missing from navigation graph")
 	return errors
+
+static func homing_witness(from: Vector2, target: Vector2, obstacles: Array) -> PackedVector2Array:
+	# Match the actual guided muzzle (-4px vertically), turn rate and swept rays.
+	# A center-to-center line alone can incorrectly clear a shelf corner.
+	var direction := (target-from).normalized()
+	var point := from+Vector2(signf(direction.x)*(T.PLAYER_SIZE.x/2+T.MUZZLE_CLEARANCE),-4)
+	var path := PackedVector2Array([point])
+	var body := Rect2(target-T.ENEMY_SIZE/2,T.ENEMY_SIZE)
+	var delta := 1.0/60.0
+	for i in range(ceili(T.BULLET_LIFETIME/delta)):
+		var turn := clampf(angle_difference(direction.angle(),(target-point).angle()),-T.HOMING_TURN_RATE*delta,T.HOMING_TURN_RATE*delta)
+		direction=direction.rotated(turn).normalized()
+		var next := point+direction*T.PLAYER_HOMING_SPEED*delta
+		if not _segment_clear(point,next,obstacles): return PackedVector2Array()
+		path.append(next)
+		if not _segment_clear(point,next,[body]): return path
+		point=next
+	return PackedVector2Array()

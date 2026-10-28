@@ -80,7 +80,7 @@ func run() -> void:
 	var grid_origin := origin * Vector2i(T.SECTOR_SIZE / T.TILE_SIZE)
 	for block: Dictionary in blocks: block.cells = O.cells(block.cells, grid_origin)
 	result = {"data": data, "occupied": O.cells(occupied.keys(), grid_origin), "surfaces": O.keyed(surfaces, grid_origin), "destroyed": O.keyed(destroyed, grid_origin),
-		"blocks": blocks, "shelves": shelves, "collisions": G.subtract_rects(data.solids, data.erodible_surfaces)}
+		"blocks": blocks, "shelves": shelves, "collisions": G.subtract_rects(data.solids, data.erodible_surfaces), "population_data":local}
 
 static func cells(rect: Rect2) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []

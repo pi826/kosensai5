@@ -113,7 +113,7 @@ func state_and_map():
 	var survivors := enemies(at).filter(func(e): return e.spawn_id == survivor_id)
 	check(survivors.size() == 1 and survivors[0].hp == 1 and survivors[0].gauge == 3 and survivors[0].position == survivor_at, "survivor HP gauge and position restored with sector-qualified identity")
 	var ids: Array = enemies(at).map(func(e): return e.spawn_id)
-	check(ids.size() == T.SECTOR_NORMAL_COUNT - 1 and ids.all(func(id): return id.begins_with("0,0:")), "persistent enemy IDs include coordinates")
+	check(ids.size() == data.spawns.filter(func(e):return e.kind!="boss").size() - 1 and ids.all(func(id): return id.begins_with("0,0:")), "persistent enemy IDs include coordinates")
 	for guardian_coord: Vector2i in S.guardian_sectors(37):
 		await Support.ready(self,game,Vector2(guardian_coord)*T.SECTOR_SIZE+T.SECTOR_START)
 		var guardian_data: Dictionary = game.stream.loaded[guardian_coord]

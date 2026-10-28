@@ -231,6 +231,7 @@ func defeated(actor: CharacterBody2D) -> void:
 				request(["final"])
 		"final":
 			final_clears += 1
+			game.update_loop_scaling()
 			if final_clears >= T.FINAL_BOSS_CLEARS:
 				phase = "secret"
 				request(["secret"])

@@ -9,6 +9,7 @@ var velocity := Vector2.ZERO
 var phase := "warning"
 var elapsed := 0.0
 var exploded := false
+var damage := T.BOMB_DAMAGE
 
 func fire() -> void:
 	phase = "flight"
@@ -49,7 +50,7 @@ func detonate() -> void:
 	if is_instance_valid(game.player) and not game.player.dead:
 		var body := Rect2(game.player.global_position - game.player.body_size / 2, game.player.body_size)
 		if global_position.distance_squared_to(global_position.clamp(body.position, body.end)) <= T.BOMB_RADIUS * T.BOMB_RADIUS:
-			game.player.receive_hit(polarity, T.BOMB_DAMAGE)
+			game.player.receive_hit(polarity, damage)
 	game.effect(global_position, T.COLORS[polarity], "bomb")
 	queue_free()
 

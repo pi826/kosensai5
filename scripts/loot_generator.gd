@@ -22,7 +22,7 @@ static func _site_obstacles(s: Dictionary) -> Array:
 	var blocked: Array = s.breakables.map(func(r): return r.grow(8))
 	for e: Dictionary in s.spawns:
 		var size: Vector2 = T.BOSS_SIZE if e.kind == "boss" else T.ENEMY_SIZE
-		var bob: float = T.FLYER_BOB_AMPLITUDE if e.kind == "flyer" else 0.0
+		var bob: float = T.ENHANCER_BOB_AMPLITUDE if e.kind == "enhancer" else (T.FLYER_BOB_AMPLITUDE if e.kind == "flyer" else 0.0)
 		blocked.append(Rect2(Vector2(e.patrol.x-size.x/2,e.position.y-size.y/2-bob),Vector2(e.patrol.y-e.patrol.x+size.x,size.y+2*bob)).grow(8))
 		if e.kind == "flyer": blocked.append(G.flight_lane(e.support))
 	return blocked

@@ -3,6 +3,7 @@ extends RefCounted
 const T := preload("res://scripts/tuning.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const L := preload("res://scripts/loot_generator.gd")
+const Population := preload("res://scripts/enemy_population.gd")
 const SIDES := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 
 # String hashing avoids signed multiplication overflow, including INT64_MAX seeds.
@@ -66,11 +67,11 @@ static func generate(seed_value: int, at: Vector2i, attempt_limit: int = T.SECTO
 		if not sector.is_empty():
 			var graphs: Array = sector.get("_graphs", [])
 			sector.erase("_graphs")
-			return L.decorate(sector, graphs[0] if graphs.size() == 2 else {}, graphs[1] if graphs.size() == 2 else {})
+			return Population.decorate(L.decorate(sector, graphs[0] if graphs.size() == 2 else {}, graphs[1] if graphs.size() == 2 else {}))
 	return generate_fallback(seed_value, at)
 
 static func generate_fallback(seed_value: int, at: Vector2i) -> Dictionary:
-	return L.decorate(_fallback_build(seed_value, at))
+	return Population.decorate(L.decorate(_fallback_build(seed_value, at)))
 
 static func _shaft(s: Dictionary, holes: Array, x: int, top: int, bottom: int, gate: bool = false, width: int = 256) -> void:
 	var rect := Rect2(x, top, width, bottom - top)
@@ -414,9 +415,7 @@ static func _finish(s: Dictionary, rng) -> Dictionary:
 	return s
 
 static func enemy_spawn_area(e: Dictionary) -> Rect2:
-	var size: Vector2 = T.BOSS_SIZE if e.kind == "boss" else T.ENEMY_SIZE
-	var bob: float = T.FLYER_BOB_AMPLITUDE if e.kind == "flyer" else 0.0
-	return Rect2(Vector2(e.patrol.x - size.x / 2, e.position.y - size.y / 2 - bob), Vector2(e.patrol.y - e.patrol.x + size.x, size.y + 2 * bob))
+	return Population.area(e)
 
 static func heart_site_valid(s: Dictionary, point: Vector2) -> bool:
 	var standing := Rect2(point - T.PLAYER_SIZE / 2, T.PLAYER_SIZE)
@@ -620,7 +619,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 	var ids := {}
 	var bosses := 0
 	for e: Dictionary in s.spawns:
-		if e.kind not in G.NORMAL_KINDS + ["boss"] or e.polarity not in [0, 1]: errors.append("Enemy kind/color")
+		if e.kind not in G.NORMAL_KINDS + ["boss", "enhancer"] or e.polarity not in [0, 1]: errors.append("Enemy kind/color")
 		if e.chamber_id < 0 or e.chamber_id >= s.chambers.size():
 			errors.append("Enemy chamber ID")
 			continue
@@ -631,12 +630,16 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 			bosses += 1
 			if guardian_sectors(s.seed).find(s.coord) != e.boss_id or room.kind != "boss" or e.boss_id != s.region: errors.append("Guardian assignment")
 			if not s.get("landmarks", []).any(func(mark): return mark.id == e.boss_id and mark.position == e.position): errors.append("Guardian landmark")
+		elif e.kind == "enhancer":
+			if not Population.enhancer_valid(e,s): errors.append("Enhancer placement/coverage/reachability")
 		else:
 			kinds[e.kind] = kinds.get(e.kind, 0) + 1
 			rooms[e.chamber_id] = rooms.get(e.chamber_id, 0) + 1
 			if room.kind != "normal" or (s.coord == Vector2i.ZERO and e.position.distance_to(T.SECTOR_START) < 640): errors.append("Enemy safety")
 			if not G.has_attack_sight(e, s): errors.append("Enemy sight")
-		if e.kind == "flyer":
+		if e.kind == "enhancer":
+			if e.patrol != Vector2(e.position.x-T.ENHANCER_DRIFT,e.position.x+T.ENHANCER_DRIFT): errors.append("Enhancer drift bounds")
+		elif e.kind == "flyer":
 			if not G.lane_is_clear(e.support, s.solids + s.breakables) or e.position.y != e.support.position.y - T.FLYER_ALTITUDE or e.patrol.x < e.support.position.x + 48 or e.patrol.y > e.support.end.x - 48 or e.patrol.x >= e.patrol.y: errors.append("Flight lane")
 			if not room.rect.encloses(Rect2(e.position - T.ENEMY_SIZE / 2, T.ENEMY_SIZE)): errors.append("Flyer chamber bounds")
 		else:
@@ -648,7 +651,9 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 			if e.kind in ["boss", "turret", "builder", "breaker", "laser"] and e.patrol != Vector2(e.position.x, e.position.x): errors.append("Fixed enemy patrol")
 			if e.kind == "builder" and not s.solids.any(func(r): return r.size.y != 16 and r.position.y == e.position.y + 22 and r.position.x <= e.position.x - 19 and r.end.x >= e.position.x + 19): errors.append("Builder thick support")
 		if e.position.x < e.patrol.x or e.position.x > e.patrol.y: errors.append("Enemy outside patrol")
-	var count: int = s.spawns.size() - bosses
+	var lanterns: int = s.spawns.filter(func(e): return e.kind == "enhancer").size()
+	if lanterns > 1 or (s.has("loot") and s.coord == Vector2i.ZERO and lanterns != 1): errors.append("Enhancer count/first unlock")
+	var count: int = s.spawns.size() - bosses - lanterns
 	if count != T.SECTOR_NORMAL_COUNT or kinds.size() != 7: errors.append("Enemy count/kinds: %s" % kinds)
 	var arc: int = kinds.get("breaker", 0) + kinds.get("flyer", 0) + kinds.get("laser", 0)
 	if arc < count * 0.45 or arc > count * 0.60 or kinds.values().any(func(n): return n > count * 0.30): errors.append("Enemy ratios")

@@ -11,6 +11,7 @@ var phase := "warning"
 var elapsed := 0.0
 var remaining := T.LASER_DURATION
 var contacted := false
+var damage := T.LASER_DAMAGE
 
 func build_curve(start: Vector2, target: Vector2, facing: int) -> void:
 	curve = curve_points(start, target, facing)
@@ -77,7 +78,7 @@ func _physics_process(delta: float) -> void:
 			for index in range(1, path.size()):
 				if segment_touches_rect(path[index - 1], path[index], body, T.LASER_RADIUS):
 					contacted = true
-					game.player.receive_hit(polarity, T.LASER_DAMAGE)
+					game.player.receive_hit(polarity, damage)
 					break
 		remaining -= delta
 		if remaining <= 0:

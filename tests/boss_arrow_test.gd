@@ -65,56 +65,59 @@ func unlocking() -> void:
 	reset()
 	check(game.kills == 0 and game.boss_arrow_state().is_empty(), "fresh run locked")
 	game.ui.update_hud()
-	check(game.ui.boss_arrow_label.visible and game.ui.boss_arrow_label.text == "ボスの方角まで あと10体", "initial progress HUD")
-	var normals := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss")
-	var first: String = normals[0].spawn_id
-	for i in range(9): normals[i].receive_hit(1 - normals[i].polarity, 999)
+	check(game.ui.boss_arrow_label.visible and game.ui.boss_arrow_label.text == T.ENHANCER_NAME + "を倒すとボスの方角が分かる", "initial lantern hint HUD")
+	var normals := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind not in ["boss", "enhancer"])
+	for i in range(20): normals[i].receive_hit(1 - normals[i].polarity, 999)
 	await frames(2)
-	check(game.kills == 9 and game.boss_arrow_state().is_empty(), "nine real normal defeats remain locked")
+	check(game.kills == 20 and game.boss_arrow_state().is_empty(), "twenty real ordinary defeats remain locked")
 	game.ui.update_hud()
-	check(game.ui.boss_arrow_label.text == "ボスの方角まで あと1体", "progress after nine")
+	check(game.ui.boss_arrow_label.text == T.ENHANCER_NAME + "を倒すとボスの方角が分かる", "hint unchanged by ordinary defeats")
 	var boss := fixture_boss(0, game.player.position + Vector2(2000, 0))
 	boss.receive_hit(1 - boss.polarity, 999)
 	await frames(2)
-	check(game.kills == 9 and game.boss_arrow_state().is_empty(), "boss defeat does not unlock")
+	check(game.kills == 20 and game.boss_arrow_state().is_empty(), "boss defeat does not unlock")
 	check(game.announcement_remaining == 0, "boss defeat does not announce arrow unlock")
-	check(game.stream.missing.has(first), "normal defeat registered for 5C respawn")
-	if not game.stream.missing.has(first): return
-	# Use the existing 5C restoration path, retaining the same persistent enemy ID.
-	game.stream._restore(game.stream.missing[first])
-	game.stream.missing.erase(first)
-	var returned := get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.spawn_id == first and not e.dead)
-	check(returned.size() == 1, "5C restored a new live enemy with same ID")
-	if returned.is_empty(): return
-	returned[0].set_physics_process(false)
-	returned[0].receive_hit(1 - returned[0].polarity, 999)
-	check(game.kills == 10 and not game.boss_arrow_state().is_empty(), "restored enemy is tenth real defeat and unlocks")
+	var lanterns := get_nodes_in_group("enhancers").filter(func(e):return e.get_parent()==game.world)
+	check(not lanterns.is_empty(), "generated lantern exists")
+	if lanterns.is_empty(): return
+	var lantern = lanterns[0]
+	var id: String = lantern.spawn_id
+	lantern.receive_hit(1-lantern.polarity,999)
+	check(game.boss_arrow_unlocked and not game.boss_arrow_state().is_empty(), "first lantern defeat unlocks")
 	check(game.announcement == "ボスの方角が分かるようになった" and game.announcement_remaining > 0, "unlock notification")
 	game.ui.update_hud()
-	check(not game.ui.boss_arrow_label.visible and game.ui.announcement_label.visible, "unlock HUD replaces progress with notice")
+	check(not game.ui.boss_arrow_label.visible and game.ui.announcement_label.visible, "unlock HUD replaces hint with notice")
+	check(game.stream.missing.has(id), "lantern defeat registered for 5C respawn")
 	game.announcement = "unchanged"
 	game.announcement_remaining = 0
-	game.actor_defeated(returned[0])
-	normals[9].receive_hit(1 - normals[9].polarity, 999)
-	check(game.kills == 11 and game.announcement == "unchanged" and game.announcement_remaining == 0, "duplicate ignored and unlock announced only once")
+	game.actor_defeated(lantern)
+	check(game.announcement=="unchanged" and game.kills==21,"duplicate defeat ignored")
+	await frames(2)
+	game.stream._restore(game.stream.missing[id])
+	game.stream.missing.erase(id)
+	var returned := get_nodes_in_group("enhancers").filter(func(e):return e.get_parent()==game.world and e.spawn_id==id and not e.dead)
+	check(returned.size()==1,"5C restores lantern with same persistent ID")
+	if not returned.is_empty():
+		returned[0].set_physics_process(false)
+		returned[0].receive_hit(1-returned[0].polarity,999)
+		check(game.kills==22 and game.announcement=="unchanged" and game.announcement_remaining==0,"restored lantern rewards without repeating unlock notice")
 	await frames(2)
 	check(not game.boss_arrow_state().is_empty(), "arrow stays unlocked after further defeats")
 	reset()
-	check(game.kills == 0 and game.boss_arrow_state().is_empty() and game.announcement_remaining == 0, "retry resets kills arrow and notification")
+	check(game.kills == 0 and not game.boss_arrow_unlocked and game.boss_arrow_state().is_empty() and game.announcement_remaining == 0, "retry resets arrow and notification")
 	var tutorial := Tutorial.new()
 	tutorial.key_bindings = game.key_bindings
 	root.add_child(tutorial)
 	tutorial.set_physics_process(false)
-	tutorial.kills = T.BOSS_ARROW_KILLS
+	tutorial.boss_arrow_unlocked = true
 	tutorial.ui.update_hud()
-	check(tutorial.boss_arrow_state().is_empty() and tutorial.boss_arrow_progress().is_empty() and not tutorial.ui.boss_arrow_label.visible, "tutorial hides arrow and progress even above threshold")
+	check(tutorial.boss_arrow_state().is_empty() and tutorial.boss_arrow_progress().is_empty() and not tutorial.ui.boss_arrow_label.visible, "tutorial hides arrow and hint even if flag is set")
 	tutorial.free()
 	game.camera.make_current()
-
 func targets() -> void:
 	reset()
 	clear_bosses()
-	game.kills = 10
+	game.boss_arrow_unlocked = true
 	game.player.position = Vector2(500, 500)
 	game.camera.position = game.player.position
 	game.boss_cycle.round_number = 2
@@ -166,7 +169,7 @@ func targets() -> void:
 
 func unloaded_and_origin() -> void:
 	reset()
-	game.kills = 10
+	game.boss_arrow_unlocked = true
 	var sectors := S.guardian_sectors(37)
 	var id := 0
 	for i in range(3):
@@ -196,11 +199,11 @@ func unloaded_and_origin() -> void:
 	var before: Dictionary = game.boss_arrow_state()
 	game.shift_origin(Vector2i(2, -3))
 	var after: Dictionary = game.boss_arrow_state()
-	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and before.distance_text == after.distance_text, "loaded actor origin shift preserves direction distance and label")
+	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and not after.has("distance_text"), "loaded actor origin shift preserves direction distance and label")
 	game.stream._unload(sectors[id])
 	check(not is_instance_valid(actor) and game.boss_cycle.live_actors[id].get_ref() == null, "unloading frees boss despite weak actor registry")
 	after = game.boss_arrow_state()
-	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and before.distance_text == after.distance_text, "unloaded guardian uses remembered position after origin shift")
+	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and not after.has("distance_text"), "unloaded guardian uses remembered position after origin shift")
 	# Establish a distant origin without making an absolute pixel Vector2.
 	reset()
 	clear_bosses()
@@ -208,7 +211,7 @@ func unloaded_and_origin() -> void:
 	game.stage.origin_sector = game.origin_sector
 	game.player.position = Vector2(300, 700)
 	game.camera.position = game.player.position
-	game.kills = 10
+	game.boss_arrow_unlocked = true
 	game.boss_cycle.round_number = 2
 	game.boss_cycle.guardian_ids.assign([30])
 	record(30, Vector2(9000, -6700))
@@ -216,18 +219,18 @@ func unloaded_and_origin() -> void:
 	before = game.boss_arrow_state()
 	game.shift_origin(Vector2i(3, -2))
 	after = game.boss_arrow_state()
-	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and before.distance_text == after.distance_text, "far (100000,-50000) shift preserves direction distance and label")
+	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and not after.has("distance_text"), "far (100000,-50000) shift preserves direction distance and label")
 	record(30, game.player.position + Vector2(3000, 0))
-	check(game.boss_arrow_state().distance_text == "近い", "less than one sector label")
+	check(not game.boss_arrow_state().has("distance_text"), "no label below one sector")
 	record(30, game.player.position + Vector2(8192, 0))
-	check(game.boss_arrow_state().distance_text == "約2区画", "two horizontal sectors label")
+	check(not game.boss_arrow_state().has("distance_text"), "no label at two horizontal sectors")
 	record(30, game.player.position + Vector2(0, -6144))
-	check(game.boss_arrow_state().distance_text == "約2区画", "two vertical sectors label")
+	check(not game.boss_arrow_state().has("distance_text"), "no label at two vertical sectors")
 	var live := fixture_boss(30, game.player.position + Vector2(-3100, 2700))
 	before = game.boss_arrow_state()
 	game.shift_origin(Vector2i(-4, 5))
 	after = game.boss_arrow_state()
-	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and before.distance_text == after.distance_text, "far loaded actor also preserves direction distance and label")
+	check(before.direction.distance_to(after.direction) < 0.00001 and is_equal_approx(before.distance, after.distance) and not after.has("distance_text"), "far loaded actor also preserves direction distance and label")
 	aim(30, live.position - game.player.position, "far actual actor")
 
 func hud_layout() -> void:

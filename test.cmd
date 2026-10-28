@@ -55,6 +55,12 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 "tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/ui_map_test.gd
 if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/enhancer_test.gd
+if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/loop_scaling_test.gd
+if errorlevel 1 goto failed
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path . --fixed-fps 60 --script tests/streaming_performance.gd -- --loop-three
+if errorlevel 1 goto failed
 echo All checks passed.
 pause
 exit /b 0

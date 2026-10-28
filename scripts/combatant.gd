@@ -134,6 +134,13 @@ func _draw() -> void:
 			for side in [-1, 1]:
 				draw_colored_polygon(PackedVector2Array([Vector2(side * 35, -25), Vector2(side * 52, -45), Vector2(side * 50, 27), Vector2(side * 35, 40)]), Color("ead6ff"))
 		draw_set_transform(Vector2.ZERO)
+	elif kind == "enhancer":
+		var lantern := PackedVector2Array([Vector2(-12,-21),Vector2(12,-21),Vector2(20,-8),Vector2(15,16),Vector2(0,23),Vector2(-15,16),Vector2(-20,-8)])
+		draw_colored_polygon(lantern,tint.darkened(0.7))
+		lantern.append(lantern[0])
+		draw_polyline(lantern,tint,3,true)
+		draw_line(Vector2(-8,-28),Vector2(8,-28),tint,4)
+		draw_arc(Vector2(0,-21),9,PI,TAU,16,tint,2,true)
 	elif kind == "flyer":
 		draw_colored_polygon(PackedVector2Array([Vector2(-19, 6), Vector2(-34, -18), Vector2(-10, -9), Vector2(0, -20), Vector2(10, -9), Vector2(34, -18), Vector2(19, 6), Vector2(0, 22)]), tint.darkened(0.65))
 		draw_polyline(PackedVector2Array([Vector2(-34, -18), Vector2(-19, 6), Vector2(0, 22), Vector2(19, 6), Vector2(34, -18)]), tint, 3, true)
