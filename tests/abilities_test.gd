@@ -40,6 +40,24 @@ func at_item(id: String) -> Node2D:
 		if item.spawn.id == id: return item
 	return null
 
+func crystal_chest() -> Node2D:
+	for item in items("chest"):
+		if item.spawn.contents[0].kind == "crystal": return item
+	# Terrain changes can change whether an optional normal chest fits in the
+	# initial neighbourhood. Select real generated loot with a bounded search.
+	for y in range(-2, 3):
+		for x in range(-2, 3):
+			test_progress()
+			var at := Vector2i(x,y)
+			var data := S.generate(game.current_seed, at)
+			for item: Dictionary in data.loot:
+				if item.kind != "chest" or item.contents[0].kind != "crystal": continue
+				var point: Vector2 = game.stream.sector_offset(at) + item.position
+				if not await Support.ready(self,game,point): return null
+				freeze()
+				return at_item("%d,%d:%s" % [at.x,at.y,item.id])
+	return null
+
 func route_to(driver: RefCounted, target: Vector2, abilities: int = 0) -> bool:
 	for attempt in range(8):
 		var graph := S.navigation_graph([S.generate(game.current_seed, Vector2i.ZERO)], false, abilities)
@@ -123,7 +141,9 @@ func run() -> void:
 	game.shift_origin(Vector2i(-2, 2))
 	game.key_bindings.reset_defaults()
 	# Normal chest reward and extension-friendly tagged contents.
-	var ordinary = items("chest").filter(func(i): return i.spawn.contents[0].kind == "crystal")[0]
+	var ordinary = await crystal_chest()
+	check(is_instance_valid(ordinary), "a real generated crystal chest is available within the bounded search")
+	if not is_instance_valid(ordinary): game.free(); quit(1); return
 	game.keys = 1
 	game.player.position = ordinary.position
 	var before: int = game.crystals

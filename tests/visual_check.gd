@@ -10,7 +10,11 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--enemies"):
+	if OS.get_cmdline_user_args().has("--diagonal"):
+		output = "res://builds/qa/diagonal/after-images/"
+		if OS.get_cmdline_user_args().has("--before"): output = "res://builds/qa/diagonal/before-images/"
+		call_deferred("run_diagonal")
+	elif OS.get_cmdline_user_args().has("--enemies"):
 		output = "res://builds/qa/enemies/"
 		call_deferred("run_enemies")
 	elif OS.get_cmdline_user_args().has("--ui-map"):
@@ -147,6 +151,44 @@ func run_merchant() -> void:
 	await capture("equipped_hud")
 	game.free()
 	print("MERCHANT VISUAL: %d captures, %d failures" % [captures,failures])
+	quit(0 if failures==0 else 1)
+
+func run_diagonal() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://builds/qa/diagonal/capture-route.json"))
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.key_bindings.reset_defaults()
+	game.start_run(int(manifest.seed))
+	game.elapsed = 9
+	game.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	for shot: Dictionary in manifest.shots:
+		var point := Vector2(shot.x,shot.y)
+		if not await show(point): quit(1); return
+		game.world.process_mode = Node.PROCESS_MODE_DISABLED
+		game.player.facing = int(shot.facing)
+		game.announcement_remaining = 0
+		game.loot_message_remaining = 0
+		await capture(shot.name)
+	# Identical observation coordinates in both versions. These QA viewpoints
+	# reveal real terrain; this is not a claim of manual or physical traversal.
+	for visit: Dictionary in manifest.visits:
+		if not await show(Vector2(visit.x,visit.y)): quit(1); return
+		game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	game.open_map()
+	game.ui.large_map.center_point = game.stable_point(T.SECTOR_SIZE/2)
+	game.ui.large_map.zoom = 0.05
+	await capture("large_map_same_route")
+	game.close_map()
+	game.open_map()
+	game.ui.large_map.center_point = game.stable_point(T.SECTOR_SIZE/2)
+	game.ui.large_map.zoom = 0.12
+	await capture("large_map_connections")
+	FileAccess.open(output+"visual-results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name(),"seed":manifest.seed,"note":"same observation manifest before and after; real generated terrain and Task 7A map, physics disabled for repeatable views"},"\t"))
+	game.free()
+	print("DIAGONAL VISUAL: %d captures, %d failures" % [captures,failures])
 	quit(0 if failures==0 else 1)
 
 func run_abilities() -> void:

@@ -78,7 +78,7 @@ func physical_round_trip() -> void:
 	driver.game = game
 	var npc := merchant()
 	check(await driver.floor_wait(), "start on physical floor")
-	check(await route(driver,npc.position+Vector2(-40,0)), "initial inputs reach merchant: " + driver.error)
+	check(await route(driver,npc.position), "initial inputs reach merchant: " + driver.error)
 	check(game.player.abilities==0, "merchant route uses no unlocked abilities")
 	game.loot_message_remaining = 0
 	game.ui.update_hud()

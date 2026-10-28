@@ -25,6 +25,24 @@ func frames(n: int = 1):
 func enemies(at: Vector2i) -> Array:
 	return get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.get_meta("sector", Vector2i(999,999)) == at and not e.dead and not e.is_queued_for_deletion())
 
+func same_contour(a: Array, b: Array, bounds: Rect2) -> bool:
+	# Stored map contours merge adjacent tiles. Compare the exact occupied union,
+	# independent of rectangle order or subdivision, including thin platforms.
+	var xs: Array = [bounds.position.x, bounds.end.x]
+	var ys: Array = [bounds.position.y, bounds.end.y]
+	for rect: Rect2 in a + b:
+		if not bounds.encloses(rect): return false
+		xs.append_array([rect.position.x, rect.end.x])
+		ys.append_array([rect.position.y, rect.end.y])
+	xs.sort()
+	ys.sort()
+	for y in range(1, ys.size()):
+		for x in range(1, xs.size()):
+			if xs[x] == xs[x-1] or ys[y] == ys[y-1]: continue
+			var point := Vector2((xs[x]+xs[x-1])/2, (ys[y]+ys[y-1])/2)
+			if a.any(func(r): return r.has_point(point)) != b.any(func(r): return r.has_point(point)): return false
+	return true
+
 func state_and_map():
 	game.start_run(37)
 	await Support.ready(self, game, T.SECTOR_START)
@@ -71,7 +89,10 @@ func state_and_map():
 	check(game.stream.states.has(at) and game.stream.states[at].destroyed == destroyed, "state stored under signed integer sector key")
 	var cell_corner := Vector2(cell-game.map_origin()) * T.MAP_CELL_SIZE
 	var fragments: Array = game.map_geometry(Rect2(cell_corner, Vector2.ONE*T.MAP_CELL_SIZE))
-	check(preload("res://scripts/origin_shift.gd").geometry(fragments,-cell_corner) == preload("res://scripts/origin_shift.gd").geometry(geometry,-Vector2(cell)*T.MAP_CELL_SIZE), "explored terrain remains on map while unloaded")
+	var remembered: Array = preload("res://scripts/origin_shift.gd").geometry(fragments,-cell_corner)
+	var original: Array = preload("res://scripts/origin_shift.gd").geometry(geometry,-Vector2(cell)*T.MAP_CELL_SIZE)
+	if remembered != original: print("MAP CONTOUR PARTITIONS original=",original," remembered=",remembered)
+	check(same_contour(remembered, original, Rect2(Vector2.ZERO, Vector2.ONE*T.MAP_CELL_SIZE)), "explored terrain remains on map while unloaded")
 	check(game.stream.loaded.size() <= 49, "resident geometry is bounded by hysteresis window")
 	var far: Dictionary = game.stream.loaded[Vector2i(50,-20)]
 	var graph := G.navigation_graph(far)
@@ -156,6 +177,11 @@ func state_and_map():
 
 func run():
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/streaming")
+	var contour_bounds := Rect2(0,0,128,128)
+	check(same_contour([Rect2(0,32,64,32)], [Rect2(32,32,32,32),Rect2(0,32,32,32)], contour_bounds), "map contour comparison accepts merged and reordered tiles")
+	check(not same_contour([Rect2(0,32,64,32)], [Rect2(0,32,32,32)], contour_bounds), "map contour comparison rejects a missing tile")
+	check(not same_contour([Rect2(0,32,64,16)], [], contour_bounds), "map contour comparison rejects a missing thin platform")
+	check(not same_contour([Rect2(0,32,64,32)], [Rect2(0,32,64,32),Rect2(64,32,1,32)], contour_bounds), "map contour comparison rejects even a one-pixel contour change")
 	var precision_stream:=Stream.new()
 	for y in range(-1,2):
 		for x in range(62,65): precision_stream.loaded[Vector2i(x,y)]={}

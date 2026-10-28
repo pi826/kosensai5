@@ -192,10 +192,15 @@ func persistence(record: Dictionary):
 	e.gauge = 3
 	var position: Vector2 = e.position
 	var clock: float = e.move_clock
+	var local_position: Vector2 = position - game.stream.sector_offset(record.sector)
 	game.stream._unload(record.sector)
-	check(record.hp == 17 and game.boss_cycle.world_record(record).position == position and record.saved.gauge == 3, "unload captures boss HP position and gauge in run state")
+	var restored_position: Vector2 = game.boss_cycle.world_record(record).position
+	# World/local conversion uses float32 vectors. Require the exact stored local
+	# coordinates and restored representation, plus a separate subpixel bound.
+	check(record.hp == 17 and record.position == local_position and record.saved.position == local_position and record.saved.gauge == 3, "unload captures boss HP position and gauge in run state")
+	check(restored_position.distance_to(position) < 0.001, "boss world/local coordinate roundtrip stays within 0.001px")
 	e = await load_boss(record)
-	check(e.hp == 17 and e.gauge == 3 and e.position == position and e.move_clock == clock and e.wake_delay == T.ENEMY_WAKE_DELAY, "reload preserves live boss and restores wake delay")
+	check(e.hp == 17 and e.gauge == 3 and e.position == restored_position and e.move_clock == clock and e.wake_delay == T.ENEMY_WAKE_DELAY, "reload preserves live boss and restores wake delay")
 	e.hp = e.max_hp
 
 func route_to(record: Dictionary):

@@ -84,8 +84,9 @@ static func _decorate(stage: Dictionary, rng) -> void:
 					var height := _pick(rng, 1, 4) * 32
 					var x := _pick(rng, int(r.position.x + 32) / 32, int(r.end.x - width - 32) / 32) * 32
 					var step := Rect2(x, r.end.y - height, width, height)
+					if _any_intersects(stage.get("diagonal_clearances", []), step): continue
 					if stage.shafts.any(func(e): return e.rect.grow(32).intersects(step)) or stage.tunnels.any(func(e): return e.rect.grow(32).intersects(step)) or room.floor_steps.any(func(s): return s.grow(96).intersects(step)): continue
-					if room.shelves.any(func(s): return Rect2(s.position - Vector2(16, 80), s.size + Vector2(32, 160)).intersects(step)): continue
+					if stage.solids.any(func(s): return s.size.y == 16 and Rect2(s.position - Vector2(16, 80), s.size + Vector2(32, 160)).intersects(step)): continue
 					room.floor_steps.append(step)
 					stage.solids.append(step)
 					break
