@@ -4,6 +4,7 @@ const KeySettingsPanel := preload("res://scripts/key_settings_panel.gd")
 const Minimap := preload("res://scripts/minimap.gd")
 const ShopPanel := preload("res://scripts/shop_panel.gd")
 const BossArrow := preload("res://scripts/boss_arrow.gd")
+const LargeMap := preload("res://scripts/large_map.gd")
 var game: Node2D
 var menu: Control
 var health_label: Label
@@ -43,6 +44,11 @@ var shop_panel: Control
 var equipment_button: Button
 var boss_arrow: Control
 var boss_arrow_label: Label
+var large_map: Control
+var equipment_labels: Dictionary = {}
+var equipment_hint: Label
+var menu_card: Panel
+var eyebrow: Label
 
 func _ready() -> void:
 	var root := Control.new()
@@ -131,6 +137,17 @@ func _ready() -> void:
 	place(minimap, Vector2(936, 122), Vector2(320, 104))
 	minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(minimap)
+	for i in range(3):
+		var slot: String = T.EQUIPMENT_SLOTS.keys()[i]
+		var entry := label("", 14)
+		place(entry, Vector2(902, 236 + i * 26), Vector2(354, 26))
+		entry.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		hud.add_child(entry)
+		equipment_labels[slot] = entry
+	equipment_hint = label("", 13, Color("ffdf80"))
+	place(equipment_hint, Vector2(902, 318), Vector2(354, 25))
+	equipment_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hud.add_child(equipment_hint)
 	boss_label = label("", 16)
 	place(boss_label, Vector2(420, 120), Vector2(440, 28))
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -140,12 +157,12 @@ func _ready() -> void:
 	boss_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(boss_hp_label)
 	hint_label = label("", 22)
-	place(hint_label, Vector2(190, 280), Vector2(800, 120))
+	place(hint_label, Vector2(190, 280), Vector2(700, 120))
 	hint_label.add_theme_font_size_override("font_size", 20)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(hint_label)
 	announcement_label = label("", 24, Color("fff0bb"))
-	place(announcement_label, Vector2(80, 235), Vector2(1120, 64))
+	place(announcement_label, Vector2(80, 235), Vector2(780, 64))
 	announcement_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	announcement_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	announcement_label.add_theme_color_override("font_shadow_color", Color("07111d"))
@@ -164,10 +181,11 @@ func _ready() -> void:
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	menu.add_child(shade)
 	var card := Panel.new()
+	menu_card = card
 	card.add_theme_stylebox_override("panel", panel_style(Color("102235f5"), Color("3e5d72")))
 	place(card, Vector2(260, 134), Vector2(760, 520))
 	menu.add_child(card)
-	var eyebrow := label("2色   /   ガーディアン・ラスボス・裏ボス   /   探索", 14, Color("81a6be"))
+	eyebrow = label("2色のアクション   /   洞窟を探索", 14, Color("81a6be"))
 	place(eyebrow, Vector2(300, 160), Vector2(680, 24))
 	menu.add_child(eyebrow)
 	menu_title = label("", 48)
@@ -250,6 +268,10 @@ func _ready() -> void:
 	shop_panel = ShopPanel.new()
 	shop_panel.game = game
 	root.add_child(shop_panel)
+	large_map = LargeMap.new()
+	large_map.game = game
+	root.add_child(large_map)
+	large_map.hide()
 	refresh_bindings()
 
 func refresh_bindings() -> void:
@@ -261,11 +283,34 @@ func refresh_bindings() -> void:
 	if not game.is_tutorial():
 		controls_label.text = controls_label.text.replace("ジャンプ", "ジャンプ / %s 空中ダッシュ（解禁後）" % keys.get_binding_text("dash"))
 		controls_label.text += " / %s 回復薬" % keys.get_binding_text("use_item")
+		controls_label.text += " / %s 地図" % keys.get_binding_text("world_map")
 	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
+	if game.state == "title": menu_detail.text = title_instructions()
+
+func title_instructions() -> String:
+	return "あなたの色は青か橙です。%s でいつでも切り替えられます。\n自分と同じ色の攻撃は吸収し、ダメージを受けません。\n違う色の攻撃を受けるとHP（体力）が減ります。\n同じ色の攻撃を%d回吸収するか、敵を1体倒すと誘導弾が1回分たまります。\n%s で、敵を自動で追いかける「誘導弾」を撃てます。\nピンクのハートに触れるか、箱を撃って壊すとHPが回復します。\nHPが0になると結晶・鍵・装備などを全て失い、最初からやり直します。" % [game.key_bindings.get_binding_text("switch_color"), T.ABSORPTIONS_PER_CHARGE, game.key_bindings.get_binding_text("special")]
+
+func update_equipment() -> void:
+	var pending := false
+	for slot: String in equipment_labels:
+		var entry: Label = equipment_labels[slot]
+		entry.visible = not game.is_tutorial() and game.state == "playing"
+		if game.is_tutorial() or not is_instance_valid(game.player): continue
+		var id: String = game.player.equipment[slot]
+		var candidates: Array = game.owned_equipment.keys().filter(func(k): return T.EQUIPMENT[k].slot == slot)
+		var available := id.is_empty() and not candidates.is_empty()
+		pending = pending or available
+		entry.text = "%s  %s" % [T.EQUIPMENT_SLOTS[slot], "なし" if id.is_empty() else T.EQUIPMENT[id].name]
+		if available: entry.text += " ← %sを付けられます" % T.EQUIPMENT[candidates[0]].name
+		entry.modulate = Color("ffdf80") if available else Color("dce9ef")
+	equipment_hint.visible = pending and game.state == "playing"
+	equipment_hint.text = "%s → 装備 で付け替え" % game.key_bindings.get_binding_text("pause_game")
+	equipment_button.text = "装備 ●" if pending else "装備"
 
 func update_hud() -> void:
+	update_equipment()
 	boss_arrow_label.text = game.boss_arrow_progress()
 	boss_arrow_label.visible = not game.is_tutorial() and game.state == "playing" and not boss_arrow_label.text.is_empty()
 	var live: bool = is_instance_valid(game.player) and not game.player.dead
@@ -328,6 +373,14 @@ func explored_sector_count() -> int:
 
 func show_menu(next_state: String) -> void:
 	menu.show()
+	var title := next_state == "title"
+	place(menu_card, Vector2(260, 44 if title else 134), Vector2(760, 610 if title else 520))
+	place(eyebrow, Vector2(300, 56 if title else 160), Vector2(680, 24))
+	place(menu_title, Vector2(300, 80 if title else 191), Vector2(680, 72))
+	menu_subtitle.visible = not title
+	place(menu_detail, Vector2(302, 162 if title else 327), Vector2(676, 238 if title else 110))
+	menu_detail.add_theme_font_size_override("font_size", 16 if title else 18)
+	menu_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	seed_field.text = str(game.current_seed)
 	seed_field.visible = next_state == "title"
 	seed_label.visible = next_state == "title"
@@ -341,8 +394,8 @@ func show_menu(next_state: String) -> void:
 	match next_state:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"
-			menu_subtitle.text = "ガーディアンとラスボスを巡り、裏ボスを倒す。"
-			menu_detail.text = "3体撃破でラスボス出現。倒すとガーディアンが別の場所へ。\nラスボス3回撃破で裏ボス出現。裏ボス撃破でクリア。\n同色吸収・撃破で誘導弾。ハートと箱で回復。倒れたら全リセット。"
+			menu_subtitle.text = ""
+			menu_detail.text = title_instructions()
 			primary_button.text = "このマップで開始  /  Enter"
 			new_button.text = "別のマップを生成"
 		"paused":

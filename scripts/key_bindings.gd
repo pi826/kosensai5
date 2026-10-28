@@ -14,6 +14,7 @@ const ACTIONS := {
 	"interact": "調べる",
 	"use_item": "アイテムを使う",
 	"pause_game": "一時停止",
+	"world_map": "地図",
 }
 const DEFAULTS := {
 	"move_left": [KEY_A, KEY_LEFT],
@@ -28,6 +29,7 @@ const DEFAULTS := {
 	"interact": [KEY_E, KEY_NONE],
 	"use_item": [KEY_Q, KEY_NONE],
 	"pause_game": [KEY_ESCAPE, KEY_NONE],
+	"world_map": [KEY_M, KEY_NONE],
 }
 
 var _bindings: Dictionary = DEFAULTS.duplicate(true)

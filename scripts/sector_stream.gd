@@ -384,9 +384,7 @@ func _unload(at: Vector2i) -> void:
 	for merchant in game.get_tree().get_nodes_in_group("merchants"):
 		if merchant.get_parent() == game.world and merchant.spawn.sector == at: merchant.free()
 	for cell: Vector2i in game.explored_by_sector.get(at, {}):
-		var local_cell: Vector2i = cell - game.map_origin()
-		var corner := Vector2(local_cell) * T.MAP_CELL_SIZE
-		game.explored_geometry[cell] = O.geometry(game.terrain.map_geometry(Rect2(corner, Vector2.ONE * T.MAP_CELL_SIZE)), -corner)
+		game.record_map_cell(cell)
 	states[at] = O.snapshot(saved, -sector_offset(at))
 	game.terrain.unload(at)
 	if backdrops.has(at):

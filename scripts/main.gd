@@ -129,6 +129,9 @@ var defeated_enemies: Dictionary = {}
 var visited_sectors: Dictionary = {}
 var explored_by_sector: Dictionary = {}
 var explored_geometry: Dictionary = {}
+var explored_images: Dictionary = {}
+var map_sector_revisions: Dictionary = {}
+var _map_record_revision := -1
 var stream: RefCounted
 var streaming_enabled := true
 var streaming_wait := false
@@ -258,6 +261,10 @@ func start_run(stage_seed: int) -> void:
 	explored_cells.clear()
 	explored_by_sector.clear()
 	explored_geometry.clear()
+	explored_images.clear()
+	map_sector_revisions.clear()
+	ui.large_map.clear_cache()
+	_map_record_revision = -1
 	visited_sectors.clear()
 	discovered_bosses.clear()
 	defeated_bosses.clear()
@@ -292,6 +299,7 @@ func start_run(stage_seed: int) -> void:
 	ui.menu.hide()
 	ui.settings_overlay.hide()
 	ui.shop_panel.hide()
+	ui.large_map.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT
 	_update_camera(0.0, true)
 	_update_exploration()
@@ -312,7 +320,63 @@ func map_geometry(area: Rect2) -> Array:
 	var cell := Vector2i((area.position / T.MAP_CELL_SIZE).floor())
 	return O.geometry(explored_geometry.get(cell + map_origin(), []), Vector2(cell) * T.MAP_CELL_SIZE)
 
+func record_map_cell(cell: Vector2i) -> void:
+	if not is_instance_valid(terrain): return
+	var corner := Vector2(cell - map_origin()) * T.MAP_CELL_SIZE
+	# Merge adjacent tile rectangles into horizontal runs, then vertical runs.
+	# Entries are cell-local; integer cell + sector index never shift with origin.
+	var fragments: Array = O.geometry(terrain.map_geometry(Rect2(corner, Vector2.ONE * T.MAP_CELL_SIZE)), -corner)
+	fragments.sort_custom(func(a: Rect2, b: Rect2): return a.position.y < b.position.y or (a.position.y == b.position.y and a.position.x < b.position.x))
+	var rows: Array[Rect2] = []
+	for rect: Rect2 in fragments:
+		if not rows.is_empty() and rows[-1].position.y == rect.position.y and rows[-1].size.y == rect.size.y and rows[-1].end.x == rect.position.x:
+			rows[-1] = rows[-1].merge(rect)
+		else: rows.append(rect)
+	var merged: Array[Rect2] = []
+	for rect: Rect2 in rows:
+		var found := false
+		for i in range(merged.size()):
+			if merged[i].position.x == rect.position.x and merged[i].size.x == rect.size.x and merged[i].end.y == rect.position.y:
+				merged[i] = merged[i].merge(rect)
+				found = true
+				break
+		if not found: merged.append(rect)
+	explored_geometry[cell] = merged
+	var dimensions := Vector2i(T.SECTOR_SIZE / T.MAP_CELL_SIZE)
+	var sector := Vector2i(floori(float(cell.x) / dimensions.x), floori(float(cell.y) / dimensions.y))
+	var tile_ratio := T.MAP_CELL_SIZE / T.TILE_SIZE
+	if not explored_images.has(sector):
+		explored_images[sector] = Image.create_empty(dimensions.x * tile_ratio, dimensions.y * tile_ratio, false, Image.FORMAT_RGBA8)
+	var image: Image = explored_images[sector]
+	var offset := (cell - sector * dimensions) * tile_ratio
+	var biome := preload("res://scripts/sector_generator.gd").region_at(current_seed, sector)
+	var theme: Dictionary = preload("res://scripts/world_terrain.gd").THEMES[biome]
+	image.fill_rect(Rect2i(offset, Vector2i.ONE * tile_ratio), Color(theme.back, 0.85))
+	for rect: Rect2 in merged:
+		var pixels := Rect2i(Vector2i((rect.position / T.TILE_SIZE).floor()) + offset, Vector2i((rect.size / T.TILE_SIZE).ceil()).max(Vector2i.ONE))
+		image.fill_rect(pixels.intersection(Rect2i(offset, Vector2i.ONE * tile_ratio)), theme.edge)
+	map_sector_revisions[sector] = map_sector_revisions.get(sector, 0) + 1
+
+func open_map() -> void:
+	if state != "playing" or is_tutorial() or ending or not is_instance_valid(player) or player.dead: return
+	state = "map"
+	world.process_mode = Node.PROCESS_MODE_DISABLED
+	player.pending_special = false
+	player.pending_dash = false
+	ui.large_map.open()
+	ui.update_hud()
+
+func close_map() -> void:
+	if state != "map": return
+	ui.large_map.hide()
+	resume_run()
+	ui.update_hud()
+
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("world_map") and not event.is_echo() and state == "playing":
+		open_map()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("pause_game") and not event.is_echo():
 		if state == "playing":
 			show_menu("paused")
@@ -385,6 +449,9 @@ func biome_at(point: Vector2) -> int:
 func _update_exploration() -> void:
 	if not is_instance_valid(player) or player.dead:
 		return
+	var revision: int = terrain.revision if is_instance_valid(terrain) else -1
+	var refresh_geometry := revision != _map_record_revision
+	_map_record_revision = revision
 	var radius := T.EXPLORATION_RADIUS
 	var from_cell := Vector2i(((player.position - Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
 	var to_cell := Vector2i(((player.position + Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
@@ -398,6 +465,7 @@ func _update_exploration() -> void:
 				var at := origin_sector + SectorStream.coord_at(center)
 				if not explored_by_sector.has(at): explored_by_sector[at] = {}
 				explored_by_sector[at][stable_cell] = true
+				if refresh_geometry or not explored_geometry.has(stable_cell): record_map_cell(stable_cell)
 	visited_sectors[origin_sector + SectorStream.coord_at(player.position)] = true
 	for merchant in get_tree().get_nodes_in_group("merchants"):
 		if merchant.get_parent() != world: continue
@@ -803,6 +871,7 @@ func close_key_settings() -> void:
 	show_menu(settings_return_state)
 
 func show_menu(next_state: String) -> void:
+	ui.large_map.hide()
 	state = next_state
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	ui.show_menu(next_state)

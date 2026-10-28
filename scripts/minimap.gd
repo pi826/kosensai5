@@ -107,21 +107,7 @@ func _draw() -> void:
 	var world_box := Rect2(origin + bounds.position * scale_factor, bounds.size * scale_factor)
 	draw_rect(world_box, Color("080e15"))
 	draw_rect(world_box, Color("344552"), false, 1)
-	for cell: Vector2i in displayed_cells():
-		var cell_box := Rect2(Vector2(cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE).intersection(bounds)
-		if not cell_box.has_area():
-			continue
-		var biome: int = game.biome_at(cell_box.get_center())
-		var theme: Dictionary = Terrain.THEMES[clampi(biome, 0, 2)]
-		var explored: Color = theme.back
-		explored.a = 0.85
-		draw_rect(Rect2(origin + cell_box.position * scale_factor, cell_box.size * scale_factor), explored)
-		for raw_fragment: Rect2 in _geometry_for_cell(cell):
-			var fragment := raw_fragment.intersection(bounds)
-			if not fragment.has_area(): continue
-			var mini := Rect2(origin + fragment.position * scale_factor, fragment.size * scale_factor)
-			mini.size.y = maxf(0.8, mini.size.y)
-			draw_rect(mini, theme.edge)
+	_draw_explored(bounds, origin, scale_factor)
 	var view: Rect2 = game.view_rect().intersection(bounds)
 	draw_rect(Rect2(origin + view.position * scale_factor, view.size * scale_factor), Color("afc9d780"), false, 1)
 	for boss: Dictionary in guardian_marks():
@@ -182,3 +168,20 @@ func _panel_style() -> StyleBoxFlat:
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(7)
 	return style
+
+func _draw_explored(bounds: Rect2, origin: Vector2, scale_factor: float) -> void:
+	for cell: Vector2i in displayed_cells():
+		var cell_box := Rect2(Vector2(cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE).intersection(bounds)
+		if not cell_box.has_area():
+			continue
+		var biome: int = game.biome_at(cell_box.get_center())
+		var theme: Dictionary = Terrain.THEMES[clampi(biome, 0, 2)]
+		var explored: Color = theme.back
+		explored.a = 0.85
+		draw_rect(Rect2(origin + cell_box.position * scale_factor, cell_box.size * scale_factor), explored)
+		for raw_fragment: Rect2 in _geometry_for_cell(cell):
+			var fragment := raw_fragment.intersection(bounds)
+			if not fragment.has_area(): continue
+			var mini := Rect2(origin + fragment.position * scale_factor, fragment.size * scale_factor)
+			mini.size.y = maxf(0.8, mini.size.y)
+			draw_rect(mini, theme.edge)

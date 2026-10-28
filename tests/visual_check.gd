@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--boss-arrow"):
+	if OS.get_cmdline_user_args().has("--ui-map"):
+		output = "res://builds/qa/ui_map/"
+		call_deferred("run_ui_map")
+	elif OS.get_cmdline_user_args().has("--boss-arrow"):
 		output = "res://builds/qa/boss_arrow/"
 		call_deferred("run_boss_arrow")
 	elif OS.get_cmdline_user_args().has("--merchant"):
@@ -481,4 +484,111 @@ func run_streaming():
 	FileAccess.open(output+"visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":8,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
 	game.free()
 	print("VISUAL CHECK: 8 captures, ", failures, " failures")
+	quit(0 if failures==0 else 1)
+
+
+func run_ui_map() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output + "visual_controls.cfg"
+	root.add_child(game)
+	game.key_bindings.reset_defaults()
+	game.start_run(37)
+	game.set_physics_process(false)
+	game.show_menu("title")
+	await capture("title")
+	game.resume_run()
+	game.elapsed = 9
+	var npc = get_nodes_in_group("merchants").filter(func(m): return m.get_parent()==game.world and m.spawn.sector==Vector2i.ZERO)[0]
+	game.player.position = npc.position + Vector2(-40, 0)
+	game._update_camera(0, true)
+	game._update_exploration()
+	npc.spawn.stock = ["potion", "key", "rapid", "shell", "homing", "triple", "cushion"]
+	game.crystals = 130
+	game.owned_equipment.rapid = true
+	game.merchant_sold[npc.spawn.id] = true
+	game.open_shop(npc)
+	await capture("shop_buy_mixed")
+	var full_stock: Array = game.active_merchant.stock.duplicate()
+	for equipment_count in [3, 4]:
+		game.active_merchant.stock = ["potion", "key"] + full_stock.slice(2, 2 + equipment_count)
+		game.ui.shop_panel._rebuild()
+		await capture("shop_buy_%d_equipment" % equipment_count)
+	game.active_merchant.stock = full_stock
+	game.ui.shop_panel._rebuild()
+	for id: String in T.EQUIPMENT: game.owned_equipment[id] = true
+	for id: String in T.STARTER_EQUIPMENT: game.equip(T.EQUIPMENT[id].slot, id)
+	game.ui.shop_panel._switch_tab(false)
+	await capture("shop_equipment")
+	game.close_shop()
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	await capture("hud_equipped")
+	game.equip("armor", "")
+	await capture("hud_available_equipment")
+	game.show_menu("paused")
+	await capture("pause_equipment_notice")
+	game.start_run(37)
+	game.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+	game.open_map()
+	await capture("map_start")
+	game.close_map()
+	var visits := [Vector2i(0,0), Vector2i(2,0), Vector2i(2,1), Vector2i(-1,1)]
+	for sector: Vector2i in visits:
+		var point := Vector2(sector) * T.SECTOR_SIZE + T.SECTOR_START
+		if not await show(point): quit(1); return
+		game.world.process_mode = Node.PROCESS_MODE_DISABLED
+		# QA observation positions sample actual generated chambers, without changing terrain.
+		for chamber: Dictionary in game.stream.loaded[sector].chambers:
+			game.player.position = chamber.rect.get_center()
+			game._update_camera(0, true)
+			game._update_exploration()
+	# Controlled discoveries make all boss marker types visible in the same QA map.
+	for i in range(3):
+		var point: Dictionary = game.stable_point(Vector2(5700 + i*400, 2600))
+		game.discovered_bosses[700+i] = point
+		game.boss_cycle.records[700+i] = {"boss_id":700+i,"role":["guardian","final","secret"][i],"alive":i!=1,"sector":point.sector,"position":point.local,"sector_local":true}
+	game.defeated_bosses[701] = true
+	game.open_map()
+	game.ui.large_map.center_point = game.stable_point(Vector2(4096, 3072))
+	await capture("map_explored")
+	game.ui.large_map.change_zoom(2.5)
+	await capture("map_zoom_in")
+	game.ui.large_map.change_zoom(0.16)
+	await capture("map_zoom_out")
+	# Same worst-case population as the headless test, rendered by the normal GPU backend.
+	var map = game.ui.large_map
+	var base := Vector2i(20,20)
+	for y in range(15):
+		for x in range(20):
+			var sector := base + Vector2i(x,y)
+			var cells := {}
+			for cy in range(24):
+				for cx in range(32): cells[sector*Vector2i(32,24)+Vector2i(cx,cy)] = true
+			game.explored_by_sector[sector] = cells
+			var image := Image.create_empty(128,96,false,Image.FORMAT_RGBA8)
+			image.fill(Color("293f43"))
+			image.fill_rect(Rect2i(20,30,88,36),Color("0c1922"))
+			game.explored_images[sector] = image
+			game.map_sector_revisions[sector] = 1
+	map.center_point = {"sector":base+Vector2i(10,7),"local":T.SECTOR_SIZE/2}
+	map.zoom = T.LARGE_MAP_MIN_SCALE
+	map.clear_cache()
+	map.queue_redraw()
+	await RenderingServer.frame_post_draw
+	var cold: float = map.last_draw_ms
+	var draw_samples: Array[float] = []
+	var frame_samples: Array[float] = []
+	for i in range(20):
+		test_progress()
+		var began := Time.get_ticks_usec()
+		map.pan(Vector2(1,0))
+		await RenderingServer.frame_post_draw
+		draw_samples.append(map.last_draw_ms)
+		frame_samples.append((Time.get_ticks_usec()-began)/1000.0)
+	await capture("map_300_sector_benchmark")
+	var metrics := {"sectors":300,"cells":230400,"cold_draw_cpu_ms":cold,"warm_draw_cpu_mean_ms":draw_samples.reduce(func(a,b): return a+b,0.0)/draw_samples.size(),"warm_draw_cpu_max_ms":draw_samples.max(),"frame_wall_mean_ms":frame_samples.reduce(func(a,b): return a+b,0.0)/frame_samples.size(),"frame_wall_max_ms":frame_samples.max(),"raster_bytes":300*128*96*4}
+	FileAccess.open(output + "visual_results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name(),"metrics":metrics,"note":"exploration uses QA observation positions in actual chambers and controlled boss discovery records; performance uses synthetic 300-sector records; frame wall includes scheduling, not isolated GPU time"},"\t"))
+	game.free()
+	print("UI MAP VISUAL: %d captures, %d failures; %s" % [captures,failures,JSON.stringify(metrics)])
 	quit(0 if failures==0 else 1)
