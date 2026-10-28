@@ -15,7 +15,8 @@ var drop_observed := false
 var switches := 0
 var lesson_switches := 0
 var volleys := 0
-var aim_shots: Dictionary = {}
+var aim_hint_target := ""
+var aim_hint_remaining := 0.0
 var lesson_volleys := 0
 var box_healed := false
 var heart_healed := false
@@ -78,6 +79,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if state != "playing": return
+	aim_hint_remaining = maxf(0, aim_hint_remaining - delta)
 	_update_camera(delta)
 	if ok_remaining > 0:
 		ok_remaining -= delta
@@ -108,23 +110,30 @@ func biome_at(_point: Vector2) -> int:
 
 func goal() -> Vector2:
 	if lesson == 4:
+		var edge: Vector2 = T.TUTORIAL_GOALS[4]
+		if not player.is_on_floor() or player.position.distance_to(edge) >= T.TUTORIAL_GOAL_RADIUS: return edge
 		if not defeated.has("upper"): return T.TUTORIAL_AIM_TARGETS[0]
-		return T.TUTORIAL_AIM_TARGETS[1]
+		if not defeated.has("lower"): return T.TUTORIAL_AIM_TARGETS[1]
+		return edge
 	return T.TUTORIAL_GOALS[mini(lesson, T.TUTORIAL_GOALS.size() - 1)]
 
 func direction_hint() -> String:
+	if lesson == 4 and ok_remaining > 0: return "上下の的を壊しました"
 	var dx := goal().x - player.position.x
 	return "%s 光る目印まで %dm" % ["→" if dx >= 0 else "←", roundi(absf(dx) / T.TILE_SIZE)]
 
 func lesson_text() -> String:
 	if ok_remaining > 0: return "OK！　次の練習へ進みます。"
 	var k: Callable = key_bindings.get_binding_text
+	if lesson == 4 and aim_hint_remaining > 0:
+		var direction := "上" if aim_hint_target == "upper" else "下"
+		return "5 / 11　射撃方向：前 → 上 → 下\n%sの的は %s 向きで撃とう（%s で切り替え）。\n足場の端から狙えます。%s でジャンプ、%s で射撃。" % [direction, direction, k.call("aim_cycle"), k.call("jump"), k.call("shoot")]
 	var texts := [
 		"1 / 11　左右に移動\n%s で左、%s で右。光る目印まで歩こう。\n次へ：床の上の目印に着く。" % [k.call("move_left"), k.call("move_right")],
 		"2 / 11　ジャンプ\n%s でジャンプ。長く押すほど高く跳べます。右の薄い足場へ。\n次へ：足場の上の目印に着地する。" % k.call("jump"),
 		"3 / 11　足場を降りる\n薄い足場の上で %s を押すと、真下へすり抜けます。\n次へ：足場をすり抜けて、下の目印へ着地する。" % k.call("move_down"),
 		"4 / 11　射撃\n%s を押し続けて、右の白い的を壊そう。\n次へ：通常射撃で的を壊す。" % k.call("shoot"),
-		"5 / 11　射撃方向：前 → 上 → 下\n%s で切り替え、%s で射撃。右の足場の端から上下の白い的を狙おう。\n次へ：上と下の的を両方壊す（足場へは %s でジャンプ）。" % [k.call("aim_cycle"), k.call("shoot"), k.call("jump")],
+		"5 / 11　射撃方向：前 → 上 → 下\n%s で切り替え、%s で射撃。上の的は上向き、下の的は下向きで壊そう。\n%s で右の足場へジャンプし、端から狙って両方壊すと次へ。" % [k.call("aim_cycle"), k.call("shoot"), k.call("jump")],
 		"6 / 11　色を切り替えて吸収\n%s で青／橙を切替。同色の弾は吸収メーターへ、異色の弾はダメージ。\n次へ：橙の砲台の前で色を切り替え、同色の弾を%d発吸収する。" % [k.call("switch_color"), T.ABSORPTIONS_PER_CHARGE],
 		"7 / 11　敵の色を見て攻撃\n同色の攻撃は敵に吸収され、異色ならダメージ。%s で色、%s で方向。\n次へ：%s で橙の敵を倒す。撃破すると誘導弾ストック＋1。" % [k.call("switch_color"), k.call("aim_cycle"), k.call("shoot")],
 		"8 / 11　誘導弾を一斉発射\n%s でストックを1回分使い、4発を複数の敵へ。練習では空になると1回補充。\n次へ：青に切り替え、誘導弾を発射して右の3体を倒す。" % k.call("special"),
@@ -140,7 +149,7 @@ func lesson_satisfied() -> bool:
 		0, 1: return at_goal
 		2: return drop_observed and at_goal
 		3: return defeated.has("shot")
-		4: return defeated.has("upper") and defeated.has("lower") and aim_shots.has(1) and aim_shots.has(2)
+		4: return defeated.has("upper") and defeated.has("lower")
 		5: return switches > lesson_switches and absorptions >= T.ABSORPTIONS_PER_CHARGE
 		6: return defeated.has("color")
 		7: return volleys > lesson_volleys and defeated.has("volley0") and defeated.has("volley1") and defeated.has("volley2")
@@ -151,10 +160,18 @@ func lesson_satisfied() -> bool:
 func complete_lesson() -> void:
 	if ok_remaining > 0: return
 	ok_remaining = T.TUTORIAL_OK_TIME
+	if lesson == 4: marker.hide()
+
+func show_aim_hint(id: String) -> void:
+	if lesson != 4 or ok_remaining > 0: return
+	aim_hint_target = id
+	aim_hint_remaining = 2.5
 
 func enter_lesson(next: int) -> void:
 	lesson = next
 	ok_remaining = 0
+	aim_hint_remaining = 0
+	marker.show()
 	for bullet in projectiles.get_children(): bullet.queue_free()
 	match lesson:
 		3: add_target("shot", T.TUTORIAL_GOALS[3], true)
@@ -193,13 +210,15 @@ func add_target(id: String, at: Vector2, neutral: bool = false) -> CharacterBody
 	target.target_id = id
 	target.polarity = 1
 	target.neutral = neutral
+	if id == "upper": target.required_aim = 1
+	elif id == "lower": target.required_aim = 2
 	world.add_child(target)
 	targets[id] = target
 	return target
 
 func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
-	if lesson == 4 and actor == player and not guided: aim_shots[player.aim_index] = true
 	var bullet := super.spawn_bullet(actor, direction, guided, target)
+	if actor == player and not guided: bullet.set_meta("tutorial_aim_index", player.aim_index)
 	if actor.faction == 1: bullet.damage = T.TUTORIAL_DAMAGE
 	return bullet
 
@@ -210,6 +229,9 @@ func fire_special(actor: CharacterBody2D, amount: int) -> void:
 func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.faction == 0: return
 	defeated[actor.target_id] = true
+	if lesson == 4:
+		if actor.target_id == aim_hint_target: aim_hint_remaining = 0
+		if lesson_satisfied(): complete_lesson()
 	if not actor.neutral: player.add_homing_charges(T.ENEMY_CHARGE_REWARD)
 	effect(actor.position, T.COLORS[actor.polarity], "defeat")
 

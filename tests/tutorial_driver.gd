@@ -73,7 +73,7 @@ func expect_lesson(index: int) -> void:
 	await frames(10)
 	check(game.lesson == index and game.ok_remaining <= 0, "lesson %d waits for its condition" % index)
 
-func run() -> void:
+func reach_aim_lesson() -> void:
 	world_id = game.world.get_instance_id()
 	player_id = game.player.get_instance_id()
 	previous_position = game.player.position
@@ -92,7 +92,18 @@ func run() -> void:
 	await walk(984)
 	await shoot()
 	await expect_lesson(4)
+
+func run() -> void:
+	await reach_aim_lesson()
 	await walk(1340)
+	if capture.is_valid():
+		# Render the reported wrong-direction hit using the same real input path.
+		key("shoot", true)
+		await frames(35)
+		key("shoot", false)
+		check(not game.defeated.has("lower") and game.targets.lower.hp == T.ENEMY_HP, "visual ground shot preserves lower target")
+		check(game.lesson_text().contains("下の的は 下 向き"), "visual wrong-direction guidance visible")
+		await capture.call("aim_wrong_direction")
 	await jump_right(1540)
 	await walk(1620)
 	if capture.is_valid(): await capture.call("aim_setup")
@@ -101,8 +112,10 @@ func run() -> void:
 	await tap("aim_cycle")
 	await shoot()
 	check(game.defeated.has("upper") and not game.defeated.has("lower") and game.lesson == 4, "upper target alone does not advance")
+	if capture.is_valid(): await capture.call("aim_lower_remaining")
 	await tap("aim_cycle")
 	await shoot()
+	if capture.is_valid(): await capture.call("aim_completed")
 	await expect_lesson(5)
 	await walk(2208)
 	await frames(90)

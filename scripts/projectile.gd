@@ -40,7 +40,10 @@ func _physics_process(delta: float) -> void:
 		var hit := get_world_2d().direct_space_state.intersect_ray(ray)
 		if hit.is_empty(): break
 		if hit.collider.has_method("receive_hit"):
-			hit.collider.receive_hit(polarity, damage)
+			if hit.collider.has_method("receive_projectile_hit"):
+				hit.collider.receive_projectile_hit(self)
+			else:
+				hit.collider.receive_hit(polarity, damage)
 			if penetrations > 0:
 				penetrations -= 1
 				hit_bodies.append(hit.rid)

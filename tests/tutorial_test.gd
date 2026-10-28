@@ -34,6 +34,71 @@ func click(button: Button) -> void:
 		# Headless has a 64px host window; send viewport-local mouse coordinates.
 		root.push_input(event, true)
 		await frames(1)
+
+func check_live_goal(practice: Node2D, context: String) -> void:
+	for id: String in ["upper", "lower"]:
+		var index := 0 if id == "upper" else 1
+		check(not practice.defeated.has(id) or practice.goal() != T.TUTORIAL_AIM_TARGETS[index], context + ": goal avoids destroyed " + id)
+	check(practice.marker.visible or practice.ok_remaining > 0, context + ": marker guides until completion")
+
+func fire_aim_target(driver: RefCounted, id: String) -> void:
+	driver.key("shoot", true)
+	for tick in range(120):
+		if driver.game.defeated.has(id): break
+		await driver.frames(1)
+	driver.key("shoot", false)
+	check(driver.game.defeated.has(id), "physical shots defeated " + id)
+
+func check_aim_route(ground_attempt: bool, lower_first: bool) -> void:
+	game.start_tutorial()
+	var practice: Node2D = game.tutorial_session
+	var driver := Driver.new()
+	driver.tree = self
+	driver.game = practice
+	await driver.reach_aim_lesson()
+	check(practice.goal() == T.TUTORIAL_GOALS[4], "before climbing marker points to platform edge")
+	await driver.walk(1340)
+	if ground_attempt:
+		check(practice.player.is_on_floor() and practice.player.position.y > 600 and practice.player.aim_index == 0, "reported route shoots forward from ground before climbing")
+		# Change aim while the first shot is in flight: validation must use launch aim.
+		driver.key("shoot", true)
+		await driver.frames(1)
+		driver.key("shoot", false)
+		await driver.tap("aim_cycle")
+		await driver.tap("aim_cycle")
+		await driver.frames(35)
+		check(not practice.defeated.has("lower") and is_instance_valid(practice.targets.lower) and practice.targets.lower.hp == T.ENEMY_HP, "ground forward shot leaves lower target at full HP despite switching to down")
+		check(practice.lesson_text().contains("下の的は 下 向き") and practice.lesson_text().contains(practice.key_bindings.get_binding_text("aim_cycle")), "wrong direction gives current-key guidance")
+		check(practice.ui.tutorial_label.text == practice.lesson_text(), "wrong-direction guidance reaches visible lesson panel")
+		check(is_instance_valid(practice.targets.lower) and practice.targets.lower.hit_flash > 0, "wrong-direction hit flashes the surviving target")
+		check_live_goal(practice, "after ground shot")
+		await driver.tap("aim_cycle") # back to forward
+	await driver.jump_right(1540)
+	await driver.walk(1620)
+	check(practice.goal() == T.TUTORIAL_AIM_TARGETS[0], "platform marker points to live upper target")
+	await driver.tap("aim_cycle")
+	if lower_first: await driver.tap("aim_cycle")
+	var first := "lower" if lower_first else "upper"
+	var second := "upper" if lower_first else "lower"
+	await fire_aim_target(driver, first)
+	check(practice.lesson == 4 and practice.ok_remaining <= 0, "one target alone waits")
+	check_live_goal(practice, "after first " + first)
+	check(practice.goal() == T.TUTORIAL_AIM_TARGETS[0 if lower_first else 1], "marker points to remaining " + second)
+	await driver.tap("aim_cycle")
+	if lower_first: await driver.tap("aim_cycle")
+	await fire_aim_target(driver, second)
+	check(practice.lesson == 4 and practice.ok_remaining > T.TUTORIAL_OK_TIME - 0.05 and practice.lesson_text().begins_with("OK"), "last target immediately shows OK without extra input")
+	check_live_goal(practice, "both defeated")
+	check(not practice.marker.visible, "completed aiming lesson hides marker")
+	check(not practice.direction_hint().contains("目印"), "completed aiming lesson stops marker guidance")
+	await driver.expect_lesson(5)
+	check(driver.largest_step < T.MAX_FALL_SPEED / 60 + 1, "aim regression route uses continuous real physics")
+	driver.release()
+	checks += driver.checks
+	failures.append_array(driver.failures)
+	game.finish_tutorial()
+	await frames(2)
+
 func run() -> void:
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/tutorial")
 	game = Main.new()
@@ -152,6 +217,9 @@ func run() -> void:
 	check(game.key_bindings.get_key("shoot", 0) == KEY_R, "tutorial key changes carry into main")
 	check(game.ui.controls_label.text.contains("R 射撃"), "main help refreshes shared bindings after tutorial")
 	game.key_bindings.reset_defaults()
+	await check_aim_route(true, false)
+	await check_aim_route(false, true)
+	await check_aim_route(true, true)
 	game.free()
 	print("TUTORIAL TEST: %d checks, %d failures" % [checks, failures.size()])
 	FileAccess.open("res://builds/qa/tutorial/test_results.json", FileAccess.WRITE).store_string(JSON.stringify({"checks": checks, "failures": failures}, "\t"))
