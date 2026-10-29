@@ -74,7 +74,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		complete_lesson()
 	if event.is_action_pressed("pause_game") and not event.is_echo():
 		if state == "playing": show_menu("paused")
-		elif state == "paused": resume_run()
+		elif state == "paused":
+			play_sound("ui_back")
+			resume_run()
 		get_viewport().set_input_as_handled()
 
 func _physics_process(delta: float) -> void:
@@ -159,6 +161,7 @@ func lesson_satisfied() -> bool:
 
 func complete_lesson() -> void:
 	if ok_remaining > 0: return
+	play_sound("tutorial_step")
 	ok_remaining = T.TUTORIAL_OK_TIME
 	if lesson == 4: marker.hide()
 
@@ -242,12 +245,15 @@ func start_tutorial() -> void:
 	pass
 
 func primary_action() -> void:
+	play_sound("ui_confirm")
 	if state == "paused": resume_run()
 	elif state == "tutorial_complete": host.call_deferred("finish_tutorial", true)
 
 func new_action() -> void:
+	play_sound("ui_confirm")
 	host.call_deferred("finish_tutorial")
 	host.call_deferred("start_tutorial")
 
 func return_to_title() -> void:
+	play_sound("ui_back")
 	host.call_deferred("finish_tutorial")

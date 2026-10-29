@@ -1,4 +1,21 @@
 extends CanvasLayer
+const AudioSettingsPanel := preload("res://scripts/audio_settings_panel.gd")
+var audio_button: Button
+var audio_overlay: Control
+var audio_panel: PanelContainer
+var navigation_input := false
+
+func _input(event: InputEvent) -> void:
+	if not is_instance_valid(menu) or not menu.is_visible_in_tree(): return
+	if event is InputEventKey and event.pressed and event.keycode in [KEY_UP,KEY_DOWN,KEY_LEFT,KEY_RIGHT,KEY_TAB]:
+		navigation_input = true
+		call_deferred("_clear_navigation")
+
+func _clear_navigation() -> void:
+	navigation_input = false
+
+func _menu_focus() -> void:
+	if navigation_input: game.play_sound("ui_move")
 const T := preload("res://scripts/tuning.gd")
 const KeySettingsPanel := preload("res://scripts/key_settings_panel.gd")
 const Minimap := preload("res://scripts/minimap.gd")
@@ -230,6 +247,11 @@ func _ready() -> void:
 	place(settings_button, Vector2(302, 594), Vector2(676, 36))
 	settings_button.pressed.connect(game.open_key_settings)
 	menu.add_child(settings_button)
+	audio_button = Button.new()
+	audio_button.text = "音量"
+	audio_button.add_theme_stylebox_override("normal",panel_style(Color("1a3044")))
+	audio_button.pressed.connect(game.open_audio_settings)
+	menu.add_child(audio_button)
 	tutorial_button = Button.new()
 	tutorial_button.text = "チュートリアル"
 	tutorial_button.add_theme_stylebox_override("normal", panel_style(Color("1a3044")))
@@ -262,9 +284,24 @@ func _ready() -> void:
 	settings_panel = KeySettingsPanel.new()
 	settings_panel.bindings = game.key_bindings
 	settings_panel.settings_path = game.controls_path
+	settings_panel.game = game
 	settings_panel.closed.connect(game.close_key_settings)
 	settings_overlay.add_child(settings_panel)
 	settings_overlay.hide()
+	audio_overlay = Control.new()
+	audio_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(audio_overlay)
+	var audio_shade := ColorRect.new()
+	audio_shade.color = Color("040c16e8")
+	audio_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	audio_overlay.add_child(audio_shade)
+	audio_panel = AudioSettingsPanel.new()
+	audio_panel.game = game
+	audio_panel.closed.connect(game.close_audio_settings)
+	audio_overlay.add_child(audio_panel)
+	audio_overlay.hide()
+	for button: Button in [primary_button,new_button,equipment_button,settings_button,audio_button,tutorial_button,title_button]:
+		button.focus_entered.connect(_menu_focus)
 	shop_panel = ShopPanel.new()
 	shop_panel.game = game
 	root.add_child(shop_panel)
@@ -390,7 +427,16 @@ func show_menu(next_state: String) -> void:
 	equipment_button.visible = next_state == "paused" and not game.is_tutorial()
 	new_button.visible = next_state != "tutorial_complete"
 	place(new_button, Vector2(302, 541), Vector2(328 if next_state == "title" or equipment_button.visible else 676, 40))
-	place(settings_button, Vector2(302, 594), Vector2(328 if title_button.visible else 676, 36))
+	var small_width := (676.0 - 20.0)/3 if title_button.visible else 333.0
+	place(settings_button, Vector2(302,594), Vector2(small_width,36))
+	place(audio_button, Vector2(302+small_width+10,594), Vector2(small_width,36))
+	place(title_button, Vector2(302+(small_width+10)*2,594), Vector2(small_width,36))
+	# Preserve the existing title tab route; append audio before wrapping.
+	var focus_order: Array[Button] = [primary_button,new_button,equipment_button,settings_button,tutorial_button,audio_button,title_button]
+	focus_order = focus_order.filter(func(button):return button.visible)
+	for i in range(focus_order.size()):
+		focus_order[i].focus_next = focus_order[(i+1)%focus_order.size()].get_path()
+		focus_order[i].focus_previous = focus_order[posmod(i-1,focus_order.size())].get_path()
 	match next_state:
 		"title":
 			menu_title.text = "CHROMA / SHIFT"

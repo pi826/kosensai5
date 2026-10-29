@@ -13,6 +13,29 @@ const Interface := preload("res://scripts/interface.gd")
 const KeyBindings := preload("res://scripts/key_bindings.gd")
 const BossCycle := preload("res://scripts/boss_cycle.gd")
 const O := preload("res://scripts/origin_shift.gd")
+const AudioDirector := preload("res://scripts/audio_director.gd")
+var audio: Node
+var audio_settings_path := "user://audio.cfg"
+var audio_synthesis_override := -1
+var audio_return_state := "title"
+
+func play_sound(id: String, at: Variant = null, volume_db: float = 0, pitch: float = 1, color: int = -1) -> int:
+	if not is_instance_valid(audio): return -1
+	return audio.play(id,at,volume_db,pitch,self,color)
+
+func open_audio_settings() -> void:
+	audio_return_state = state
+	state = "audio_settings"
+	world.process_mode = Node.PROCESS_MODE_DISABLED
+	ui.menu.hide()
+	ui.audio_overlay.show()
+	ui.audio_panel.open()
+	play_sound("ui_confirm")
+
+func close_audio_settings() -> void:
+	ui.audio_overlay.hide()
+	show_menu(audio_return_state)
+	ui.audio_button.grab_focus()
 var origin_sector := Vector2i.ZERO
 var origin_shift_count := 0
 var origin_shift_times: Array[float] = []
@@ -44,6 +67,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 	origin_shift_count += 1
 	stage.origin_sector = origin_sector
 	terrain.shift_origin(delta, origin_sector)
+	if is_instance_valid(audio): audio.shift_origin(self,delta)
 	stream.shift_origin(delta)
 	for actor: Node in world.get_children():
 		if actor == player or actor is Enemy:
@@ -153,6 +177,7 @@ func enemy_loop_level() -> int:
 
 func update_loop_scaling() -> void:
 	if is_tutorial(): return
+	play_sound("loop_up")
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if enemy.get_parent() == world and not enemy.dead: enemy.apply_loop(enemy_loop_level())
 	if stream != null: stream.queue_population()
@@ -165,6 +190,8 @@ func is_tutorial() -> bool:
 
 func start_tutorial() -> void:
 	if is_instance_valid(tutorial_session): return
+	if is_instance_valid(audio): audio.reset_run()
+	play_sound("ui_confirm")
 	tutorial_seed_text = ui.seed_field.text
 	# Keep the entire main run suspended, including its seed and all progress.
 	world.process_mode = Node.PROCESS_MODE_DISABLED
@@ -188,9 +215,12 @@ func start_tutorial() -> void:
 	tutorial_session.host = self
 	tutorial_session.key_bindings = key_bindings
 	tutorial_session.controls_path = controls_path
+	tutorial_session.audio = audio
+	tutorial_session.audio_settings_path = audio_settings_path
 	viewport.add_child(tutorial_session)
 
 func finish_tutorial(begin_main: bool = false) -> void:
+	if is_instance_valid(audio): audio.reset_run()
 	if is_instance_valid(tutorial_layer):
 		tutorial_layer.hide()
 		tutorial_layer.process_mode = Node.PROCESS_MODE_DISABLED
@@ -208,12 +238,18 @@ func finish_tutorial(begin_main: bool = false) -> void:
 	if begin_main: primary_action()
 
 func return_to_title() -> void:
+	if is_instance_valid(audio): audio.stop_world()
+	play_sound("ui_back")
 	show_menu("title")
 
 func _ready() -> void:
 	process_physics_priority = -100
 	process_priority = 1000 # Redraw after world callbacks (excavation, walls, restores).
 	_register_inputs()
+	audio = AudioDirector.new()
+	audio.game = self
+	audio.synthesis_override = audio_synthesis_override
+	add_child(audio)
 	camera = Camera2D.new()
 	camera.position = T.VIEW_SIZE / 2
 	camera.limit_enabled = false
@@ -237,6 +273,7 @@ func _random_seed() -> int:
 
 func start_run(stage_seed: int) -> void:
 	var started := Time.get_ticks_usec()
+	if is_instance_valid(audio): audio.reset_run()
 	stream_install_ms = 0.0
 	stream_service_did_work = false
 	if boss_cycle != null: boss_cycle.shutdown()
@@ -319,6 +356,7 @@ func start_run(stage_seed: int) -> void:
 	ui.settings_overlay.hide()
 	ui.shop_panel.hide()
 	ui.large_map.hide()
+	ui.audio_overlay.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT
 	_update_camera(0.0, true)
 	_update_exploration()
@@ -379,6 +417,7 @@ func record_map_cell(cell: Vector2i) -> void:
 func open_map() -> void:
 	if state != "playing" or is_tutorial() or ending or not is_instance_valid(player) or player.dead: return
 	state = "map"
+	play_sound("map_open")
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	player.pending_special = false
 	player.pending_dash = false
@@ -387,6 +426,7 @@ func open_map() -> void:
 
 func close_map() -> void:
 	if state != "map": return
+	play_sound("map_close")
 	ui.large_map.hide()
 	resume_run()
 	ui.update_hud()
@@ -400,6 +440,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if state == "playing":
 			show_menu("paused")
 		elif state == "paused":
+			play_sound("ui_back")
 			resume_run()
 		get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ENTER and state in ["title", "paused", "lost", "won"] and not ui.seed_field.has_focus() and get_viewport().gui_get_focus_owner() == null:
@@ -635,6 +676,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
 		bullet.position = actor.position + Vector2(launch_side * (actor.body_size.x / 2 + 9), -4)
 	projectiles.add_child(bullet)
+	if actor.faction == 1 and actor.kind != "boss": play_sound("enemy_homing" if guided else "enemy_shot",actor.position)
 	return bullet
 
 func spawn_laser(actor: CharacterBody2D) -> Node2D:
@@ -647,6 +689,7 @@ func spawn_laser(actor: CharacterBody2D) -> Node2D:
 	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
 	projectiles.add_child(beam)
 	beam.clip_path()
+	beam.sound_handle = play_sound("laser_charge",actor.position)
 	return beam
 
 func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
@@ -658,11 +701,13 @@ func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
 	bomb.polarity = actor.polarity
 	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
 	projectiles.add_child(bomb)
+	play_sound("bomb_warn",actor.position)
 	return bomb
 
 func fire_special(actor: CharacterBody2D, amount: int) -> void:
 	if amount <= 0:
 		return
+	play_sound("homing" if actor.faction == 0 else "enemy_homing",actor.position)
 	var candidates := targets_for(actor.faction, actor.polarity, actor.global_position)
 	var opposite: Array = candidates.filter(func(target): return target.polarity != actor.polarity)
 	if not opposite.is_empty():
@@ -686,6 +731,7 @@ func show_damage(at: Vector2, amount: int) -> void:
 		effects.show_damage(at, amount)
 
 func _block_removed(bounds: Rect2, player_attack: bool) -> void:
+	play_sound("block_break",bounds.get_center())
 	if stream != null: stream.remember_block(bounds)
 	if player_attack and is_instance_valid(player): player.heal(T.BLOCK_HEAL)
 
@@ -695,6 +741,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.get_parent() != world:
 		return
 	if actor.faction == 0:
+		play_sound("death",actor.position)
 		if not ending:
 			ending = true
 			call_deferred("_finish_run")
@@ -703,6 +750,8 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		return
 	if actor.kind == "boss" and defeated_bosses.has(actor.boss_id): return
 	actor.set_meta("defeat_rewarded", true)
+	play_sound("boss_defeat" if actor.kind == "boss" else ("enhancer_defeat" if actor.kind == "enhancer" else "enemy_defeat"),actor.position)
+	if actor.kind == "boss" and is_instance_valid(audio): audio.boss_defeated()
 	defeated_enemies[actor.spawn_id] = true
 	if not is_tutorial():
 		add_crystals(T.CRYSTAL_REWARDS[actor.boss_role if actor.kind == "boss" else "normal"])
@@ -731,6 +780,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		if actor.kind == "enhancer" and not boss_arrow_unlocked and not is_tutorial():
 			boss_arrow_unlocked = true
 			announce("ボスの方角が分かるようになった")
+			play_sound("arrow_unlock")
 
 func _finish_run() -> void:
 	if not is_instance_valid(player) or player.dead:
@@ -742,6 +792,7 @@ func _finish_run() -> void:
 
 func add_crystals(amount: int) -> void:
 	if amount <= 0: return
+	play_sound("crystal",player.position if is_instance_valid(player) else null,0,1.0+minf(amount,100)*0.001)
 	crystals += amount
 	crystals_earned += amount
 	if is_instance_valid(player) and is_instance_valid(effects): effects.show_crystals(player.position, amount)
@@ -752,6 +803,7 @@ func grant_loot(content: Dictionary) -> void:
 		"potion":
 			if potions < T.POTION_CAPACITY:
 				potions += 1
+				play_sound("item_get",player.position)
 				loot_message = "回復薬を手に入れた（%d / %d）" % [potions, T.POTION_CAPACITY]
 			else:
 				add_crystals(T.DETOUR_REWARD)
@@ -766,10 +818,12 @@ func grant_loot(content: Dictionary) -> void:
 			else:
 				var id: String = available[posmod(int(content.get("roll", 0)), available.size())]
 				owned_equipment[id] = true
+				play_sound("item_get",player.position)
 				loot_message = "%sを手に入れた。店か一時停止の「装備」で付け替え" % T.EQUIPMENT[id].name
 			loot_ability = 0
 			loot_message_remaining = T.LOOT_MESSAGE_TIME
 		"ability":
+			play_sound("ability_get",player.position)
 			player.abilities |= int(content.ability)
 			loot_ability = int(content.ability)
 			loot_message = ability_help(content.ability)
@@ -833,6 +887,7 @@ func open_shop(merchant: Node2D) -> void:
 	player.pending_dash = false
 	ui.menu.hide()
 	ui.shop_panel.open(true)
+	play_sound("shop_open")
 
 func open_equipment() -> void:
 	if state != "paused" or is_tutorial(): return
@@ -842,9 +897,11 @@ func open_equipment() -> void:
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	ui.menu.hide()
 	ui.shop_panel.open(false)
+	play_sound("ui_confirm")
 
 func close_shop() -> void:
 	if state not in ["shop", "equipment"]: return
+	play_sound("ui_back")
 	ui.shop_panel.hide()
 	active_merchant.clear()
 	if shop_return_state == "paused": show_menu("paused")
@@ -864,7 +921,9 @@ func item_price(id: String) -> int:
 	return int(T.EQUIPMENT.get(id, {}).get("price", 0))
 
 func buy_item(id: String) -> bool:
-	if state != "shop" or not purchase_reason(id).is_empty(): return false
+	if state != "shop" or not purchase_reason(id).is_empty():
+		if state == "shop" and Time.get_ticks_msec()-last_shop_action_ms >= int(T.SHOP_ACTION_INTERVAL*1000): play_sound("deny")
+		return false
 	var now := Time.get_ticks_msec()
 	if now - last_shop_action_ms < int(T.SHOP_ACTION_INTERVAL * 1000): return false
 	last_shop_action_ms = now
@@ -874,6 +933,7 @@ func buy_item(id: String) -> bool:
 		keys += 1
 		merchant_sold[active_merchant.id] = true
 	else: owned_equipment[id] = true
+	play_sound("buy")
 	ui.update_hud()
 	return true
 
@@ -881,13 +941,19 @@ func equip(slot: String, id: String) -> bool:
 	if not is_instance_valid(player) or player.dead or not T.EQUIPMENT_SLOTS.has(slot): return false
 	if not id.is_empty() and (not owned_equipment.has(id) or T.EQUIPMENT[id].slot != slot): return false
 	player.apply_equipment(slot, id)
+	play_sound("equip")
 	ui.update_hud()
 	return true
 
 func use_potion() -> bool:
-	if state != "playing" or is_tutorial() or potions <= 0 or not is_instance_valid(player) or player.dead: return false
-	if player.heal(T.POTION_HEAL) <= 0: return false
+	if state != "playing" or is_tutorial() or potions <= 0 or not is_instance_valid(player) or player.dead:
+		if state == "playing" and not is_tutorial() and is_instance_valid(player) and not player.dead: play_sound("deny")
+		return false
+	if player.heal(T.POTION_HEAL) <= 0:
+		play_sound("deny")
+		return false
 	potions -= 1
+	play_sound("potion",player.position)
 	ui.update_hud()
 	return true
 
@@ -899,6 +965,7 @@ func resume_run() -> void:
 	get_viewport().gui_release_focus()
 
 func open_key_settings() -> void:
+	play_sound("ui_confirm")
 	settings_return_state = "paused" if state == "playing" else state
 	state = "settings"
 	world.process_mode = Node.PROCESS_MODE_DISABLED
@@ -907,6 +974,7 @@ func open_key_settings() -> void:
 	ui.settings_panel.open()
 
 func close_key_settings() -> void:
+	play_sound("ui_back")
 	ui.settings_panel.hide()
 	ui.settings_panel.set_process_input(false)
 	ui.settings_overlay.hide()
@@ -914,12 +982,15 @@ func close_key_settings() -> void:
 	show_menu(settings_return_state)
 
 func show_menu(next_state: String) -> void:
+	if next_state == "paused" and state == "playing": play_sound("pause")
+	if next_state == "title" and is_instance_valid(audio): audio.stop_world()
 	ui.large_map.hide()
 	state = next_state
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	ui.show_menu(next_state)
 
 func primary_action() -> void:
+	play_sound("ui_confirm")
 	if state == "paused":
 		resume_run()
 	elif state == "title":
@@ -932,6 +1003,7 @@ func primary_action() -> void:
 		start_run(current_seed)
 
 func new_action() -> void:
+	play_sound("ui_confirm")
 	if state == "paused":
 		start_run(current_seed)
 	elif state == "title":

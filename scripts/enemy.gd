@@ -228,6 +228,8 @@ func _base_shot_interval() -> float:
 	return T.BOSS_SHOT_INTERVAL if kind == "boss" else T.ENEMY_SHOT_INTERVAL
 
 func _begin(next_action: String, duration: float) -> void:
+	if next_action.begins_with("windup"):
+		game.play_sound("enemy_warn_special" if next_action == "windup_special" else "enemy_warn",position)
 	action = next_action
 	action_remaining = duration
 
@@ -252,6 +254,7 @@ func _complete_action() -> void:
 			shot_clock = T.LASER_INTERVAL
 		"windup_switch":
 			polarity = next_polarity
+			game.play_sound("enemy_switch",position)
 			switch_clock = T.SWITCH_INTERVAL
 			pattern = 1 - pattern
 			game.effect(global_position, T.COLORS[polarity], "switch")
@@ -259,6 +262,7 @@ func _complete_action() -> void:
 			game.fire_special(self, take_gauge())
 			shot_clock = T.BOMB_INTERVAL if kind == "breaker" else (T.LASER_INTERVAL if kind == "laser" else T.ENEMY_SHOT_INTERVAL)
 		"windup_shot":
+			if kind == "boss": game.play_sound("boss_shot",position)
 			var direction: Vector2 = (game.player.global_position - global_position).normalized()
 			if kind == "boss" and boss_role != "guardian":
 				var count := T.SECRET_BOSS_FAN_COUNT if boss_role == "secret" else T.BOSS_FAN_COUNT

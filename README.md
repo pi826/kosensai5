@@ -1,6 +1,6 @@
 # CHROMA SHIFT
 
-**Task 7F：生成結果を維持した高速化**を実装しました。200区画の平均は91.33／91.40→66.78／66.69ms、50ms以下の目標は未達です。最終の全34実行・141,000項目は失敗0。一致比較・内訳・テストは [Task 7F](docs/task7f_generation_speed.md)、区画完成と再描画の分離は [Task 7E](docs/task7e_stream_install.md) を参照してください。
+**Task 8A：実行時合成の効果音・BGM・地域の環境音と音量設定**を追加しました。設計・計測・検証・試聴WAVは [Task 8A](docs/task8a_sound.md) を参照してください。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
@@ -75,6 +75,8 @@ Task 7Dの同じ1,000区画では、横道のない縦区間の上限超過と�
 - 通常敵100点と誘導弾1回分、ガーディアン1,000点と2回分、ラスボス3,000点と3回分、裏ボス10,000点と5回分（ストック上限5）。消えた通常敵・箱・ハートは45秒後から5秒ごとに25%で戻ります。視界の周囲96pxと他の体・設置壁を避けます。削れた床と倒したボス個体は戻りません。ボス循環では新しい個体を別の区画に配置します。
 - 死亡後は同じシードで再挑戦し、全区画の破壊・敵・ハート・復活時刻・探索・ストック・スコア・ボスの進行を初期化します。
 
+タイトル・一時停止・結果画面の「音量」で全体・BGM・効果音を0〜100%（10%刻み）で変更できます。↑↓で行、←→で調整、Enterで決定、Escで閉じます。マウスのクリック・ドラッグにも対応し、閉じる時に保存します。青Aと橙Bで射撃・吸収・色切替の音が異なり、地域やボスに合わせて曲が滑らかに変わります。音源は起動後に別スレッドで合成します。
+
 ## 区画・地図・カメラ
 
 内部では世界を4,096×3,072pxの区画に分けます。地形は32pxグリッド。
@@ -101,6 +103,9 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 
 | ファイル | 内容 |
 |---|---|
+| scripts/sound_bank.gd / audio_director.gd | 決定的なPCM合成・再生プール・定位・曲と環境音 |
+| scripts/audio_settings.gd / audio_settings_panel.gd | 音量・保存・キーボードとマウスの設定パネル |
+| tests/audio_test.gd / audio_preview.gd | 音の自動検査と試聴WAVの書き出し |
 | scripts/main.gd | 開始・再挑戦、カメラ、探索、HUD、戦闘の接続 |
 | scripts/origin_shift.gd | 区画と相対座標の変換、原点移動時の空間データの変換 |
 | scripts/sector_generator.gd | シードと区画座標からの生成、ゲート・地域・ガーディアン、検証 |
@@ -119,29 +124,35 @@ HUD・一時停止・結果画面は「探索 n区画」、通常敵は撃破数
 | scripts/tutorial.gd / tutorial_player.gd / tutorial_target.gd | 独立した練習場、課題判定、死亡防止、練習用の的 |
 | scripts/projectile.gd / laser_beam.gd / bomb.gd | 通常弾・誘導弾、レーザー、砲弾 |
 
-`test.cmd` は全自動検査を順番に実行して最後に停止します。個別実行は次の形式です。
+`test.cmd` は音の検査を含む全35実行を順番に行い、最後に停止します。個別実行は次の形式です。
 
 検査は実時間で通常15分、生成・区画・長距離走破・ボス循環は60分を上限とし、途中の進行が2分間止まった場合も終了コード1で終了します。区画準備は30秒、ボス検出は20秒以内で待ち、未成立は失敗として記録します。期限の検証には `tests/test_guard_test.gd` を使います。
 
 ```powershell
 $env:APPDATA = "$PWD\.userdata"
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . --fixed-fps 60 --script tests/streaming_test.gd
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/streaming_test.gd
 # 描画確認。画像は builds/qa/bosses/ に保存（-- --rewards / --streaming で旧場面）
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd
 # チュートリアルの各課題・完了画面は builds/qa/tutorial/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --tutorial
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --tutorial
 # 鍵・宝箱・能力・地図・HUD・結果は builds/qa/abilities/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --abilities
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --abilities
 # 商人・店・装備・三連射撃・回復薬・HUD・地図は builds/qa/merchant/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --merchant
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --merchant
 # タイトル・店・装備HUD・一時停止・大きな地図は builds/qa/ui_map/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --ui-map
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --ui-map
 # ボスへの矢印・解禁前後・画面内での非表示は builds/qa/boss_arrow/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --boss-arrow
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --boss-arrow
 # 強化の灯・輪・案内・矢印・段階0/1/3の敵・通知は builds/qa/enemies/ に保存
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --path . --fixed-fps 60 --script tests/visual_check.gd -- --enemies
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --enemies
 # 段階3の性能を同じ900フレーム・245区画で測定
-& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . --fixed-fps 60 --script tests/streaming_performance.gd -- --loop-three
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/streaming_performance.gd -- --loop-three
+# 音量メニューとパネル10枚。音はスピーカーへ出力しない
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --sound
+# 音の合成・設定・発音・重なり・曲と1800フレームの状態一致を検査
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/audio_test.gd
+# 効果音・曲2ループ・環境音・ジングルの試聴WAVを builds/qa/sound/preview/ に保存
+& .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --script tests/audio_preview.gd
 ```
 
 実物理のガーディアン往復、全種類の継ぎ目、先読み・解放、状態保持、遠方、生成・戦闘・操作・キー設定・地図・カメラを検査します。
@@ -163,3 +174,5 @@ Task 7Cは使用量上限による中断後に再開し、変更前の基準に�
 Task 7Dの最終検証は全32スクリプト・33実行・136866項目が失敗0・終了コード0。通常描画・全体図28枚を目視確認しました。各テストの項目数、sector_testの時間、前後の統計、検査の高速化と生成時間は [実装・検証報告](docs/task7d_shafts.md) に記録しています。
 
 Task 7E-fixの最終検証は全33スクリプト・34実行・140979項目、失敗0・終了コード0。通常ループの画面外キュー停止を修正し、約1200キーで管理時間の平均0.031〜0.036ms、推定描画コストが枠の3倍でも進行を確認しました。画面あり検査6781項目も成功。実時間歩行は全シード保留0、p95は10.97／10.93ms、p99は14.43／14.42ms、最大20.16／19.47msです。初回描画は374.894／365.601msで、同環境の修正前375.579／364.816msとほぼ同じですが、過去の約362ms以下は再現できていません。固定fpsの保留158→272の原因は当時の実時間記録がないため未確定です。各テストの項目数、比較、推測と未確認事項は [検証記録](docs/task7e_stream_install.md) を参照してください。
+
+Task 8Aの最終検査は全35実行・145,768項目、失敗0・終了コード0。音検査4,446項目、通常描画10枚も確認しました。試聴WAVは builds/qa/sound/preview/ にあります。音色の試聴と実機の遅延は未確認で、発音を含む負荷の目安未達・計測の変動は [Task 8A](docs/task8a_sound.md) に記録しています。

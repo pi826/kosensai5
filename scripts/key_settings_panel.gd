@@ -4,6 +4,7 @@ signal closed
 
 const KeyBindings := preload("res://scripts/key_bindings.gd")
 var bindings: RefCounted
+var game: Node
 var settings_path := "user://controls.cfg"
 var _buttons: Dictionary = {}
 var _status: Label
@@ -161,10 +162,12 @@ func _input(event: InputEvent) -> void:
 			_move_focus(2)
 
 func _move_focus(offset: int) -> void:
+	if is_instance_valid(game): game.play_sound("ui_move")
 	_focus_index = posmod(_focus_index + offset, _focus_controls.size())
 	_focus_controls[_focus_index].grab_focus()
 
 func _begin_wait(action: String, slot: int) -> void:
+	if is_instance_valid(game): game.play_sound("ui_confirm")
 	_waiting_action = action
 	_waiting_slot = slot
 	_status.text = "「%s」のキー%dを入力してください。Escで取消 / Backspaceで削除。" % [KeyBindings.ACTIONS[action], slot + 1]

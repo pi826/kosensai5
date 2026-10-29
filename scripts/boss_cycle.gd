@@ -206,8 +206,10 @@ func service() -> void:
 		game.stream.install_bosses(site.sector)
 	if phase == "guardians":
 		game.announce("ガーディアンが復活した！（%d周目）" % round_number)
+		game.play_sound("boss_appear")
 	else:
 		game.announce(spawn_message(sites[0]))
+		game.play_sound("boss_appear")
 
 func next_id() -> int:
 	var result := 3

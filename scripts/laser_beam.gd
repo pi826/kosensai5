@@ -12,6 +12,14 @@ var elapsed := 0.0
 var remaining := T.LASER_DURATION
 var contacted := false
 var damage := T.LASER_DAMAGE
+var sound_handle := -1
+
+func _stop_charge() -> void:
+	if is_instance_valid(game.audio): game.audio.stop_handle(sound_handle)
+	sound_handle = -1
+
+func _exit_tree() -> void:
+	_stop_charge()
 
 func build_curve(start: Vector2, target: Vector2, facing: int) -> void:
 	curve = curve_points(start, target, facing)
@@ -57,12 +65,15 @@ func clip_path() -> void:
 	queue_redraw()
 
 func fire() -> void:
+	_stop_charge()
+	game.play_sound("laser_fire",source.position if is_instance_valid(source) else position)
 	clip_path()
 	phase = "beam"
 	remaining = T.LASER_DURATION
 	queue_redraw()
 
 func cancel() -> void:
+	_stop_charge()
 	phase = "cancelled"
 	hide()
 	queue_free()

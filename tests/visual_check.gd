@@ -10,7 +10,10 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--diagonal") or OS.get_cmdline_user_args().has("--shafts"):
+	if OS.get_cmdline_user_args().has("--sound"):
+		output = "res://builds/qa/sound/"
+		call_deferred("run_sound")
+	elif OS.get_cmdline_user_args().has("--diagonal") or OS.get_cmdline_user_args().has("--shafts"):
 		output = "res://builds/qa/diagonal/after-images/"
 		if OS.get_cmdline_user_args().has("--before"): output = "res://builds/qa/diagonal/before-images/"
 		if OS.get_cmdline_user_args().has("--shafts"):
@@ -49,6 +52,33 @@ func action_input(action: String, pressed: bool) -> void:
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	Input.flush_buffered_events()
+
+func run_sound() -> void:
+	DirAccess.make_dir_recursive_absolute(output)
+	game = Main.new()
+	game.controls_path = output+"visual-controls.cfg"
+	game.audio_settings_path = output+"visual-audio.cfg"
+	game.audio_synthesis_override = 0
+	root.add_child(game)
+	game.set_physics_process(false)
+	for state in ["title","paused","lost","won"]:
+		game.show_menu(state)
+		await capture("sound-"+state)
+		game.open_audio_settings()
+		await capture("sound-"+state+"-panel")
+		game.ui.audio_panel._close()
+	game.show_menu("title")
+	game.start_tutorial()
+	await frames(2)
+	game.tutorial_session.show_menu("paused")
+	await capture("sound-tutorial-paused")
+	game.tutorial_session.open_audio_settings()
+	await capture("sound-tutorial-panel")
+	game.finish_tutorial()
+	await frames(2)
+	FileAccess.open(output+"visual-results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
+	game.free()
+	quit(0 if failures==0 else 1)
 
 func run_boss_arrow() -> void:
 	DirAccess.make_dir_recursive_absolute(output)

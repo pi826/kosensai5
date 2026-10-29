@@ -89,6 +89,7 @@ func open(from_merchant: bool) -> void:
 
 func _switch_tab(next_buying: bool) -> void:
 	if next_buying and not can_buy: return
+	if buying != next_buying: game.play_sound("ui_move")
 	buying = next_buying
 	status_label.text = "装備は自動で付きません。「装備」で選んでください。" if buying else "各枠に1つ。選び直すか「外す」で変更できます。"
 	_rebuild()
@@ -262,5 +263,8 @@ func _input(event: InputEvent) -> void:
 		elif event.is_action_pressed("ui_down"): direction = Vector2.DOWN
 		else: return
 		var focused := get_viewport().gui_get_focus_owner() as Button
-		if focused != null and focus_buttons.has(focused): neighbor(focused, direction).grab_focus()
+		if focused != null and focus_buttons.has(focused):
+			var next := neighbor(focused,direction)
+			if next != focused: game.play_sound("ui_move")
+			next.grab_focus()
 	get_viewport().set_input_as_handled()
