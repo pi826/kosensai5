@@ -2,7 +2,7 @@ extends "res://tests/test_tree.gd"
 const S := preload("res://scripts/sector_generator.gd")
 const Metrics := preload("res://tests/diagonal_metrics.gd")
 var count := 200
-var label := "metrics"
+var label := "diagonal-metrics"
 var checks := 0
 var failures: Array[String] = []
 var specimens := {}
@@ -21,6 +21,7 @@ func run():
 	var flat_lengths: Array = []
 	var elevated := 0
 	var diagonals := 0
+	var stepped := 0
 	var shaft_count := 0
 	var gate_shafts := 0
 	var fallback := 0
@@ -40,9 +41,12 @@ func run():
 				printerr("INVALID ",seed_value," ",at," ",errors)
 			check(errors.is_empty(),"diagonal sector validates seed=%d coord=%s" % [seed_value,at])
 			for edge: Dictionary in s.connections:
+				if edge.type=="elbow" and edge.get("gentle_leg",false) and not specimens.has("elbow"): specimens.elbow={"sector":s,"index":s.connections.find(edge)}
 				kinds[edge.type] = kinds.get(edge.type,0) + 1
 				var shape := Metrics.shape(edge)
 				shapes[shape] = shapes.get(shape,0)+1
+				if shape in ["diagonal_steps","gentle_tunnel"]: stepped += 1
+				if edge.type == "tunnel" and shape == "gentle_tunnel" and not specimens.has("tunnel"): specimens.tunnel = {"sector":s,"index":s.connections.find(edge)}
 				if s.connection_nodes[edge.a].rect.end.y != s.connection_nodes[edge.b].rect.end.y: elevated += 1
 				if shape.begins_with("diagonal"):
 					if edge.type.begins_with("diagonal") and not specimens.has(edge.type): specimens[edge.type] = {"sector":s,"index":s.connections.find(edge)}
@@ -72,8 +76,8 @@ func run():
 	var total: int = kinds.values().reduce(func(a,b): return a+b,0)
 	var report := {"seeds":count,"sectors":times.size(),"types":kinds,"shape_types":shapes,"diagonal_count":diagonals,"connections":total,"elevated":elevated,"diagonal_elevated_ratio":float(diagonals)/maxi(elevated,1),"shafts":shaft_count,"gate_shafts":gate_shafts,"flat_runs":flat_lengths.size(),"flat_length_bins":bins,"flat_p50":flat_lengths[flat_lengths.size()/2],"flat_p90":flat_lengths[int(flat_lengths.size()*.9)],"flat_max":flat_lengths.max(),"mean_ms":times.reduce(func(a,b): return a+b,0.0)/times.size(),"max_ms":times.max(),"fallbacks":fallback,"invalid":invalid,"angles":angles,"fixtures":fixtures}
 	check(fallback==0,"no ordinary fallback")
-	check(diagonals*2>=elevated,"at least half of elevated connections are diagonal")
-	check(kinds.get("diagonal",0)>0 and kinds.get("diagonal_platforms",0)>0,"both diagonal types")
+	check(stepped*2>=elevated,"at least half of elevated connections have stepped floors")
+	check(kinds.get("diagonal",0)>0 and kinds.get("diagonal_platforms",0)==0,"diagonal floors remain and platform chains are absent")
 	check(angles.size()>=4,"varied angles")
 	if FileAccess.file_exists("res://builds/qa/diagonal/before-metrics.json"):
 		var before: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://builds/qa/diagonal/before-metrics.json"))
@@ -81,30 +85,30 @@ func run():
 			check(shaft_count<before.shafts*0.8,"at least 20 percent fewer shafts with identical inputs")
 			check(bins["768..1023"]+bins[">=1024"]<(before.flat_length_bins["768..1023"]+before.flat_length_bins[">=1024"])*0.7,"at least 30 percent fewer long flat runs")
 	for kind: String in specimens:
-		for mutation: String in (["angle","step","width","ceiling","landing","mouth","protection","cross_room","cross_link"] if kind=="diagonal" else ["angle","step","width","ceiling","missing","mouth","protection","cross_room","cross_link"]):
+		for mutation: String in (["angle","step","width","ceiling","landing","mouth","protection","cross_room","cross_link"] if kind=="diagonal" else ["angle","step","width","ceiling","mouth","protection","cross_room","cross_link","rock_gap"]):
 			var bad: Dictionary = specimens[kind].sector.duplicate(true)
 			var edge: Dictionary = bad.connections[specimens[kind].index]
 			match mutation:
 				"angle":
-					if kind=="diagonal": edge.pieces[-1].position.y+=1024
-					else: edge.landings[-1].position.y+=1024
+					edge.pieces[-1].position.y+=1024
 				"step":
-					if kind=="diagonal": edge.pieces[1].position.y+=256
-					else: edge.landings[1].position.y+=256
+						edge.pieces[1].position.y+=256 if kind=="diagonal" else 64
 				"width": edge.pieces[1].size.x=16
 				"ceiling": edge.pieces[1].size.y=32
 				"landing":
 					for i in range(1,edge.pieces.size()): edge.pieces[i].position.y=edge.pieces[0].position.y
-				"missing": bad.solids.erase(edge.platforms[0])
 				"mouth": edge.a=edge.b
 				"protection": bad.protected_rects=[]
 				"cross_room": bad.connection_nodes.append({"id":bad.connection_nodes.size(),"rect":edge.pieces[1]})
 				"cross_link": bad.connections.append({"a":-1,"b":-2,"type":"shaft","rect":edge.pieces[1]})
+				"rock_gap":
+					var p: Rect2 = edge.pieces[-1] if edge.pieces[-1].end.y>=edge.pieces[0].end.y else edge.pieces[0]
+					bad.connection_nodes.append({"id":bad.connection_nodes.size(),"rect":Rect2(p.position.x,p.end.y+32,p.size.x,32)})
 			check(not S.diagonal_errors(bad).is_empty(),"reject %s %s" % [kind,mutation])
 	report.checks=checks
 	report.failures=failures
-	DirAccess.make_dir_recursive_absolute("res://builds/qa/diagonal")
-	FileAccess.open("res://builds/qa/diagonal/%s.json" % label,FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
+	DirAccess.make_dir_recursive_absolute("res://builds/qa/shafts")
+	FileAccess.open("res://builds/qa/shafts/%s.json" % label,FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
 	print("ROUTE METRICS ",JSON.stringify(report))
 	print("DIAGONAL GENERATION: %d checks, %d failures" % [checks,failures.size()])
 	quit(0 if invalid==0 and failures.is_empty() else 1)

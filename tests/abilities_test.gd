@@ -111,11 +111,13 @@ func run() -> void:
 	game._update_camera(0,true)
 	game._update_exploration()
 	check(game.discovered_loot.has(first_chest.spawn.id) and game.discovered_loot[first_chest.spawn.id].ability, "visible ability chest discovered with distinct map type")
-	check(game.ui.minimap.loot_marks().any(func(mark): return mark.kind == "key") and game.ui.minimap.loot_marks().any(func(mark): return mark.kind == "chest" and not mark.ability), "visible keys and ordinary chests get separate map marks")
 	check(not first_chest.try_open() and game.keys == 0 and not first_chest.opened and game.loot_message == "鍵が必要", "keyless chest stays closed with short notice")
 	var key = items("key").filter(func(i): return i.spawn.sector == Vector2i.ZERO)[0]
 	game.player.position = key.position
 	var key_id: String = key.spawn.id
+	game._update_camera(0,true)
+	game._update_exploration()
+	check(game.discovered_loot.has(key_id) and game.discovered_loot[key_id].kind=="key" and game.ui.minimap.loot_marks().any(func(mark): return mark.kind=="key" and mark.position.distance_to(key.position)<0.001),"visible generated key has its own key map mark")
 	check(key.try_collect() and game.keys == 1 and not key.try_collect(), "key increments once")
 	game.key_bindings.try_bind("jump", 0, KEY_U)
 	game.player.position = first_chest.position
@@ -146,6 +148,9 @@ func run() -> void:
 	if not is_instance_valid(ordinary): game.free(); quit(1); return
 	game.keys = 1
 	game.player.position = ordinary.position
+	game._update_camera(0,true)
+	game._update_exploration()
+	check(game.discovered_loot.has(ordinary.spawn.id) and not game.discovered_loot[ordinary.spawn.id].ability and game.ui.minimap.loot_marks().any(func(mark): return mark.kind=="chest" and not mark.ability and mark.position.distance_to(ordinary.position)<0.001),"visible generated ordinary chest has a distinct non-ability chest map mark")
 	var before: int = game.crystals
 	check(ordinary.try_open() and game.crystals - before == ordinary.spawn.contents[0].amount, "normal chest awards its deterministic crystals")
 	check(ordinary.spawn.contents[0].amount in range(T.CHEST_CRYSTAL_MIN, T.CHEST_CRYSTAL_MAX+1), "normal chest reward within tuning range")

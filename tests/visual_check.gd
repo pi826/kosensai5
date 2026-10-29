@@ -10,9 +10,12 @@ var failures := 0
 var captures := 0
 var output := OUTPUT
 func _initialize():
-	if OS.get_cmdline_user_args().has("--diagonal"):
+	if OS.get_cmdline_user_args().has("--diagonal") or OS.get_cmdline_user_args().has("--shafts"):
 		output = "res://builds/qa/diagonal/after-images/"
 		if OS.get_cmdline_user_args().has("--before"): output = "res://builds/qa/diagonal/before-images/"
+		if OS.get_cmdline_user_args().has("--shafts"):
+			output = "res://builds/qa/shafts/%s-images/" % ("before" if OS.get_cmdline_user_args().has("--before") else "after")
+			if OS.get_cmdline_user_args().has("--long-shaft"): output=output.replace("-images/","-long-images/")
 		call_deferred("run_diagonal")
 	elif OS.get_cmdline_user_args().has("--enemies"):
 		output = "res://builds/qa/enemies/"
@@ -155,7 +158,9 @@ func run_merchant() -> void:
 
 func run_diagonal() -> void:
 	DirAccess.make_dir_recursive_absolute(output)
-	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://builds/qa/diagonal/capture-route.json"))
+	var manifest_path := "res://builds/qa/shafts/capture-route.json" if OS.get_cmdline_user_args().has("--shafts") else "res://builds/qa/diagonal/capture-route.json"
+	if OS.get_cmdline_user_args().has("--long-shaft"): manifest_path="res://builds/qa/shafts/capture-long-route.json"
+	var manifest: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(manifest_path))
 	game = Main.new()
 	game.controls_path = output + "visual_controls.cfg"
 	root.add_child(game)
@@ -172,6 +177,12 @@ func run_diagonal() -> void:
 		game.announcement_remaining = 0
 		game.loot_message_remaining = 0
 		await capture(shot.name)
+	if not manifest.get("maps",true):
+		FileAccess.open(output+"visual-results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"seed":manifest.seed,"note":"same observation positions, real terrain, physics disabled"},"\t"))
+		game.free()
+		print("SHAFT VISUAL: %d captures, %d failures" % [captures,failures])
+		quit(0 if failures==0 else 1)
+		return
 	# Identical observation coordinates in both versions. These QA viewpoints
 	# reveal real terrain; this is not a claim of manual or physical traversal.
 	for visit: Dictionary in manifest.visits:

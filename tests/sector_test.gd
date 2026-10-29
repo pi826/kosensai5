@@ -92,6 +92,22 @@ func verify_graph(sectors: Array, label: String):
 		for s: Dictionary in sectors:
 			for p: Vector2 in S.gate_positions(s): check(G.node_at(graph, p + Vector2(s.coord) * T.SECTOR_SIZE) >= 0, label + " gate in union")
 
+func validate_batch(sectors: Array) -> Array:
+	# Generate/replay in the original order. Only independent external
+	# validations run concurrently; collect every result in input order.
+	var results: Array = []
+	for first in range(0,sectors.size(),4):
+		var workers: Array = []
+		for i in range(first,mini(first+4,sectors.size())):
+			var worker := Thread.new()
+			if worker.start(S.validate.bind(sectors[i]))==OK: workers.append(worker)
+			else: workers.append(S.validate(sectors[i]))
+		for worker in workers:
+			var result = worker.wait_to_finish() if worker is Thread else worker
+			results.append(result if result is Array else ["External validation worker returned no result"])
+		test_progress()
+	return results
+
 func run():
 	if seed_first < 0 or seed_count <= 0 or seed_first + seed_count > 200:
 		printerr("Invalid sector test seed range")
@@ -104,10 +120,14 @@ func run():
 			for x in range(-2, 3):
 				var at := Vector2i(x, y)
 				var s := measured(seed_value, at)
-				var errors := S.validate(s)
-				check(errors.is_empty(), "%d %s validate %s" % [seed_value, at, errors.slice(0, 3)])
 				sectors[at] = s
-				signatures[at] = S.signature(s)
+		var validation_results := validate_batch(sectors.values())
+		var validation_index := 0
+		for at: Vector2i in sectors:
+			var errors: Array = validation_results[validation_index]
+			check(errors.is_empty(), "%d %s validate %s" % [seed_value, at, errors.slice(0, 3)])
+			signatures[at] = S.signature(sectors[at])
+			validation_index+=1
 		# Revisit all cells in reverse order after unrelated far-away generation.
 		var far := measured(seed_value, Vector2i(1000, -1000))
 		check(S.validate(far).is_empty(), "far signed coordinate")

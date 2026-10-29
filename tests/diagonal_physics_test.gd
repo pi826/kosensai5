@@ -21,15 +21,48 @@ func run():
 			test_progress()
 			var s := S.generate(seed_value,at)
 			for edge: Dictionary in s.connections:
-				if not edge.type.begins_with("diagonal"): continue
-				var points: Array = edge.landings.map(func(p): return Vector2(p.get_center().x,p.position.y-22)) if edge.type=="diagonal_platforms" else edge.pieces.map(func(p): return Vector2(p.get_center().x,p.end.y-22))
+				if edge.type not in ["diagonal", "tunnel"] or Metrics.shape(edge)=="flat_tunnel": continue
+				var points: Array = edge.pieces.map(func(p): return Vector2(p.get_center().x,p.end.y-22))
 				var angle := Metrics.angle(edge)
-				var bucket := (0 if angle < 29 else (1 if angle < 33 else 2)) if edge.type=="diagonal" else (0 if angle < 40 else (1 if angle < 45 else 2))
+				var bucket := (0 if angle < 29 else (1 if angle < 33 else 2)) if edge.type=="diagonal" else (0 if angle < 10 else (1 if angle < 18 else 2))
 				var key: String = "%s_%d" % [edge.type,bucket]
 				if not fixtures.has(key): fixtures[key] = {"sector":s,"points":points,"type":edge.type,"angle":angle}
 			if fixtures.size()==6: break
 		if fixtures.size()==6: break
-	check(fixtures.size()==6,"two route types, three angle bands each")
+	check(fixtures.size()==6,"diagonal and gentle floors, three angle bands each")
+	# Traverse the new gate side exits themselves with the same real-input driver.
+	for seed_value in [0,1,37]:
+		var s := S.generate(seed_value,Vector2i.ZERO)
+		for n: Dictionary in s.connection_nodes:
+			if n.get("vertical_gate_x",[]).is_empty(): continue
+			var side := "top_exit" if n.rect.position.y < 512 else "bottom_exit"
+			if fixtures.has(side): continue
+			for edge: Dictionary in s.connections:
+				if n.id not in [edge.a,edge.b] or edge.type not in ["shaft","elbow"]: continue
+				var column: Rect2 = edge.rect if edge.type=="shaft" else edge.shaft
+				var x: float = n.vertical_gate_x[0]+128
+				var points: Array = [Vector2(x,(96 if side=="top_exit" else 3040)-22)]
+				if edge.type=="elbow":
+					var treads: Array = edge.pieces.map(func(p): return Vector2(p.get_center().x,p.end.y-22))
+					if points[0].distance_to(treads[-1])<points[0].distance_to(treads[0]): treads.reverse()
+					points.append_array(treads)
+				else:
+					points.append(Vector2(column.get_center().x,n.rect.end.y-22))
+				fixtures[side]={"sector":s,"points":points,"type":side,"angle":0.0}
+				break
+	check(fixtures.has("top_exit") and fixtures.has("bottom_exit"),"both vertical gate side exits represented")
+	for seed_value in [0,1,37,2026,12,71]:
+		for at: Vector2i in [Vector2i.ZERO,Vector2i(1,0),Vector2i(-1,1)]:
+			var s := S.generate(seed_value,at)
+			for edge: Dictionary in s.connections:
+				var kind := "elbow_leg" if edge.get("gentle_leg",false) else ""
+				if kind.is_empty() or fixtures.has(kind): continue
+				fixtures[kind]={"sector":s,"points":edge.pieces.map(func(p): return Vector2(p.get_center().x,p.end.y-22)),"type":kind,"angle":0.0}
+			if fixtures.has("elbow_leg"): break
+		if fixtures.has("elbow_leg"): break
+	check(fixtures.has("elbow_leg"),"stepped elbow branches represented")
+	var corner := S.generate(24,Vector2i(2,2))
+	fixtures.corner_step={"sector":corner,"points":[Vector2(64,2506),Vector2(224,2538)],"type":"corner_step","angle":0.0}
 	for key: String in fixtures:
 		var fixture: Dictionary = fixtures[key]
 		var s: Dictionary = fixture.sector
@@ -64,7 +97,7 @@ func run():
 				if not ok: break
 			driver.release()
 	if is_instance_valid(game): game.free()
-	DirAccess.make_dir_recursive_absolute("res://builds/qa/diagonal")
-	FileAccess.open("res://builds/qa/diagonal/physics-results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"runs":reports},"\t"))
+	DirAccess.make_dir_recursive_absolute("res://builds/qa/shafts")
+	FileAccess.open("res://builds/qa/shafts/physics-results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"runs":reports},"\t"))
 	print("DIAGONAL PHYSICS: %d checks, %d failures" % [checks,failures.size()])
 	quit(0 if failures.is_empty() else 1)

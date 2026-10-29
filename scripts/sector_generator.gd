@@ -4,6 +4,7 @@ const T := preload("res://scripts/tuning.gd")
 const G := preload("res://scripts/stage_generator.gd")
 const L := preload("res://scripts/loot_generator.gd")
 const Population := preload("res://scripts/enemy_population.gd")
+const Vertical := preload("res://scripts/vertical_runs.gd")
 const SIDES := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 
 # String hashing avoids signed multiplication overflow, including INT64_MAX seeds.
@@ -116,19 +117,33 @@ static func _node(rect: Rect2, kind: String, id: int, region: int) -> Dictionary
 static func _link(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary:
 	var diagonal := _diagonal(a, b, nodes, rng)
 	if not diagonal.is_empty(): return diagonal
-	diagonal = _diagonal_platforms(a, b, nodes, rng)
-	if not diagonal.is_empty(): return diagonal
-	var direct := G._candidate(a, b, nodes, rng)
-	if not direct.is_empty():
-		return direct
+	var gentle := _gentle(a, b, nodes, rng)
+	if not gentle.is_empty(): return gentle
+	var long_direct := {}
+	for trial in range(4):
+		var direct := G._candidate(a, b, nodes, rng)
+		if direct.is_empty() or direct.type != "shaft": break
+		if direct.rect.size.y > T.VERTICAL_RUN_MAX: break
+		if _gate_connection(direct, a, b):
+			if direct.rect.size.y<=T.VERTICAL_DIRECT_LINK_PREFERRED_MAX: return direct
+			long_direct=direct
+			break
 	var upper: Dictionary = a if a.rect.end.y < b.rect.end.y else b
 	var lower: Dictionary = b if upper == a else a
 	var u: Rect2 = upper.rect
 	var l: Rect2 = lower.rect
-	if l.end.y - u.end.y < 96: return {}
+	if l.end.y - u.end.y < 96 or l.end.y - u.end.y > T.VERTICAL_RUN_MAX: return long_direct
+	var sites_by_bend: Array = []
+	for bend: Rect2 in [u,l]:
+		var sites: Array = range(int(bend.position.x)+32,int(bend.end.x)-255,32)
+		if not a.get("vertical_gate_x",[]).is_empty() or not b.get("vertical_gate_x",[]).is_empty():
+			sites = sites.filter(func(px): return _gate_connection({"type":"shaft","rect":Rect2(px,u.end.y,256,l.end.y-u.end.y)},a,b))
+		sites_by_bend.append(sites)
 	for trial in range(12):
 		var bend: Rect2 = u if trial % 2 == 0 else l
-		var x := G._pick(rng, int(bend.position.x + 32) / 32, int(bend.end.x - 288) / 32) * 32
+		var sites: Array = sites_by_bend[trial % 2]
+		if sites.is_empty(): continue
+		var x: int = sites[G._pick(rng,0,sites.size()-1)]
 		var shaft := Rect2(x, u.end.y, 256, l.end.y - u.end.y)
 		var left: int
 		var right: int
@@ -142,13 +157,65 @@ static func _link(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary
 		else:
 			continue
 		var height := G._pick(rng, 5, 8) * 32
-		var passage := Rect2(left, (l.end.y if trial % 2 == 0 else u.end.y) - height, right - left, height)
-		var cuts: Array = [shaft, passage]
-		if nodes.any(func(n): return n.id not in [a.id, b.id] and cuts.any(func(r): return r.grow(32).intersects(n.rect))): continue
+		var run := right-left-256
+		var ramp_rise := maxi(0,mini(run / T.GENTLE_RAMP_TREAD,mini(T.GENTLE_RAMP_RISE_MAX / 32,int(l.end.y-u.end.y-96) / 32))) * 32
+		var bend_floor := int(l.end.y)-ramp_rise if trial%2==0 else int(u.end.y)+ramp_rise
+		if trial%2==0: shaft.size.y=bend_floor-shaft.position.y
+		else: shaft=Rect2(x,bend_floor,256,l.end.y-bend_floor)
 		var pieces: Array = []
-		for px in range(left, right, 64): pieces.append(Rect2(px, passage.position.y, mini(64, right - px), height))
-		return {"a": upper.id, "b": lower.id, "type": "elbow", "rect": shaft.merge(passage), "shaft": shaft, "pieces": pieces, "height": height}
-	return {}
+		if other.end.x <= x:
+			pieces=_ramp_pieces(left,x,int(other.end.y),bend_floor,height)
+			pieces.append_array(_ramp_pieces(x,x+256,bend_floor,bend_floor,height))
+		else:
+			pieces=_ramp_pieces(x,x+256,bend_floor,bend_floor,height)
+			pieces.append_array(_ramp_pieces(x+256,right,bend_floor,int(other.end.y),height))
+		var cuts: Array = [shaft]+pieces
+		if nodes.any(func(n): return n.id not in [a.id, b.id] and cuts.any(func(r): return r.grow(T.CAVE_ROCK_GAP-0.1 if ramp_rise>0 else 32).intersects(n.rect))): continue
+		var bounds := shaft
+		for p: Rect2 in pieces: bounds=bounds.merge(p)
+		var edge := {"a": upper.id, "b": lower.id, "type": "elbow", "rect": bounds, "shaft": shaft, "pieces": pieces, "height": height, "gentle_leg":ramp_rise>0}
+		if _gate_connection(edge, a, b): return edge
+	return long_direct
+
+# Keep the continuation of a vertical gate away from its column. The resulting
+# standing vestibule leads to another part of the cave, rather than a blind lip.
+static func _gate_connection(edge: Dictionary, a: Dictionary, b: Dictionary) -> bool:
+	var shaft: Rect2 = edge.rect if edge.type == "shaft" else edge.shaft
+	for n: Dictionary in [a, b]:
+		for x: float in n.get("vertical_gate_x", []):
+			if shaft.position.x < x + 256 + T.VERTICAL_EXIT_RUN and shaft.end.x > x - T.VERTICAL_EXIT_RUN: return false
+	return true
+
+static func _ramp_pieces(left: int, right: int, from_y: int, to_y: int, height: int) -> Array:
+	var count := maxi(1,(right-left) / T.GENTLE_TREAD_MIN)
+	var pieces: Array = []
+	for i in range(count):
+		var x := left+i*T.GENTLE_TREAD_MIN
+		var y := from_y+roundi(float((to_y-from_y) / 32)*i/maxi(count-1,1))*32
+		pieces.append(Rect2(x,y-height,right-x if i==count-1 else T.GENTLE_TREAD_MIN,height))
+	return pieces
+
+static func _gentle(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary:
+	if a.rect.position.x > b.rect.position.x:
+		var swap := a
+		a = b
+		b = swap
+	var left := int(a.rect.end.x) - 32
+	var right := int(b.rect.position.x) + 32
+	var run := right - left
+	var rise := int(b.rect.end.y - a.rect.end.y)
+	var count := run / T.GENTLE_TREAD_MIN
+	if b.rect.position.x - a.rect.end.x < T.CAVE_ROCK_GAP or run > T.GENTLE_LENGTH_MAX or count < 2 or absi(rise) > (count - 1) * T.GENTLE_STEP_MAX: return {}
+	var height := G._pick(rng, T.GENTLE_HEIGHT_MIN / 32, T.GENTLE_HEIGHT_MAX / 32) * 32
+	var pieces: Array = []
+	for i in range(count):
+		var x := left + i * T.GENTLE_TREAD_MIN
+		var y := int(a.rect.end.y) + roundi(float(rise / 32) * i / (count - 1)) * 32
+		pieces.append(Rect2(x, y - height, right - x if i == count - 1 else T.GENTLE_TREAD_MIN, height))
+	if nodes.any(func(n): return n.id not in [a.id, b.id] and pieces.any(func(p): return p.grow(T.CAVE_ROCK_GAP - 0.1).intersects(n.rect))): return {}
+	var bounds: Rect2 = pieces[0]
+	for p: Rect2 in pieces: bounds = bounds.merge(p)
+	return {"a":a.id,"b":b.id,"type":"tunnel","rect":bounds,"pieces":pieces,"height":height}
 
 static func _diagonal(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary:
 	if a.rect.position.x > b.rect.position.x:
@@ -204,50 +271,13 @@ static func _cuts(edge: Dictionary) -> Array:
 	if edge.type == "shaft": return [edge.rect]
 	return edge.pieces + ([edge.shaft] if edge.type == "elbow" else [])
 
-static func _diagonal_platforms(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary:
-	if a.rect.end.y > b.rect.end.y:
-		var swap := a
-		a = b
-		b = swap
-	var ar: Rect2 = a.rect
-	var br: Rect2 = b.rect
-	var rise := int(br.end.y - ar.end.y)
-	if rise < T.DIAGONAL_PLATFORM_RISE_MIN * 2 or rise > T.DIAGONAL_PLATFORM_TOTAL_RISE_MAX: return {}
-	var count := ceili(float(rise) / T.DIAGONAL_PLATFORM_TARGET_RISE)
-	if rise < count * T.DIAGONAL_PLATFORM_RISE_MIN: return {}
-	var pairs: Array = []
-	var half := T.DIAGONAL_PLATFORM_WIDTH / 2
-	for from_x: float in [ar.position.x + half, ar.end.x - half]:
-		for to_x: float in [br.position.x + half, br.end.x - half]: pairs.append(Vector2(from_x, to_x))
-	G._shuffle(pairs, rng)
-	for pair: Vector2 in pairs:
-		var run := absf(pair.y - pair.x)
-		var angle := rad_to_deg(atan2(rise, run))
-		if angle < T.DIAGONAL_ANGLE_MIN or angle > T.DIAGONAL_ANGLE_MAX or run > T.DIAGONAL_LENGTH_MAX or run < count * T.DIAGONAL_PLATFORM_SHIFT_MIN or run > count * T.DIAGONAL_PLATFORM_SHIFT_MAX: continue
-		var pieces: Array = []
-		var platforms: Array = []
-		var landings: Array = []
-		for i in range(count + 1):
-			var t := float(i) / count
-			var x := snappedf(lerpf(pair.x, pair.y, t), 32) - half
-			var y := snappedf(lerpf(ar.end.y, br.end.y, t), 32)
-			var landing := Rect2(x, y, T.DIAGONAL_PLATFORM_WIDTH, 16)
-			landings.append(landing)
-			var bottom := minf(y + T.DIAGONAL_PLATFORM_UNDERCUT, br.end.y)
-			pieces.append(Rect2(x, y - T.DIAGONAL_PLATFORM_HEADROOM, T.DIAGONAL_PLATFORM_WIDTH, bottom - y + T.DIAGONAL_PLATFORM_HEADROOM))
-		if pieces.any(func(p): return not Rect2(128, 64, T.SECTOR_SIZE.x - 256, T.SECTOR_SIZE.y - 128).encloses(p)): continue
-		if nodes.any(func(n): return n.id not in [a.id, b.id] and pieces.any(func(p): return p.grow(32).intersects(n.rect))): continue
-		var bounds: Rect2 = pieces[0]
-		for p: Rect2 in pieces: bounds = bounds.merge(p)
-		return {"a": a.id, "b": b.id, "type": "diagonal_platforms", "rect": bounds, "pieces": pieces, "platforms": platforms, "landings": landings}
-	return {}
-
 static func _compatible(edge: Dictionary, chosen: Array, nodes: Array) -> bool:
 	for other: Dictionary in chosen:
-		if not edge.rect.grow(16).intersects(other.rect.grow(16)): continue
+		var margin: float = T.CAVE_ROCK_GAP / 2.0 - 0.05 if "tunnel" in [edge.type, other.type] or edge.get("gentle_leg",false) or other.get("gentle_leg",false) else 16.0
+		if not edge.rect.grow(margin).intersects(other.rect.grow(margin)): continue
 		for a: Rect2 in _cuts(edge):
 			for b: Rect2 in _cuts(other):
-				var overlap := a.grow(16).intersection(b.grow(16))
+				var overlap := a.grow(margin).intersection(b.grow(margin))
 				if not overlap.has_area(): continue
 				if not [edge.a, edge.b].any(func(id): return id in [other.a, other.b] and nodes[id].rect.grow(32).encloses(overlap)): return false
 	return true
@@ -256,7 +286,13 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 	for trial in range(10):
 		var nodes: Array = []
 		for entrance: Dictionary in s.entrances:
-			nodes.append(_node(entrance.rect, "entrance", nodes.size(), s.region))
+			var n := _node(entrance.rect, "entrance", nodes.size(), s.region)
+			n.vertical_gate_x = []
+			for side: Vector2i in [Vector2i.UP, Vector2i.DOWN]:
+				if side not in entrance.sides: continue
+				for gate: Dictionary in s.gates[side]:
+					if gate.x + 128 >= entrance.rect.position.x and gate.x + 128 < entrance.rect.end.x: n.vertical_gate_x.append(gate.x)
+			nodes.append(n)
 		var rooms: Array = []
 		if s.coord == Vector2i.ZERO:
 			rooms.append(_node(Rect2(G._pick(rng, 4, 22) * 32, 1120, 1152, 640), "start", nodes.size(), s.region))
@@ -273,11 +309,15 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 				var x: int
 				var floor_y: int
 				var gap := G._pick(rng, 4, 16) * 32
+				if anchor.end.y <= 512: gap = G._pick(rng,12,28) * 32
 				if G._pick(rng, 0, T.DIAGONAL_LATERAL_ROOM_WEIGHT) < T.DIAGONAL_LATERAL_ROOM_WEIGHT:
 					x = int(anchor.end.x) + gap if G._pick(rng, 0, 1) else int(anchor.position.x) - gap - w
 					if rng.randf() < T.DIAGONAL_ROOM_CHANCE:
 						var offset := int(snappedf((gap + 64) * rng.randf_range(T.DIAGONAL_ROOM_SLOPE_MIN, T.DIAGONAL_ROOM_SLOPE_MAX), 32))
-						floor_y = int(anchor.end.y) + offset * (-1 if G._pick(rng, 0, 1) else 1)
+						var direction := -1 if G._pick(rng,0,1) else 1
+						if anchor.end.y <= 512: direction = 1
+						elif anchor.end.y >= 2816: direction = -1
+						floor_y = int(anchor.end.y) + offset * direction
 					else:
 						floor_y = int(anchor.end.y) + G._pick(rng, -gap / 64, gap / 64) * 32
 				else:
@@ -298,7 +338,9 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 				var edge := _link(nodes[i], nodes[j], nodes, rng)
 				if edge.is_empty(): continue
 				edge.weight = (_cuts(edge).reduce(func(total, r): return total + r.size.x + r.size.y, 0.0)) * G._pick(rng, 60, 160) / 100.0
-				if edge.type.begins_with("diagonal"): edge.weight *= T.DIAGONAL_WEIGHT
+				if edge.type == "diagonal": edge.weight *= T.DIAGONAL_WEIGHT
+				elif edge.type == "tunnel": edge.weight *= T.GENTLE_WEIGHT
+				elif edge.type=="shaft" and edge.rect.size.y>T.VERTICAL_DIRECT_LINK_PREFERRED_MAX: edge.weight*=T.VERTICAL_LONG_LINK_WEIGHT
 				candidates.append(edge)
 		candidates.sort_custom(func(a, b): return a.weight < b.weight)
 		var reached := {0: true}
@@ -315,10 +357,12 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 			reached[edge.b] = true
 		if reached.size() != nodes.size(): continue
 		G._shuffle(remaining, rng)
+		remaining.sort_custom(func(a,b): return int(a.type not in ["tunnel","diagonal"]) < int(b.type not in ["tunnel","diagonal"]))
 		var loops := G._pick(rng, 0, 3)
 		var added := 0
 		for edge: Dictionary in remaining:
 			if added == loops: break
+			if edge.type=="shaft" and edge.rect.size.y>T.VERTICAL_DIRECT_LINK_PREFERRED_MAX: continue
 			if edge.type not in ["tunnel", "diagonal"] and incoming.has(edge.b): continue
 			if not _compatible(edge, chosen, nodes): continue
 			chosen.append(edge)
@@ -348,13 +392,22 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 		s.gates[side] = boundary_gates(seed_value, at, side)
 		for gate: Dictionary in s.gates[side]:
 			var rect: Rect2
+			var entrance_floor: int = gate.get("floor",0)
 			if side.x != 0:
 				rect = Rect2(128 if side.x < 0 else T.SECTOR_SIZE.x - 448, gate.floor - gate.height, 320, gate.height)
-				_tunnel(s, holes, 0 if side.x < 0 else int(rect.position.x), int(rect.end.x) if side.x < 0 else int(T.SECTOR_SIZE.x), gate.floor, gate.floor, gate.height)
+				if gate.floor == int(T.SECTOR_SIZE.y)-T.VERTICAL_RUN_MAX/2-32:
+					# A 32px step after the fixed boundary approach keeps a merged
+					# bottom vestibule within the half-limit, with a solid tread.
+					entrance_floor=gate.floor+32
+					rect=Rect2(192 if side.x<0 else T.SECTOR_SIZE.x-448,entrance_floor-gate.height,256,gate.height)
+					_tunnel(s,holes,0 if side.x<0 else 3904,192 if side.x<0 else 4096,gate.floor,gate.floor,gate.height)
+					_tunnel(s,holes,192 if side.x<0 else 3648,448 if side.x<0 else 3904,entrance_floor,entrance_floor,gate.height)
+				else:
+					_tunnel(s, holes, 0 if side.x < 0 else int(rect.position.x), int(rect.end.x) if side.x < 0 else int(T.SECTOR_SIZE.x), gate.floor, gate.floor, gate.height)
 			else:
-				rect = Rect2(gate.x - 32, 64 if side.y < 0 else T.SECTOR_SIZE.y - 512, 320, 256)
-				if side.y < 0: _shaft(s, holes, gate.x, 0, int(rect.end.y), true)
-			s.entrances.append({"rect": rect, "sides": [side], "horizontal_floors": [gate.floor] if side.x != 0 else []})
+				var entry_x: int = gate.x - 32 if gate.x < T.SECTOR_SIZE.x / 2 else gate.x + 288 - T.VERTICAL_VESTIBULE_WIDTH
+				rect = Rect2(clampi(entry_x,32,int(T.SECTOR_SIZE.x)-32-T.VERTICAL_VESTIBULE_WIDTH), 64 if side.y < 0 else T.SECTOR_SIZE.y - 512, T.VERTICAL_VESTIBULE_WIDTH, T.VERTICAL_TOP_ENTRY_HEIGHT if side.y < 0 else 256)
+			s.entrances.append({"rect": rect, "sides": [side], "horizontal_floors": [entrance_floor] if side.x != 0 else []})
 			s.protected_rects.append(rect.grow(96))
 	# Near a corner two independently owned gates may open into one vestibule.
 	# Treat it as one node; otherwise each mouth excludes every path to the other.
@@ -367,7 +420,7 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 				s.entrances[i].rect = s.entrances[i].rect.merge(s.entrances[j].rect)
 				s.entrances[i].sides.append_array(s.entrances[j].sides)
 				s.entrances[i].horizontal_floors.append_array(s.entrances[j].horizontal_floors)
-				if Vector2i.DOWN in s.entrances[i].sides and not s.entrances[i].horizontal_floors.is_empty():
+				if (Vector2i.DOWN in s.entrances[i].sides or Vector2i.UP in s.entrances[i].sides) and not s.entrances[i].horizontal_floors.is_empty():
 					s.entrances[i].rect.size.y = s.entrances[i].horizontal_floors[0] - s.entrances[i].rect.position.y
 				s.entrances.remove_at(j)
 				merged = true
@@ -376,14 +429,12 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 	for entrance: Dictionary in s.entrances:
 		holes.append(entrance.rect)
 		s.protected_rects.append(entrance.rect.grow(96))
+	# Carve gate columns after vestibule merging, so their floor and shelves
+	# agree with a nearby horizontal gate.
 	for gate: Dictionary in s.gates[Vector2i.UP]:
 		for entrance: Dictionary in s.entrances:
-			if entrance.rect.has_point(Vector2(gate.x + 128, 224)) and entrance.rect.end.y > 320:
-				if entrance.rect.end.y < 416:
-					# The existing 224px landing reaches this floor directly. A
-					# 320px plate would have less than 92px of clearance below it.
-					holes.append(Rect2(gate.x, 320, 256, entrance.rect.end.y - 320))
-				else: _shaft(s, holes, gate.x, 320, int(entrance.rect.end.y))
+			if entrance.rect.has_point(Vector2(gate.x+128,224)):
+				_shaft(s,holes,gate.x,0,int(entrance.rect.end.y),true)
 	for gate: Dictionary in s.gates[Vector2i.DOWN]:
 		for entrance: Dictionary in s.entrances:
 			if Vector2i.DOWN in entrance.sides and gate.x + 128 >= entrance.rect.position.x and gate.x + 128 < entrance.rect.end.x:
@@ -395,7 +446,6 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 	s.connection_candidates = layout.candidates
 	s.connection_nodes = layout.nodes
 	s.cycles = layout.cycles
-	s.diagonal_clearances = []
 	for room: Dictionary in s.chambers:
 		holes.append(room.rect)
 		if room.kind != "normal": s.protected_rects.append(room.rect.grow(64))
@@ -404,11 +454,6 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 			s.spawns.append({"id": "guardian_%d" % boss_id, "kind": "boss", "boss_id": boss_id, "polarity": int(seed_value & 1), "position": pos, "patrol": Vector2(pos.x, pos.x), "chamber_id": room.id})
 			s.landmarks.append({"id": boss_id, "position": pos})
 	for edge: Dictionary in layout.edges:
-		if edge.type == "diagonal_platforms":
-			for piece: Rect2 in edge.pieces:
-				holes.append(piece)
-				s.diagonal_clearances.append(piece)
-				s.protected_rects.append(piece.grow(96))
 		if edge.type in ["shaft", "elbow"]:
 			var rect: Rect2 = edge.rect if edge.type == "shaft" else edge.shaft
 			_shaft(s, holes, int(rect.position.x), int(rect.position.y), int(rect.end.y), false, int(rect.size.x))
@@ -421,38 +466,12 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 			s.tunnels.append({"rect": bounds, "pieces": edge.pieces, "height": edge.height})
 	var shelves: Array = s.solids
 	s.solids = G._carve(holes, T.SECTOR_SIZE) + shelves
-	_place_diagonal_platforms(s)
 	_bridge_floors(s)
-	_bridge_platform_mouths(s)
-	if not s.diagonal_clearances.is_empty():
-		# A furnishing retry cannot create space for a floor feature when the
-		# chosen connections occupy every possible site. Reject that skeleton.
-		var normal_count := 0
-		var step_sites := 0
-		for room: Dictionary in s.chambers:
-			if room.kind != "normal": continue
-			normal_count += 1
-			for x in range(int(room.rect.position.x)+32,int(room.rect.end.x)-159,32):
-				var step := Rect2(x,room.rect.end.y-32,128,32)
-				if s.shafts.any(func(e): return e.rect.grow(32).intersects(step)) or s.tunnels.any(func(e): return e.rect.grow(32).intersects(step)) or G._any_intersects(s.diagonal_clearances,step): continue
-				if s.solids.any(func(r): return r.size.y==16 and Rect2(r.position-Vector2(16,80),r.size+Vector2(32,160)).intersects(step)): continue
-				step_sites += 1
-				break
-		if step_sites < normal_count * 0.5: return {}
-		var thick: Array = s.solids.filter(func(r): return r.size.y != 16)
-		for shelf: Rect2 in s.solids:
-			if shelf.size.y != 16: continue
-			var inset := minf(16, shelf.size.x / 4)
-			for dy: float in [-76,16]:
-				if G._any_intersects(thick,Rect2(shelf.position + Vector2(inset,dy),Vector2(shelf.size.x-inset*2,76)).grow(-0.1)): return {}
-		var bare := s.duplicate(false)
-		bare.start_position = T.SECTOR_START if s.coord == Vector2i.ZERO else Vector2(s.chambers[0].rect.position.x + 64, s.chambers[0].rect.end.y - 22)
-		if s.coord != Vector2i.ZERO:
-			var anchor: Rect2 = s.chambers[0].rect
-			for x in range(int(anchor.position.x)+32,int(anchor.end.x)-32,32):
-				var point := Vector2(x,anchor.end.y-22)
-				if G._supported(point,T.PLAYER_SIZE,s.solids) and not G._embedded(point,T.PLAYER_SIZE,s.solids): bare.start_position = point; break
-		if not G.connectivity_errors(bare, false, G.navigation_graph(bare)).is_empty(): return {}
+	_trim_gate_steps(s)
+	_repair_gate_aprons(s)
+	# Furnishings cannot repair an already unsupported passage floor.
+	if not _tunnel_support_errors(s).is_empty(): return {}
+	if not Vertical.errors(s, T.VERTICAL_RUN_MAX).is_empty(): return {}
 	for room: Dictionary in s.chambers:
 		if s.solids.filter(func(r): return r.size.y == 16 and room.rect.encloses(r)).size() > 4: return {}
 	# Retry furnishing against the same carved layout, without throwing away a
@@ -468,6 +487,44 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 			return finished
 	return {}
 
+static func _trim_gate_steps(s: Dictionary) -> void:
+	# Keep a landing beside (rather than 32px directly under) the horizontal
+	# approach when a bottom gate shares its stepped corner vestibule.
+	for side: Vector2i in [Vector2i.LEFT,Vector2i.RIGHT]:
+		if not s.gates[side].any(func(g): return g.floor==int(T.SECTOR_SIZE.y)-T.VERTICAL_RUN_MAX/2-32): continue
+		for shaft: Dictionary in s.shafts:
+			if not shaft.gate: continue
+			for i in range(shaft.platforms.size()):
+				var p: Rect2 = shaft.platforms[i]
+				if p.position.y != int(T.SECTOR_SIZE.y)-T.VERTICAL_RUN_MAX/2: continue
+				var cut: Rect2 = p
+				if side.x<0 and p.position.x<192 and p.end.x>192: cut=Rect2(192,p.position.y,p.end.x-192,16)
+				elif side.x>0 and p.position.x<3904 and p.end.x>3904: cut=Rect2(p.position,Vector2(3904-p.position.x,16))
+				if cut==p: continue
+				var index: int = s.solids.find(p)
+				if index < 0: continue
+				shaft.platforms[i]=cut
+				s.solids[index]=cut
+
+static func _repair_gate_aprons(s: Dictionary) -> void:
+	# An elbow can undercut the floor of a wide top vestibule. Continue its
+	# ladder to the real floor instead of leaving an unreachable last jump.
+	# Only already empty space is used; no additional rock is carved.
+	var thick: Array = s.solids.filter(func(r): return r.size.y!=16)
+	for shaft: Dictionary in s.shafts.duplicate():
+		var r: Rect2 = shaft.rect
+		if not shaft.gate or r.position.y!=0: continue
+		var bottom := INF
+		for rock: Rect2 in thick:
+			if minf(rock.end.x,r.end.x)-maxf(rock.position.x,r.position.x)<64: continue
+			if rock.position.y>=r.end.y and rock.position.y<=r.end.y+T.CAVE_TUNNEL_MAX_HEIGHT: bottom=minf(bottom,rock.position.y)
+		if bottom==INF or bottom<=r.end.y: continue
+		var extended := Rect2(r.position,Vector2(r.size.x,bottom))
+		if thick.any(func(rock): return rock.intersects(extended.grow(-0.1))): continue
+		for plate: Rect2 in shaft.platforms: s.solids.erase(plate)
+		s.shafts.erase(shaft)
+		_shaft(s,[],int(r.position.x),0,int(bottom),true,int(r.size.x))
+
 static func _bridge_floors(s: Dictionary) -> void:
 	# An elbow can enter the ceiling of its lower chamber. Bridge that open
 	# portion to the ladder, so the horizontal branch retains a standing floor.
@@ -475,6 +532,15 @@ static func _bridge_floors(s: Dictionary) -> void:
 		var bridges: Array = []
 		for piece: Rect2 in tunnel.pieces:
 			if G._supported(Vector2(piece.get_center().x, piece.end.y - 22), T.PLAYER_SIZE, s.solids): continue
+			# A merged vestibule can leave only 32/64px of air under a tread.
+			# Fill that unusable sliver with rock; a one-way plate there would
+			# violate the existing clearance test against the rock underneath.
+			for x in range(int(piece.position.x),int(piece.end.x),32):
+				if G._supported(Vector2(x+16,piece.end.y-22),Vector2(32,44),s.solids): continue
+				var bottoms: Array = s.solids.filter(func(r): return r.size.y!=16 and r.position.x<=x and r.end.x>=x+32 and r.position.y>piece.end.y and r.position.y<=piece.end.y+64)
+				if bottoms.is_empty(): continue
+				var floor_y: float = bottoms.map(func(r): return r.position.y).min()
+				s.solids.append(Rect2(x,piece.end.y,32,floor_y-piece.end.y))
 			var spans: Array[Vector2] = [Vector2(piece.position.x, piece.end.x)]
 			for rock: Rect2 in s.solids:
 				if rock.size.y == 16 or rock.position.y >= piece.end.y + 92 or rock.end.y <= piece.end.y - 76: continue
@@ -485,38 +551,6 @@ static func _bridge_floors(s: Dictionary) -> void:
 				if not bridges.is_empty() and bridges[-1].end.x == bridge.position.x and bridges[-1].position.y == bridge.position.y: bridges[-1].size.x += bridge.size.x
 				else: bridges.append(bridge)
 		s.solids.append_array(bridges)
-
-static func _bridge_platform_mouths(s: Dictionary) -> void:
-	# Descending cuts can remove the floor beside the first plate inside its
-	# upper chamber. Keep that mouth connected to the rest of the chamber.
-	for edge: Dictionary in s.connections:
-		if edge.type != "diagonal_platforms": continue
-		var room: Rect2 = s.connection_nodes[edge.a].rect
-		var bridges: Array = []
-		for x in range(int(room.position.x), int(room.end.x), 32):
-			var point := Vector2(x + 16, room.end.y - 22)
-			if G._supported(point, T.PLAYER_SIZE, s.solids): continue
-			var clearance := Rect2(x + 1, room.end.y - 76, 30, 168)
-			if s.solids.any(func(r): return r.size.y != 16 and r.intersects(clearance)): continue
-			var bridge := Rect2(x, room.end.y, 32, 16)
-			if not bridges.is_empty() and bridges[-1].end.x == x: bridges[-1].size.x += 32
-			else: bridges.append(bridge)
-		s.solids.append_array(bridges)
-
-static func _place_diagonal_platforms(s: Dictionary) -> void:
-	# Keep solid terraces where rock already supports the landing; put one-way
-	# plates only over the overlapping openings needed for the next jump.
-	for edge: Dictionary in s.connections:
-		if edge.type != "diagonal_platforms": continue
-		for landing: Rect2 in edge.landings.slice(0,-1):
-			var plates: Array = []
-			for x in range(int(landing.position.x),int(landing.end.x),32):
-				if G._supported(Vector2(x+16,landing.position.y-22),T.PLAYER_SIZE,s.solids): continue
-				var plate := Rect2(x,landing.position.y,32,16)
-				if not plates.is_empty() and plates[-1].end.x==x: plates[-1].size.x+=32
-				else: plates.append(plate)
-			edge.platforms.append_array(plates)
-			s.solids.append_array(plates)
 
 static func _finish(s: Dictionary, rng) -> Dictionary:
 	if s.fallback: _fallback_decorate(s)
@@ -642,7 +676,7 @@ static func _fallback_build(seed_value: int, at: Vector2i) -> Dictionary:
 	for floor_y: int in [864, 1760, 2656]:
 		for x: int in [448, 2496]:
 			var kind := "start" if at == Vector2i.ZERO and x == 448 and floor_y == 1760 else ("boss" if boss_id >= 0 and x == 2496 and floor_y == 1760 else "normal")
-			var height := 640 if kind == "start" else (512 if floor_y == 864 else 576)
+			var height := 640 if kind == "start" else (480 if floor_y == 864 else 576)
 			var rect := Rect2(x, floor_y - height, 1152, height)
 			var room := _node(rect, kind, s.chambers.size(), region)
 			s.chambers.append(room)
@@ -663,6 +697,9 @@ static func _fallback_build(seed_value: int, at: Vector2i) -> Dictionary:
 		rail.platforms = rail.platforms.map(func(r): return Rect2(r.position + Vector2(128 if x == 64 else 0, 0), Vector2(128, 16)))
 		s.solids.append_array(rail.platforms)
 		for y: int in [864, 2656, 2944]: s.solids.append(Rect2(x + (128 if x == 64 else 0), y, 128, 16))
+	# Both rails continue to other cave regions at the top and bottom. In
+	# particular, gates close to a rail must not form a long shared column.
+	for y: int in [320,2944]: _tunnel(s,holes,192,3904,y,y,192)
 	for side: Vector2i in SIDES:
 		s.gates[side] = boundary_gates(seed_value, at, side)
 		for gate: Dictionary in s.gates[side]:
@@ -710,10 +747,13 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		if not s.has(key): errors.append("Missing " + key)
 	if not errors.is_empty(): return errors
 	errors.append_array(diagonal_errors(s))
+	errors.append_array(Vertical.errors(s, T.VERTICAL_RUN_MAX))
 	if s.get("bounds", Rect2()) != Rect2(Vector2.ZERO, T.SECTOR_SIZE): errors.append("Sector bounds")
 	if s.region != region_at(s.seed, s.coord): errors.append("Sector region")
 	if s.get("biomes", []) != [{"id": s.region, "name": T.BIOME_NAMES[s.region], "rect": s.bounds}]: errors.append("Sector biome metadata")
-	if s.chambers.size() < 3: return ["Missing anchor chamber"]
+	if s.chambers.size() < 3:
+		errors.append("Missing anchor chamber")
+		return errors
 	if s.coord == Vector2i.ZERO and s.start_position != T.SECTOR_START: errors.append("Local anchor")
 	if s.chambers.size() not in range(4, 9): errors.append("Chamber count")
 	for side: Vector2i in SIDES:
@@ -769,11 +809,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 			var a: Rect2 = platforms[i - 1]
 			var b: Rect2 = platforms[i]
 			if b.position.y - a.position.y < 96 or b.position.y - a.position.y > 160 or minf(a.end.x,b.end.x)-maxf(a.position.x,b.position.x)<54: errors.append("Shaft spacing")
-	for tunnel: Dictionary in s.tunnels:
-		for i in range(tunnel.pieces.size()):
-			var piece: Rect2 = tunnel.pieces[i]
-			if tunnel.height < 160 or tunnel.height > 256 or G._embedded(Vector2(piece.get_center().x, piece.end.y - 22), T.PLAYER_SIZE, s.solids) or not G._supported(Vector2(piece.get_center().x, piece.end.y - 22), T.PLAYER_SIZE, s.solids): errors.append("Tunnel clearance/support")
-			if i > 0 and absf(piece.end.y - tunnel.pieces[i-1].end.y) > 64: errors.append("Tunnel step")
+	errors.append_array(_tunnel_support_errors(s))
 	for surface: Rect2 in s.erodible_surfaces:
 		if surface.size.y != 64 or G.protected_rect(surface, s) or not G._has_rock_depth(Rect2(surface.position, surface.size * Vector2(1, 2)), s.solids): errors.append("Erosion/protection/depth")
 		if not s.chambers.any(func(r): return r.rect.end.y == surface.position.y and surface.position.x >= r.rect.position.x and surface.end.x <= r.rect.end.x) or not G._supported(Vector2(surface.get_center().x, surface.position.y - 22), Vector2(surface.size.x, 44), s.solids): errors.append("Erosion exposed floor")
@@ -781,7 +817,17 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 	terrain.solids = s.solids + s.breakables
 	var loot_graph := {}
 	for damaged: bool in [false, true]:
-		var graph: Dictionary = generated_graphs[int(damaged)] if generated_graphs.size() == 2 else G.navigation_graph(terrain, damaged)
+		var graph_terrain := terrain
+		if damaged:
+			var eroded := s.duplicate(false)
+			eroded.solids=G.damaged_solids(s)
+			errors.append_array(Vertical.errors(eroded,T.VERTICAL_RUN_MAX))
+			if generated_graphs.size() != 2:
+				graph_terrain = terrain.duplicate(false)
+				# Subtraction preserves order and treats each rectangle independently.
+				# Share the eroded rock with the vertical check; breakables stay graph-only.
+				graph_terrain.solids = eroded.solids + G.subtract_rects(s.breakables,s.erodible_surfaces)
+		var graph: Dictionary = generated_graphs[int(damaged)] if generated_graphs.size() == 2 else G.navigation_graph(graph_terrain)
 		if not damaged: loot_graph = graph
 		errors.append_array(G.connectivity_errors(s, damaged, graph))
 		for point: Vector2 in gate_positions(s):
@@ -843,14 +889,26 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 	if s.has("loot"): errors.append_array(L.errors(s,loot_graph))
 	return errors
 
+static func _tunnel_support_errors(s: Dictionary) -> Array[String]:
+	var errors: Array[String] = []
+	for tunnel: Dictionary in s.tunnels:
+		for i in range(tunnel.pieces.size()):
+			var piece: Rect2 = tunnel.pieces[i]
+			if tunnel.height < 160 or tunnel.height > 256 or G._embedded(Vector2(piece.get_center().x,piece.end.y-22),T.PLAYER_SIZE,s.solids) or not G._supported(Vector2(piece.get_center().x,piece.end.y-22),T.PLAYER_SIZE,s.solids): errors.append("Tunnel clearance/support")
+			if i>0 and absf(piece.end.y-tunnel.pieces[i-1].end.y)>64: errors.append("Tunnel step")
+	return errors
+
 static func diagonal_errors(s: Dictionary) -> Array[String]:
 	var errors: Array[String] = []
 	var nodes: Array = s.get("connection_nodes", [])
 	for edge: Dictionary in s.get("connections", []):
-		if edge.type == "diagonal_platforms":
-			errors.append_array(_diagonal_platform_errors(s, edge, nodes))
+		if edge.type not in ["shaft", "elbow", "tunnel", "diagonal"]:
+			errors.append("Unknown connection type")
 			continue
-		if edge.type != "diagonal": continue
+		if edge.type == "elbow" and edge.get("gentle_leg",false):
+			errors.append_array(_gentle_leg_errors(s,edge,nodes))
+		if edge.type not in ["diagonal", "tunnel"]: continue
+		var gentle: bool = edge.type == "tunnel"
 		if not edge.has("pieces") or edge.pieces.size() < 2 or edge.a not in range(nodes.size()) or edge.b not in range(nodes.size()):
 			errors.append("Diagonal metadata")
 			continue
@@ -859,63 +917,72 @@ static func diagonal_errors(s: Dictionary) -> Array[String]:
 		var run := last.end.x - first.position.x
 		var rise := last.end.y - first.end.y
 		var angle := rad_to_deg(atan2(absf(rise), run))
-		if run < T.DIAGONAL_LENGTH_MIN or run > T.DIAGONAL_LENGTH_MAX or absf(rise) < T.DIAGONAL_RISE_MIN or angle < T.DIAGONAL_ANGLE_MIN or angle > T.DIAGONAL_ANGLE_MAX: errors.append("Diagonal angle/length")
-		if edge.height < T.DIAGONAL_HEIGHT_MIN or edge.height > T.DIAGONAL_HEIGHT_MAX: errors.append("Diagonal ceiling height")
-		if first.position.x != nodes[edge.a].rect.end.x - 32 or last.end.x != nodes[edge.b].rect.position.x + 32 or first.end.y != nodes[edge.a].rect.end.y or last.end.y != nodes[edge.b].rect.end.y: errors.append("Diagonal mouths")
+		if gentle:
+			if run > T.GENTLE_LENGTH_MAX or absf(rise) > run * 0.5: errors.append("Gentle angle/length")
+		elif run < T.DIAGONAL_LENGTH_MIN or run > T.DIAGONAL_LENGTH_MAX or absf(rise) < T.DIAGONAL_RISE_MIN or angle < T.DIAGONAL_ANGLE_MIN or angle > T.DIAGONAL_ANGLE_MAX: errors.append("Diagonal angle/length")
+		if edge.height < (T.GENTLE_HEIGHT_MIN if gentle else T.DIAGONAL_HEIGHT_MIN) or edge.height > (T.GENTLE_HEIGHT_MAX if gentle else T.DIAGONAL_HEIGHT_MAX): errors.append("Diagonal ceiling height")
+		var mouth_ok: bool = first.position.x == nodes[edge.a].rect.end.x-32 and last.end.x == nodes[edge.b].rect.position.x+32
+		if not mouth_ok or first.end.y != nodes[edge.a].rect.end.y or last.end.y != nodes[edge.b].rect.end.y: errors.append("Diagonal mouths")
 		var bounds := first
 		var flat := 0.0
 		for i in range(edge.pieces.size()):
 			var p: Rect2 = edge.pieces[i]
 			bounds = bounds.merge(p)
-			if p.size.x < T.DIAGONAL_TREAD_MIN or p.size.x > T.DIAGONAL_TREAD_MAX or p.size.y != edge.height: errors.append("Diagonal tread/clearance")
+			if p.size.x < (T.GENTLE_TREAD_MIN if gentle else T.DIAGONAL_TREAD_MIN) or (not gentle and p.size.x > T.DIAGONAL_TREAD_MAX) or p.size.y != edge.height: errors.append("Diagonal tread/clearance")
 			for v: float in [p.position.x, p.position.y, p.size.x, p.size.y]:
 				if fmod(v, 32) != 0: errors.append("Diagonal grid")
 			flat = flat + p.size.x if i > 0 and p.end.y == edge.pieces[i-1].end.y else p.size.x
-			if flat > T.DIAGONAL_LANDING_MAX: errors.append("Diagonal landing length")
+			if not gentle and flat > T.DIAGONAL_LANDING_MAX: errors.append("Diagonal landing length")
 			if i > 0:
 				var previous: Rect2 = edge.pieces[i-1]
 				var delta := p.end.y - previous.end.y
-				if p.position.x != previous.end.x or absf(delta) > T.DIAGONAL_STEP_MAX or delta * rise < 0: errors.append("Diagonal step/continuity")
+				if p.position.x != previous.end.x or absf(delta) > (T.GENTLE_STEP_MAX if gentle else T.DIAGONAL_STEP_MAX) or delta * rise < 0: errors.append("Diagonal step/continuity")
 			if not s.bounds.encloses(p) or s.solids.any(func(r): return r.size.y != 16 and r.intersects(p.grow(-0.1))): errors.append("Diagonal carved clearance")
 			if not s.protected_rects.any(func(r): return r.encloses(p.grow(96))): errors.append("Diagonal protection")
-			if nodes.any(func(n): return n.id not in [edge.a, edge.b] and p.grow(32).intersects(n.rect)): errors.append("Diagonal crosses chamber")
+			if nodes.any(func(n): return n.id not in [edge.a, edge.b] and p.grow(T.CAVE_ROCK_GAP - 0.1 if gentle else 32).intersects(n.rect)): errors.append("Diagonal crosses chamber")
 		if bounds != edge.rect or not s.tunnels.any(func(t): return t.pieces == edge.pieces and t.height == edge.height): errors.append("Diagonal terrain metadata")
 		if not _compatible(edge, s.connections.filter(func(other): return other != edge), nodes): errors.append("Diagonal crosses connection")
 	return errors
 
-static func _diagonal_platform_errors(s: Dictionary, edge: Dictionary, nodes: Array) -> Array[String]:
+static func _gentle_leg_errors(s: Dictionary, edge: Dictionary, nodes: Array) -> Array[String]:
 	var errors: Array[String] = []
-	if edge.get("landings", []).size() < 3 or edge.get("pieces", []).size() != edge.landings.size() or edge.get("platforms", []).is_empty() or edge.a not in range(nodes.size()) or edge.b not in range(nodes.size()): return ["Diagonal platform metadata"]
-	var first: Rect2 = edge.landings[0]
-	var last: Rect2 = edge.landings[-1]
-	var run := absf(last.position.x - first.position.x)
-	var rise := last.position.y - first.position.y
-	var angle := rad_to_deg(atan2(rise, run))
-	if run > T.DIAGONAL_LENGTH_MAX or angle < T.DIAGONAL_ANGLE_MIN or angle > T.DIAGONAL_ANGLE_MAX: errors.append("Diagonal platform angle/length")
-	if first.position.y != nodes[edge.a].rect.end.y or last.position.y != nodes[edge.b].rect.end.y: errors.append("Diagonal platform mouths")
-	if first.position.x < nodes[edge.a].rect.position.x or first.end.x > nodes[edge.a].rect.end.x or last.position.x < nodes[edge.b].rect.position.x or last.end.x > nodes[edge.b].rect.end.x: errors.append("Diagonal platform mouth width")
-	var bounds: Rect2 = edge.pieces[0]
-	for plate: Rect2 in edge.platforms:
-		if not s.solids.has(plate) or not edge.landings.any(func(p): return p.encloses(plate)): errors.append("Diagonal platform missing")
-	for i in range(edge.landings.size()):
-		var shelf: Rect2 = edge.landings[i]
+	if edge.a==edge.b or edge.a not in range(nodes.size()) or edge.b not in range(nodes.size()) or edge.get("pieces",[]).size()<2 or not edge.has("shaft"): return ["Gentle elbow metadata"]
+	var shaft: Rect2 = edge.shaft
+	var u: Rect2 = nodes[edge.a].rect
+	var l: Rect2 = nodes[edge.b].rect
+	var other: Rect2
+	var floor_y: float
+	if shaft.position.y==u.end.y and shaft.end.y<l.end.y:
+		other=l
+		floor_y=shaft.end.y
+	elif shaft.end.y==l.end.y and shaft.position.y>u.end.y:
+		other=u
+		floor_y=shaft.position.y
+	else: return ["Gentle elbow shaft endpoints"]
+	var first: Rect2 = edge.pieces[0]
+	var last: Rect2 = edge.pieces[-1]
+	if other.end.x<=shaft.position.x:
+		if first.position.x!=other.end.x-32 or first.end.y!=other.end.y or last.end.x!=shaft.end.x or last.end.y!=floor_y: errors.append("Gentle elbow mouths")
+	elif other.position.x>=shaft.end.x:
+		if first.position.x!=shaft.position.x or first.end.y!=floor_y or last.end.x!=other.position.x+32 or last.end.y!=other.end.y: errors.append("Gentle elbow mouths")
+	else: errors.append("Gentle elbow overlap")
+	var rise := last.end.y-first.end.y
+	if absf(rise)>(last.end.x-first.position.x)*0.5 or edge.height<T.GENTLE_HEIGHT_MIN or edge.height>T.GENTLE_HEIGHT_MAX: errors.append("Gentle elbow angle/ceiling")
+	var bounds := shaft
+	for i in range(edge.pieces.size()):
 		var p: Rect2 = edge.pieces[i]
-		bounds = bounds.merge(p)
-		if shelf.size != Vector2(T.DIAGONAL_PLATFORM_WIDTH,16) or p.position != shelf.position - Vector2(0,T.DIAGONAL_PLATFORM_HEADROOM) or p.size.x != shelf.size.x or p.end.y != minf(shelf.position.y + T.DIAGONAL_PLATFORM_UNDERCUT,last.position.y): errors.append("Diagonal platform width/ceiling")
-		var standing := Vector2(shelf.get_center().x,shelf.position.y-22)
-		var standing_size := Vector2(shelf.size.x,T.PLAYER_SIZE.y)
-		if not G._supported(standing,standing_size,s.solids) or G._embedded(standing,standing_size,s.solids): errors.append("Diagonal platform standing point")
-		for v: float in [shelf.position.x, shelf.position.y]:
-			if fmod(v,32) != 0: errors.append("Diagonal platform grid")
-		if i > 0:
-			var previous: Rect2 = edge.landings[i-1]
-			var dy := shelf.position.y - previous.position.y
-			var dx := absf(shelf.position.x - previous.position.x)
-			if dy < T.DIAGONAL_PLATFORM_RISE_MIN or dy > T.DIAGONAL_PLATFORM_RISE_MAX or dx < T.DIAGONAL_PLATFORM_SHIFT_MIN or dx > T.DIAGONAL_PLATFORM_SHIFT_MAX or (shelf.position.x - previous.position.x) * (last.position.x - first.position.x) <= 0: errors.append("Diagonal platform spacing")
-		if not s.bounds.encloses(p) or s.solids.any(func(r): return r.size.y != 16 and r.intersects(p.grow(-0.1))): errors.append("Diagonal platform carved clearance")
-		if not s.protected_rects.any(func(r): return r.encloses(p.grow(96))): errors.append("Diagonal platform protection")
-		if nodes.any(func(n): return n.id not in [edge.a,edge.b] and p.grow(32).intersects(n.rect)): errors.append("Diagonal platform crosses chamber")
-	if bounds != edge.rect or not _compatible(edge,s.connections.filter(func(other): return other != edge),nodes): errors.append("Diagonal platform crosses connection/bounds")
+		bounds=bounds.merge(p)
+		if p.size.x<T.GENTLE_TREAD_MIN or p.size.y!=edge.height: errors.append("Gentle elbow tread")
+		for value: float in [p.position.x,p.position.y,p.size.x,p.size.y]:
+			if fmod(value,32)!=0: errors.append("Gentle elbow grid")
+		if i>0:
+			var prev: Rect2 = edge.pieces[i-1]
+			if p.position.x!=prev.end.x or absf(p.end.y-prev.end.y)>T.GENTLE_STEP_MAX or (p.end.y-prev.end.y)*rise<0: errors.append("Gentle elbow step")
+		if not s.bounds.encloses(p) or s.solids.any(func(r): return r.size.y!=16 and r.intersects(p.grow(-0.1))): errors.append("Gentle elbow clearance")
+		if not s.protected_rects.any(func(r): return r.encloses(p.grow(96))): errors.append("Gentle elbow protection")
+		if nodes.any(func(n): return n.id not in [edge.a,edge.b] and p.grow(T.CAVE_ROCK_GAP-0.1).intersects(n.rect)): errors.append("Gentle elbow crosses chamber")
+	if bounds!=edge.rect or not s.tunnels.any(func(t): return t.pieces==edge.pieces and t.height==edge.height): errors.append("Gentle elbow terrain metadata")
+	if not _compatible(edge,s.connections.filter(func(e): return e!=edge),nodes): errors.append("Gentle elbow crosses connection")
 	return errors
 
 # Check the whole 32px strip: two neighbors retain 64px of rock outside openings.
