@@ -135,6 +135,8 @@ var _map_record_revision := -1
 var stream: RefCounted
 var streaming_enabled := true
 var streaming_wait := false
+var stream_install_ms := 0.0
+var stream_service_did_work := false # OR across physics callbacks until the next redraw.
 var frame_times: Array[float] = []
 var physics_frame_times: Array[float] = []
 var physics_frame_started := 0
@@ -210,6 +212,7 @@ func return_to_title() -> void:
 
 func _ready() -> void:
 	process_physics_priority = -100
+	process_priority = 1000 # Redraw after world callbacks (excavation, walls, restores).
 	_register_inputs()
 	camera = Camera2D.new()
 	camera.position = T.VIEW_SIZE / 2
@@ -234,6 +237,8 @@ func _random_seed() -> int:
 
 func start_run(stage_seed: int) -> void:
 	var started := Time.get_ticks_usec()
+	stream_install_ms = 0.0
+	stream_service_did_work = false
 	if boss_cycle != null: boss_cycle.shutdown()
 	if stream != null: stream.shutdown()
 	if is_instance_valid(world):
@@ -411,8 +416,12 @@ func _physics_process(delta: float) -> void:
 		if streaming_enabled:
 			stream.request_around(player.position,player.velocity)
 			stream.service()
-			var next_view := view_rect().grow(T.TILE_SIZE).merge(Rect2(player.position - T.VIEW_SIZE / 2 + player.velocity * delta, T.VIEW_SIZE))
-			streaming_wait = not stream.contains_rect(next_view) or not stream.neighbourhood_ready(player.position,delta)
+			stream_install_ms += stream.service_times[-1]
+			stream_service_did_work = stream_service_did_work or stream.service_did_work
+			var next_view := stream_view_rect(delta)
+			terrain.prepare_view(next_view)
+			stream.prepare_backdrop_view(next_view)
+			streaming_wait = not stream.contains_rect(next_view) or not stream.neighbourhood_ready(player.position,delta) or not terrain.view_is_current(next_view)
 			world.process_mode = Node.PROCESS_MODE_DISABLED if streaming_wait else Node.PROCESS_MODE_INHERIT
 			if streaming_wait:
 				stream.hold_frames += 1
@@ -438,9 +447,29 @@ func _finish_physics_sample() -> void:
 	physics_frame_started = 0
 	if physics_frame_times.size() > T.STREAM_METRIC_SAMPLES: physics_frame_times.pop_front()
 
+func stream_view_rect(delta: float = 1.0 / 60.0) -> Rect2:
+	# Contains the present and next camera view, plus a conservative envelope
+	# for a dash/fall and ceiling correction before the next physics check.
+	var next := Rect2(camera_target(delta) - T.VIEW_SIZE / 2, T.VIEW_SIZE)
+	var movement := maxf(T.AIR_DASH_SPEED, T.MAX_FALL_SPEED) * delta + T.CEILING_CORRECTION
+	return view_rect().merge(next).grow(T.STREAM_VIEW_MARGIN + movement)
+
+func _process(_delta: float) -> void:
+	if not streaming_enabled or stream == null or not is_instance_valid(terrain) or not is_instance_valid(player) or not world.visible: return
+	var area := stream_view_rect()
+	stream.prepare_backdrop_view(area)
+	terrain.service_redraw(area, stream.priority_point, maxf(0.0, T.STREAM_DRAW_BUDGET_MS - stream_install_ms), stream_service_did_work)
+	stream_install_ms = 0.0
+	stream_service_did_work = false
+
 func _update_camera(delta: float, snap: bool = false) -> void:
 	if not is_instance_valid(player):
 		return
+	camera.position = camera_target(delta, snap)
+	if snap:
+		camera.reset_smoothing()
+
+func camera_target(delta: float, snap: bool = false) -> Vector2:
 	var look := clampf(player.velocity.x / T.MOVE_SPEED, -1.0, 1.0) * T.CAMERA_LOOK_AHEAD
 	var fall_look := clampf(player.velocity.y / T.MAX_FALL_SPEED, 0.0, 1.0) * T.CAMERA_FALL_LOOK_AHEAD
 	var focus := player.position + Vector2(look, -T.CAMERA_VERTICAL_OFFSET + fall_look)
@@ -453,9 +482,7 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 			target.x = focus.x - signf(difference.x) * T.CAMERA_DEAD_ZONE.x
 		if absf(difference.y) > T.CAMERA_DEAD_ZONE.y:
 			target.y = focus.y - signf(difference.y) * T.CAMERA_DEAD_ZONE.y
-	camera.position = target if snap else camera.position.lerp(target, 1.0 - exp(-T.CAMERA_FOLLOW_SPEED * delta))
-	if snap:
-		camera.reset_smoothing()
+	return target if snap else camera.position.lerp(target, 1.0 - exp(-T.CAMERA_FOLLOW_SPEED * delta))
 
 func biome_at(point: Vector2) -> int:
 	return preload("res://scripts/sector_generator.gd").region_at(current_seed, origin_sector + SectorStream.coord_at(point))

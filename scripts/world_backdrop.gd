@@ -5,12 +5,15 @@ const Terrain := preload("res://scripts/world_terrain.gd")
 const T := preload("res://scripts/tuning.gd")
 const CHUNK_SIZE := 512
 var stage: Dictionary = {}
+var chunks: Dictionary = {} # Stable world chunk keys survive origin shifts.
 
 class BackdropChunk extends Node2D:
 	var backdrop: Node2D
 	var bounds: Rect2
+	var drawn := false
 	func _draw() -> void:
 		backdrop.draw_chunk(self, bounds)
+		drawn = true
 
 func _ready() -> void:
 	z_index = -20
@@ -21,7 +24,25 @@ func _ready() -> void:
 			chunk.backdrop = self
 			chunk.position = Vector2(x, y) * CHUNK_SIZE
 			chunk.bounds = Rect2(chunk.position, Vector2.ONE * CHUNK_SIZE).intersection(bounds)
+			# Streamed sectors install all background data now, but do not build
+			# 48 offscreen drawing lists on the sector's completion frame.
+			if stage.get("streaming", false): chunk.hide()
+			var origin: Vector2i = stage.get("origin_sector", Vector2i.ZERO)
+			chunks[Vector2i(x, y) + origin * Vector2i(T.SECTOR_SIZE / CHUNK_SIZE)] = chunk
 			add_child(chunk)
+
+func view_chunks(area: Rect2) -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	var origin: Vector2i = stage.get("origin_sector", Vector2i.ZERO) * Vector2i(T.SECTOR_SIZE / CHUNK_SIZE)
+	var first := Vector2i((area.position / CHUNK_SIZE).floor()) + origin
+	var last := Vector2i((area.end / CHUNK_SIZE).ceil()) + origin
+	for y in range(first.y, last.y):
+		for x in range(first.x, last.x):
+			if chunks.has(Vector2i(x, y)): result.append(chunks[Vector2i(x, y)])
+	return result
+
+func prepare_view(area: Rect2) -> void:
+	for chunk: Node2D in view_chunks(area): chunk.show()
 
 func color_at(x: float, key: String = "back") -> Color:
 	return Terrain.regional_theme(Vector2(x,0),int(stage.get("seed",0)), stage.get("origin_sector", Vector2i.ZERO))[key]

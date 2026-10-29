@@ -104,6 +104,7 @@ func run():
 	game.player.position=Vector2(gate.rect.position.x-320,gate.rect.end.y-22)
 	game._update_camera(0,true)
 	var render_samples: Array[float] = []
+	var slow_render_frames: Array = []
 	var first_frame_ms := 0.0
 	for frame in range(900):
 		var frame_started := Time.get_ticks_usec()
@@ -120,7 +121,11 @@ func run():
 			test_progress()
 			await RenderingServer.frame_post_draw
 			if frame==0: first_frame_ms=(Time.get_ticks_usec()-visible_started)/1000.0
-			else: render_samples.append((Time.get_ticks_usec()-frame_started)/1000.0)
+			else:
+				var work_ms := (Time.get_ticks_usec()-frame_started)/1000.0
+				render_samples.append(work_ms)
+				if work_ms > 16.7:
+					slow_render_frames.append({"frame":frame,"work_ms":work_ms,"install_ms":game.stream.service_times[-1],"redraw_cpu_ms":game.terrain.redraw_service_ms,"estimated_draw_ms":game.terrain.redraw_estimated_ms,"physics_ms":game.physics_frame_times[-1]})
 	Input.action_release("move_left")
 	Input.action_release("move_right")
 	check(game.stream.loaded.size()>9,"moving benchmark includes incremental loading")
@@ -137,6 +142,8 @@ func run():
 		check(frame_report.main_mean_ms<1000.0/60.0 and frame_report.physics_mean_ms<1000.0/60.0,"stage-three average frame processing stays within 60fps budget")
 	if render_frames:
 		frame_report.start_to_first_render_ms=first_frame_ms
+		frame_report.visible_start_run_ms=game.last_start_metrics.start_run_ms
+		frame_report.slow_render_frames=slow_render_frames
 		frame_report.render_frame_mean_ms=render_samples.reduce(func(a,b):return a+b,0.0)/render_samples.size()
 		frame_report.render_frame_max_ms=render_samples.max()
 	game.free()

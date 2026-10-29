@@ -21,6 +21,7 @@ var actor_index := 0
 var backdrops: Dictionary = {}
 var generation_times: Array[float] = []
 var service_times: Array[float] = []
+var service_did_work := false # Explicit work, independent of the nonzero polling duration.
 var hold_frames := 0
 var unload_count := 0
 var center := Vector2i.ZERO
@@ -37,6 +38,7 @@ func _service_population_jobs() -> void:
 	for at: Vector2i in population_jobs.keys():
 		var job: RefCounted = population_jobs[at]
 		if not WorkerThreadPool.is_task_completed(job.task_id): continue
+		service_did_work = true
 		WorkerThreadPool.wait_for_task_completion(job.task_id)
 		population_jobs.erase(at)
 		population_times.append(job.generation_ms)
@@ -52,6 +54,7 @@ func _service_population_jobs() -> void:
 		var at: Vector2i = population_waiting.pop_front()
 		if not loaded.has(at) or not population_sources.has(at): continue
 		var job := PopulationJob.new()
+		service_did_work = true
 		job.data = population_sources[at]
 		population_jobs[at] = job
 		job.task_id = WorkerThreadPool.add_task(job.run,false,"enemy population %s" % at)
@@ -81,6 +84,7 @@ func _defer_population(spawn: Dictionary) -> void:
 func _service_population(until: int) -> void:
 	for i in range(mini(population_queue.size(), T.LOOP_POPULATION_BATCH)):
 		if Time.get_ticks_usec() >= until: break
+		service_did_work = true # Includes deferred/rejected population attempts.
 		var id: String = population_queue.pop_front()
 		var at: Vector2i = pending_population[id]
 		if not loaded.has(at) or game.defeated_enemies.has(id):
@@ -196,18 +200,15 @@ func priority_score(at: Vector2i) -> float:
 
 func service() -> void:
 	var begin := Time.get_ticks_usec()
+	service_did_work = false
 	var until := begin + int(T.STREAM_BUDGET_MS * 1000)
-	var redraws := 0
-	while not game.terrain.pending_redraw.is_empty() and redraws < T.STREAM_DRAW_CHUNKS_PER_FRAME:
-		var key: Vector2i = game.terrain.pending_redraw.pop_front()
-		if game.terrain.draw_chunks.has(key): game.terrain.draw_chunks[key].queue_redraw()
-		redraws += 1
 	if active_job == null:
 		var candidates: Array = jobs.keys()
 		candidates.sort_custom(func(a, b): return priority_score(a) < priority_score(b))
 		for at: Vector2i in candidates:
 			var job: RefCounted = jobs[at]
 			if not WorkerThreadPool.is_task_completed(job.task_id): continue
+			service_did_work = true
 			WorkerThreadPool.wait_for_task_completion(job.task_id)
 			jobs.erase(at)
 			generation_times.append(job.generation_ms)
@@ -218,10 +219,8 @@ func service() -> void:
 			game.terrain.begin_sector(job.result)
 			break
 	while active_job != null and Time.get_ticks_usec() < until:
+		service_did_work = true
 		if not game.terrain.building.is_empty():
-			if game.terrain.building.phase == 5:
-				if redraws >= T.STREAM_DRAW_CHUNKS_PER_FRAME: break
-				redraws += 1
 			game.terrain.build_step()
 			continue
 		var data: Dictionary = active_job.result.data
@@ -243,6 +242,7 @@ func service() -> void:
 	if active_job == null:
 		for at: Vector2i in loaded.keys():
 			if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE:
+				service_did_work = true
 				_unload(at)
 				break
 	_service_population_jobs()
@@ -255,6 +255,25 @@ func _add_backdrop(at: Vector2i) -> void:
 	background.stage = {"seed": game.current_seed, "bounds": Rect2(sector_offset(at), T.SECTOR_SIZE), "streaming": true, "origin_sector": game.origin_sector}
 	game.world.add_child(background)
 	backdrops[at] = background
+
+func prepare_backdrop_view(area: Rect2) -> void:
+	for at: Vector2i in _view_sectors(area):
+		if backdrops.has(at): backdrops[at].prepare_view(area)
+
+func backdrop_view_is_current(area: Rect2, rendered: bool = false) -> bool:
+	for at: Vector2i in _view_sectors(area):
+		if not backdrops.has(at): continue # Sector completion is checked separately.
+		for chunk: Node2D in backdrops[at].view_chunks(area):
+			if not chunk.visible or rendered and not chunk.drawn: return false
+	return true
+
+func _view_sectors(area: Rect2) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var first := sector_at(area.position)
+	var last := sector_at(area.end - Vector2.ONE * 0.01)
+	for y in range(first.y, last.y + 1):
+		for x in range(first.x, last.x + 1): result.append(Vector2i(x, y))
+	return result
 
 func _spawn(spawn: Dictionary) -> void:
 	if game.defeated_enemies.has(spawn.id): return

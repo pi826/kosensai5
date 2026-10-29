@@ -22,10 +22,15 @@ const THEMES := [
 
 class DrawChunk extends Node2D:
 	var terrain: Node2D
+	var key := Vector2i.ZERO
+	var change_version := 0
+	var submitted_version := -1
+	var drawn_version := -1
 	var cells: Array[Vector2i] = []
 	var shelves: Array[Rect2] = []
 	var walls: Array[Vector2i] = []
 	func _draw() -> void:
+		var began := Time.get_ticks_usec()
 		for cell in cells:
 			if terrain.tile_masks.has(cell):
 				terrain.draw_tile(self, cell, terrain.tile_masks[cell])
@@ -33,6 +38,8 @@ class DrawChunk extends Node2D:
 			terrain.draw_shelf(self, shelf)
 		for cell in walls:
 			terrain.draw_wall(self, cell)
+		drawn_version = change_version
+		terrain.chunk_draw_finished((Time.get_ticks_usec() - began) / 1000.0)
 
 var stage: Dictionary = {}
 var tile_masks: Dictionary = {}
@@ -189,7 +196,7 @@ func _changed(cells: Array[Vector2i], layer: int) -> void:
 			tile_masks[cell] = mask_for_cell(cell)
 		else:
 			tile_masks.erase(cell)
-		_chunk(_chunk_key(cell)).queue_redraw()
+		request_chunk_redraw(_chunk_key(cell))
 	if layer == 1:
 		revision += 1
 
@@ -358,7 +365,7 @@ func _physics_process(delta: float) -> void:
 			remove_wall(id)
 		elif walls[id].remaining <= T.WALL_BLINK_TIME:
 			for cell: Vector2i in walls[id].cells:
-				_chunk(_chunk_key(cell)).queue_redraw()
+				request_chunk_redraw(_chunk_key(cell))
 
 func map_geometry(area: Rect2) -> Array[Rect2]:
 	var fragments: Array[Rect2] = []
@@ -386,10 +393,21 @@ func _chunk(key: Vector2i) -> DrawChunk:
 	if not draw_chunks.has(key):
 		var chunk := DrawChunk.new()
 		chunk.terrain = self
+		chunk.key = key
 		chunk.position = pixel_of_chunk(key)
+		configure_chunk(chunk)
 		render_root.add_child(chunk)
 		draw_chunks[key] = chunk
 	return draw_chunks[key]
+
+func configure_chunk(_chunk_node: DrawChunk) -> void:
+	pass
+
+func request_chunk_redraw(key: Vector2i) -> void:
+	_chunk(key).queue_redraw()
+
+func chunk_draw_finished(_milliseconds: float) -> void:
+	pass
 
 func _add_collision(bounds: Rect2, layer: int = 1) -> StaticBody2D:
 	var body := StaticBody2D.new()
