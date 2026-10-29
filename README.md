@@ -1,6 +1,6 @@
 # CHROMA SHIFT
 
-**Task 7E：区画の完成と再描画の分離**を実装し、7E-fixで通常ループの画面外キュー停止を修正しました。実装・検証結果は [Task 7E](docs/task7e_stream_install.md) を参照してください。
+**Task 7F：生成結果を維持した高速化**を実装しました。200区画の平均は91.33／91.40→66.78／66.69ms、50ms以下の目標は未達です。最終の全34実行・141,000項目は失敗0。一致比較・内訳・テストは [Task 7F](docs/task7f_generation_speed.md)、区画完成と再描画の分離は [Task 7E](docs/task7e_stream_install.md) を参照してください。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。

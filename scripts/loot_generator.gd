@@ -37,6 +37,24 @@ static func site_valid(s: Dictionary, point: Vector2, blocked: Array = []) -> bo
 	if s.get("merchants", []).any(func(h): return h.position.distance_to(point) < T.LOOT_SPACING): return false
 	return not s.get("loot", []).any(func(h): return h.position.distance_to(point) < T.LOOT_SPACING)
 
+# Keep the public check independent of any cache, including on edited sectors.
+static func _site_valid(s: Dictionary, point: Vector2, blocked: Array, solids: Array, breakables: Array) -> bool:
+	var body := Rect2(point - T.PLAYER_SIZE / 2, T.PLAYER_SIZE)
+	var inside := false
+	var clearance := body.grow(8)
+	for r: Dictionary in s.chambers:
+		if r.kind != "boss" and r.rect.encloses(clearance):
+			inside = true
+			break
+	if not inside: return false
+	if G._embedded(point, T.PLAYER_SIZE, solids) or G._embedded(point, T.PLAYER_SIZE, breakables): return false
+	if blocked.is_empty(): blocked = _site_obstacles(s)
+	if G._any_intersects(blocked,body): return false
+	for items: Array in [s.hearts, s.get("merchants", []), s.get("loot", [])]:
+		for h: Dictionary in items:
+			if h.position.distance_to(point) < T.LOOT_SPACING: return false
+	return true
+
 static func _append(s: Dictionary, point: Vector2, kind: String, contents: Array = []) -> void:
 	var item := {"id": "%s:%d:%d" % [kind, roundi(point.x), roundi(point.y)], "kind": kind, "position": point}
 	if kind == "chest": item.contents = contents
@@ -51,16 +69,19 @@ static func decorate(s: Dictionary, graph: Dictionary = {}, damaged_graph: Dicti
 	terrain.solids = s.solids + s.breakables
 	if graph.is_empty(): graph = G.navigation_graph(terrain)
 	var origin := G.node_at(graph, s.start_position)
-	var forward := G._search(graph, origin)
-	var backward := G._search(graph, origin, true)
+	var forward := G.reachable_nodes(graph, origin)
+	var backward := G.reachable_nodes(graph, origin, true)
 	var sites: Array[Vector2] = []
 	var blocked := _site_obstacles(s)
+	var solid_buckets := G._x_buckets(s.solids, 0)
+	var solid_cache := {}
 	for i in range(graph.nodes.size()):
 		if not forward.has(i) or not backward.has(i): continue
 		var surface: Rect2 = graph.nodes[i]
 		for x in range(int(surface.position.x) + 32, int(surface.end.x) - 31, 32):
 			var point := Vector2(x, surface.position.y - 22)
-			if site_valid(s, point, blocked): sites.append(point)
+			var nearby := G._x_near(s.solids, solid_buckets, x - 16, x + 16, solid_cache)
+			if _site_valid(s, point, blocked, nearby, s.breakables): sites.append(point)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = ("%d:%d:%d:loot" % [s.seed, s.coord.x, s.coord.y]).hash()
 	G._shuffle(sites, rng)
@@ -113,14 +134,22 @@ static func _add_detour(s: Dictionary, base: Dictionary, rng, damaged_base: Dict
 	for shelf: Rect2 in candidates:
 		var point := Vector2(shelf.get_center().x, shelf.position.y - 22)
 		var clearance := Rect2(shelf.position - Vector2(16, 80), shelf.size + Vector2(32, 160))
-		if G._any_intersects(s.solids + s.breakables, clearance) or not site_valid(s, point, blocked): continue
-		var solids: Array = s.solids + s.breakables + [shelf]
+		var nearby := G._x_near(base_solids, spatial.buckets, clearance.position.x, clearance.end.x, spatial.cache)
+		if G._any_intersects(nearby, clearance) or not _site_valid(s, point, blocked, nearby, []): continue
+		var solids: Array = base_solids + [shelf]
 		if G.initial_jump_reaches(base.nodes, shelf, solids): continue
+		var arcs := {}
 		# Test the cheaper preceding profiles before trying the longer flights.
-		if wanted != 1 and base.nodes.any(func(n): return not G.ability_edge(n, shelf, solids, prior, prior_profiles, spatial).is_empty()): continue
+		var prior_reaches := false
+		if wanted != 1:
+			for n: Rect2 in base.nodes:
+				if not G._ability_edge(n, shelf, solids, prior, prior_profiles, spatial, arcs).is_empty():
+					prior_reaches = true
+					break
+		if prior_reaches: continue
 		var edge := {}
 		for i in range(base.nodes.size()):
-			var trial := G.ability_edge(base.nodes[i], shelf, solids, wanted, wanted_profiles, spatial)
+			var trial := G._ability_edge(base.nodes[i], shelf, solids, wanted, wanted_profiles, spatial, arcs)
 			if not trial.is_empty():
 				edge = trial
 				break
@@ -135,7 +164,7 @@ static func _add_detour(s: Dictionary, base: Dictionary, rng, damaged_base: Dict
 		var graph := G.navigation_graph(trial, false, base, [shelf], 0, true)
 		var source := G.node_at(graph, s.start_position)
 		var target := G.node_at(graph, point)
-		if target < 0 or G._search(graph, source).has(target) or not G._search(graph, source, true).has(target): continue
+		if target < 0 or G.reachable_nodes(graph, source).has(target) or not G.reachable_nodes(graph, source, true).has(target): continue
 		if not G.connectivity_errors(trial, false, graph).is_empty(): continue
 		var damaged := G.navigation_graph(trial, true, damaged_base, [shelf], 0, true)
 		if not G.connectivity_errors(trial, true, damaged).is_empty(): continue
@@ -159,8 +188,8 @@ static func errors(s: Dictionary, graph: Dictionary = {}) -> Array[String]:
 	terrain.solids = s.solids + s.breakables
 	if graph.is_empty(): graph = G.navigation_graph(terrain)
 	var root := G.node_at(graph, s.start_position)
-	var forward := G._search(graph, root)
-	var backward := G._search(graph, root, true)
+	var forward := G.reachable_nodes(graph, root)
+	var backward := G.reachable_nodes(graph, root, true)
 	out.append_array(M.errors(s, graph, _site_obstacles(s)))
 	var ids := {}
 	for item: Dictionary in s.loot:

@@ -133,11 +133,23 @@ static func _link(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary
 	var u: Rect2 = upper.rect
 	var l: Rect2 = lower.rect
 	if l.end.y - u.end.y < 96 or l.end.y - u.end.y > T.VERTICAL_RUN_MAX: return long_direct
+	var obstacles: Array = []
+	for n: Dictionary in nodes:
+		if n.id != a.id and n.id != b.id: obstacles.append(n.rect)
 	var sites_by_bend: Array = []
+	var gate_xs: Array = a.get("vertical_gate_x", []) + b.get("vertical_gate_x", [])
 	for bend: Rect2 in [u,l]:
 		var sites: Array = range(int(bend.position.x)+32,int(bend.end.x)-255,32)
-		if not a.get("vertical_gate_x",[]).is_empty() or not b.get("vertical_gate_x",[]).is_empty():
-			sites = sites.filter(func(px): return _gate_connection({"type":"shaft","rect":Rect2(px,u.end.y,256,l.end.y-u.end.y)},a,b))
+		if not gate_xs.is_empty():
+			var allowed: Array = []
+			for px: int in sites:
+				var clear := true
+				for gate_x: float in gate_xs:
+					if px < gate_x + 256 + T.VERTICAL_EXIT_RUN and px + 256 > gate_x - T.VERTICAL_EXIT_RUN:
+						clear = false
+						break
+				if clear: allowed.append(px)
+			sites = allowed
 		sites_by_bend.append(sites)
 	for trial in range(12):
 		var bend: Rect2 = u if trial % 2 == 0 else l
@@ -162,6 +174,10 @@ static func _link(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary
 		var bend_floor := int(l.end.y)-ramp_rise if trial%2==0 else int(u.end.y)+ramp_rise
 		if trial%2==0: shaft.size.y=bend_floor-shaft.position.y
 		else: shaft=Rect2(x,bend_floor,256,l.end.y-bend_floor)
+		# Height was already drawn. A colliding shaft rejects the same union
+		# without allocating its ramp pieces, and consumes no further RNG.
+		var margin := T.CAVE_ROCK_GAP-0.1 if ramp_rise>0 else 32.0
+		if G._any_intersects(obstacles, shaft.grow(margin)): continue
 		var pieces: Array = []
 		if other.end.x <= x:
 			pieces=_ramp_pieces(left,x,int(other.end.y),bend_floor,height)
@@ -169,8 +185,7 @@ static func _link(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictionary
 		else:
 			pieces=_ramp_pieces(x,x+256,bend_floor,bend_floor,height)
 			pieces.append_array(_ramp_pieces(x+256,right,bend_floor,int(other.end.y),height))
-		var cuts: Array = [shaft]+pieces
-		if nodes.any(func(n): return n.id not in [a.id, b.id] and cuts.any(func(r): return r.grow(T.CAVE_ROCK_GAP-0.1 if ramp_rise>0 else 32).intersects(n.rect))): continue
+		if _pieces_intersect(pieces, obstacles, margin): continue
 		var bounds := shaft
 		for p: Rect2 in pieces: bounds=bounds.merge(p)
 		var edge := {"a": upper.id, "b": lower.id, "type": "elbow", "rect": bounds, "shaft": shaft, "pieces": pieces, "height": height, "gentle_leg":ramp_rise>0}
@@ -212,7 +227,7 @@ static func _gentle(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictiona
 		var x := left + i * T.GENTLE_TREAD_MIN
 		var y := int(a.rect.end.y) + roundi(float(rise / 32) * i / (count - 1)) * 32
 		pieces.append(Rect2(x, y - height, right - x if i == count - 1 else T.GENTLE_TREAD_MIN, height))
-	if nodes.any(func(n): return n.id not in [a.id, b.id] and pieces.any(func(p): return p.grow(T.CAVE_ROCK_GAP - 0.1).intersects(n.rect))): return {}
+	if _crosses_nodes(pieces, nodes, a.id, b.id, T.CAVE_ROCK_GAP - 0.1): return {}
 	var bounds: Rect2 = pieces[0]
 	for p: Rect2 in pieces: bounds = bounds.merge(p)
 	return {"a":a.id,"b":b.id,"type":"tunnel","rect":bounds,"pieces":pieces,"height":height}
@@ -257,7 +272,7 @@ static func _diagonal(a: Dictionary, b: Dictionary, nodes: Array, rng) -> Dictio
 		x += widths[i]
 	var bounds: Rect2 = pieces[0]
 	for piece: Rect2 in pieces: bounds = bounds.merge(piece)
-	if nodes.any(func(n): return n.id not in [a.id, b.id] and pieces.any(func(p): return p.grow(32).intersects(n.rect))): return {}
+	if _crosses_nodes(pieces, nodes, a.id, b.id, 32): return {}
 	# Reject a long accidental plateau before carving, rather than retrying furnishings.
 	var flat := 0.0
 	var previous_y := INF
@@ -271,6 +286,18 @@ static func _cuts(edge: Dictionary) -> Array:
 	if edge.type == "shaft": return [edge.rect]
 	return edge.pieces + ([edge.shaft] if edge.type == "elbow" else [])
 
+# Grow each cut once; the old nested Callables grew it again for every node.
+static func _crosses_nodes(cuts: Array, nodes: Array, a: int, b: int, margin: float) -> bool:
+	var obstacles: Array = []
+	for n: Dictionary in nodes:
+		if n.id != a and n.id != b: obstacles.append(n.rect)
+	return _pieces_intersect(cuts, obstacles, margin)
+
+static func _pieces_intersect(cuts: Array, obstacles: Array, margin: float) -> bool:
+	for cut: Rect2 in cuts:
+		if G._any_intersects(obstacles, cut.grow(margin)): return true
+	return false
+
 static func _compatible(edge: Dictionary, chosen: Array, nodes: Array) -> bool:
 	for other: Dictionary in chosen:
 		var margin: float = T.CAVE_ROCK_GAP / 2.0 - 0.05 if "tunnel" in [edge.type, other.type] or edge.get("gentle_leg",false) or other.get("gentle_leg",false) else 16.0
@@ -279,7 +306,12 @@ static func _compatible(edge: Dictionary, chosen: Array, nodes: Array) -> bool:
 			for b: Rect2 in _cuts(other):
 				var overlap := a.grow(margin).intersection(b.grow(margin))
 				if not overlap.has_area(): continue
-				if not [edge.a, edge.b].any(func(id): return id in [other.a, other.b] and nodes[id].rect.grow(32).encloses(overlap)): return false
+				var shared := false
+				for id: int in [edge.a, edge.b]:
+					if (id == other.a or id == other.b) and nodes[id].rect.grow(32).encloses(overlap):
+						shared = true
+						break
+				if not shared: return false
 	return true
 
 static func _layout(s: Dictionary, rng) -> Dictionary:
@@ -348,7 +380,12 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 		var remaining := candidates.duplicate()
 		var incoming := {}
 		while reached.size() < nodes.size():
-			var index := remaining.find_custom(func(e): return reached.has(e.a) != reached.has(e.b) and (e.type in ["tunnel", "diagonal"] or not incoming.has(e.b)) and _compatible(e, chosen, nodes))
+			var index := -1
+			for i in range(remaining.size()):
+				var e: Dictionary = remaining[i]
+				if reached.has(e.a) != reached.has(e.b) and (e.type in ["tunnel", "diagonal"] or not incoming.has(e.b)) and _compatible(e, chosen, nodes):
+					index = i
+					break
 			if index < 0: break
 			var edge: Dictionary = remaining.pop_at(index)
 			chosen.append(edge)
@@ -631,16 +668,33 @@ static func heart_site_valid(s: Dictionary, point: Vector2) -> bool:
 	if s.spawns.any(func(e): return enemy_spawn_area(e).grow(8).intersects(standing)): return false
 	return true
 
+static func _heart_site_valid(s: Dictionary, point: Vector2, solids: Array, blocked: Array) -> bool:
+	var standing := Rect2(point - T.PLAYER_SIZE / 2, T.PLAYER_SIZE)
+	var inside := false
+	for room: Dictionary in s.chambers:
+		if room.kind == "normal" and room.rect.encloses(standing):
+			inside = true
+			break
+	if not inside: return false
+	if not G._supported(point, T.PLAYER_SIZE, solids) or G._embedded(point, T.PLAYER_SIZE, solids) or G._embedded(point, T.PLAYER_SIZE, s.breakables): return false
+	return not G._any_intersects(blocked, standing)
+
 static func _place_hearts(s: Dictionary, graph: Dictionary) -> void:
 	s.hearts = []
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _key(s.seed, s.coord, "hearts")
 	var wanted := rng.randi_range(T.SECTOR_HEART_MIN, T.SECTOR_HEART_MAX)
 	var candidates: Array[Vector2] = []
+	var blocked: Array = []
+	for r: Rect2 in s.breakables: blocked.append(r.grow(4))
+	for e: Dictionary in s.spawns: blocked.append(enemy_spawn_area(e).grow(8))
+	var buckets := G._x_buckets(s.solids, 0)
+	var cache := {}
 	for surface: Rect2 in graph.nodes:
 		for x in range(ceili(surface.position.x / 32) * 32 + 16, int(surface.end.x) - 16, 32):
 			var point := Vector2(x, surface.position.y - T.PLAYER_SIZE.y / 2)
-			if heart_site_valid(s, point): candidates.append(point)
+			var nearby := G._x_near(s.solids, buckets, x - T.PLAYER_SIZE.x / 2, x + T.PLAYER_SIZE.x / 2, cache)
+			if _heart_site_valid(s, point, nearby, blocked): candidates.append(point)
 	G._shuffle(candidates, rng)
 	for point: Vector2 in candidates:
 		if s.hearts.size() >= wanted: break
@@ -785,7 +839,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		if r.size.x < 640 or r.size.x > 1536 or r.size.y < 320 or r.size.y > 704: errors.append("Chamber dimensions")
 		if room.kind == "start" and (s.coord != Vector2i.ZERO or r.size.x < 896 or r.size.y != T.CAVE_START_HEIGHT or not r.has_point(T.SECTOR_START)): errors.append("Start chamber")
 		if room.kind == "boss" and (r.size.x < 1024 or r.size.x > 1408 or r.size.y < 576): errors.append("Boss chamber")
-		if room.kind != "normal" and not s.protected_rects.any(func(p): return p.encloses(r)): errors.append("Unprotected special chamber")
+		if room.kind != "normal" and not G._any_encloses(s.protected_rects, r): errors.append("Unprotected special chamber")
 		for other: Dictionary in s.chambers:
 			if room.id < other.id and r.grow(63.9).intersects(other.rect): errors.append("Chamber rock gap")
 		if room.shelves.size() < 1 or room.shelves.size() > 4: errors.append("Chamber shelf count")
@@ -804,7 +858,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 		var platforms: Array = shaft.platforms
 		for shelf: Rect2 in platforms:
 			if not s.solids.has(shelf) or shelf.position.x < shaft.rect.position.x or shelf.end.x > shaft.rect.end.x: errors.append("Shaft platform missing")
-		if not s.protected_rects.any(func(p): return p.encloses(shaft.rect.grow(96))): errors.append("Shaft protection")
+		if not G._any_encloses(s.protected_rects, shaft.rect.grow(96)): errors.append("Shaft protection")
 		for i in range(1, platforms.size()):
 			var a: Rect2 = platforms[i - 1]
 			var b: Rect2 = platforms[i]
@@ -937,8 +991,8 @@ static func diagonal_errors(s: Dictionary) -> Array[String]:
 				var previous: Rect2 = edge.pieces[i-1]
 				var delta := p.end.y - previous.end.y
 				if p.position.x != previous.end.x or absf(delta) > (T.GENTLE_STEP_MAX if gentle else T.DIAGONAL_STEP_MAX) or delta * rise < 0: errors.append("Diagonal step/continuity")
-			if not s.bounds.encloses(p) or s.solids.any(func(r): return r.size.y != 16 and r.intersects(p.grow(-0.1))): errors.append("Diagonal carved clearance")
-			if not s.protected_rects.any(func(r): return r.encloses(p.grow(96))): errors.append("Diagonal protection")
+			if not s.bounds.encloses(p) or G._any_thick_intersects(s.solids, p.grow(-0.1)): errors.append("Diagonal carved clearance")
+			if not G._any_encloses(s.protected_rects, p.grow(96)): errors.append("Diagonal protection")
 			if nodes.any(func(n): return n.id not in [edge.a, edge.b] and p.grow(T.CAVE_ROCK_GAP - 0.1 if gentle else 32).intersects(n.rect)): errors.append("Diagonal crosses chamber")
 		if bounds != edge.rect or not s.tunnels.any(func(t): return t.pieces == edge.pieces and t.height == edge.height): errors.append("Diagonal terrain metadata")
 		if not _compatible(edge, s.connections.filter(func(other): return other != edge), nodes): errors.append("Diagonal crosses connection")
@@ -978,8 +1032,8 @@ static func _gentle_leg_errors(s: Dictionary, edge: Dictionary, nodes: Array) ->
 		if i>0:
 			var prev: Rect2 = edge.pieces[i-1]
 			if p.position.x!=prev.end.x or absf(p.end.y-prev.end.y)>T.GENTLE_STEP_MAX or (p.end.y-prev.end.y)*rise<0: errors.append("Gentle elbow step")
-		if not s.bounds.encloses(p) or s.solids.any(func(r): return r.size.y!=16 and r.intersects(p.grow(-0.1))): errors.append("Gentle elbow clearance")
-		if not s.protected_rects.any(func(r): return r.encloses(p.grow(96))): errors.append("Gentle elbow protection")
+		if not s.bounds.encloses(p) or G._any_thick_intersects(s.solids, p.grow(-0.1)): errors.append("Gentle elbow clearance")
+		if not G._any_encloses(s.protected_rects, p.grow(96)): errors.append("Gentle elbow protection")
 		if nodes.any(func(n): return n.id not in [edge.a,edge.b] and p.grow(T.CAVE_ROCK_GAP-0.1).intersects(n.rect)): errors.append("Gentle elbow crosses chamber")
 	if bounds!=edge.rect or not s.tunnels.any(func(t): return t.pieces==edge.pieces and t.height==edge.height): errors.append("Gentle elbow terrain metadata")
 	if not _compatible(edge,s.connections.filter(func(e): return e!=edge),nodes): errors.append("Gentle elbow crosses connection")

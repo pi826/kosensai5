@@ -79,6 +79,7 @@ static func mouths(s: Dictionary, c: Rect2, floor_cache: Dictionary, buckets: Di
 	for direction: int in [-1, 1]:
 		var wall: float = c.position.x if direction < 0 else c.end.x
 		var far := wall + direction * EXIT_RUN
+		var continuations := {}
 		for mouth_index: int in passages.piece_bins.get(floori(wall/64),[]):
 			var mouth: Rect2 = passages.pieces[mouth_index]
 			if mouth.position.x>wall or mouth.end.x<wall: continue
@@ -116,9 +117,9 @@ static func mouths(s: Dictionary, c: Rect2, floor_cache: Dictionary, buckets: Di
 			# A wide gate vestibule only counts if its far side continues into
 			# another real connection. A blind alcove cannot reset the run.
 			if passages.entries[mouth_index]:
-				var continuation: bool = s.shafts.any(func(q): return q.rect != c and (q.rect.position.x >= far - 16 if direction > 0 else q.rect.end.x <= far + 16) and q.rect.grow(1).intersects(previous))
-				continuation = continuation or s.tunnels.any(func(t): return t.pieces.any(func(p): return (p.end.x >= far if direction > 0 else p.position.x <= far) and p.intersects(previous)))
-				if not continuation: continue
+				if not continuations.has(previous):
+					continuations[previous] = _continues(s, c, previous, far, direction)
+				if not continuations[previous]: continue
 			var top := maxf(c.position.y, mouth.position.y)
 			var bottom := minf(c.end.y, mouth.end.y)
 			var intervals: Array[Vector2] = [Vector2(top,bottom)]
@@ -129,6 +130,15 @@ static func mouths(s: Dictionary, c: Rect2, floor_cache: Dictionary, buckets: Di
 				if interval.y-interval.x >= MIN_HEIGHT: result.append(interval)
 	result.sort_custom(func(a, b): return a.x < b.x)
 	return result
+
+static func _continues(s: Dictionary, c: Rect2, previous: Rect2, far: float, direction: int) -> bool:
+	for q: Dictionary in s.shafts:
+		var r: Rect2 = q.rect
+		if r != c and (r.position.x >= far - 16 if direction > 0 else r.end.x <= far + 16) and r.grow(1).intersects(previous): return true
+	for t: Dictionary in s.tunnels:
+		for p: Rect2 in t.pieces:
+			if (p.end.x >= far if direction > 0 else p.position.x <= far) and p.intersects(previous): return true
+	return false
 
 static func measure(s: Dictionary) -> Dictionary:
 	var runs: Array = []
