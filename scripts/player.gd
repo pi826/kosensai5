@@ -70,7 +70,7 @@ func add_homing_charges(amount: int) -> int:
 	var before := homing_charges
 	homing_charges = mini(charge_capacity(), homing_charges + amount)
 	var gained := homing_charges - before
-	if gained > 0 and is_instance_valid(game): game.play_sound("charge",position)
+	if gained > 0 and is_instance_valid(game): game.play_sound("charge", position)
 	if gained > 0 and is_instance_valid(game) and is_instance_valid(game.effects):
 		game.effects.show_charge(global_position, gained)
 	return gained
@@ -78,7 +78,7 @@ func add_homing_charges(amount: int) -> int:
 func launch_homing() -> bool:
 	if dead: return false
 	if homing_charges <= 0:
-		game.play_sound("empty",position)
+		game.play_sound("empty", position)
 		return false
 	homing_charges -= 1
 	game.fire_special(self, volley_size())
@@ -99,7 +99,7 @@ func heal(amount: int) -> int:
 	hp = mini(max_hp, hp + amount)
 	if hp > before:
 		_hp_changed(before)
-		game.play_sound("heal",position)
+		game.play_sound("heal", position)
 	return hp - before
 
 func _hp_changed(previous_hp: int) -> void:
@@ -133,10 +133,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("switch_color"):
 		polarity = 1 - polarity
 		game.effect(global_position, T.COLORS[polarity], "switch")
-		game.play_sound("switch",position,0,1,polarity)
+		game.play_sound("switch", position, 0, 1, polarity)
 	elif event.is_action_pressed("aim_cycle"):
 		aim_index = (aim_index + 1) % T.AIM_ANGLES.size()
-		game.play_sound("aim",position,0,[1.0,1.25,0.8][aim_index])
+		game.play_sound("aim", position, 0, [1.0, 1.25, 0.8][aim_index])
 		queue_redraw()
 	elif event.is_action_pressed("jump"):
 		jump_buffer = T.JUMP_BUFFER
@@ -186,14 +186,14 @@ func _physics_process(delta: float) -> void:
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
 		game.effect(global_position + Vector2(0, 22), Color("537083"), "jump")
-		game.play_sound("jump",position)
+		game.play_sound("jump", position)
 	elif jump_buffer > 0 and not grounded and dash_remaining <= 0 and not air_jump_used and has_ability(T.ABILITY_DOUBLE):
 		air_jump_used = true
 		velocity.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
 		game.effect(global_position, T.CRYSTAL_COLOR, "jump")
-		game.play_sound("air_jump",position)
+		game.play_sound("air_jump", position)
 	if jump_cut_requested:
 		if velocity.y < 0:
 			velocity.y = maxf(velocity.y, -T.JUMP_CUT_SPEED)
@@ -210,7 +210,7 @@ func _physics_process(delta: float) -> void:
 		dash_remaining = T.AIR_DASH_TIME
 		dash_direction = facing
 		game.effect(global_position, T.CRYSTAL_COLOR, "dash")
-		game.play_sound("dash",position)
+		game.play_sound("dash", position)
 	pending_dash = false
 	var dashing := dash_remaining > 0.0
 	if dashing:
@@ -220,7 +220,7 @@ func _physics_process(delta: float) -> void:
 	var before_slide_y := velocity.y
 	move_and_slide()
 	if is_on_floor(): gliding = false
-	if gliding and not was_gliding: game.play_sound("glide",position)
+	if gliding and not was_gliding: game.play_sound("glide", position)
 	if dashing:
 		if is_on_wall(): dash_remaining = 0.0
 		if dash_remaining <= 0: velocity.x = horizontal * move_speed()
@@ -232,7 +232,7 @@ func _physics_process(delta: float) -> void:
 	if not grounded and is_on_floor() and before_slide_y > 180:
 		visual_scale = Vector2(1.18, 0.84)
 		game.effect(global_position + Vector2(0, 22), Color("8aa4ac"), "land")
-		game.play_sound("land",position,linear_to_db(clampf(before_slide_y/900.0,0.25,1.0)))
+		game.play_sound("land", position, linear_to_db(clampf(before_slide_y / 900.0, 0.25, 1.0)))
 	visual_scale = visual_scale.lerp(Vector2.ONE, 1.0 - exp(-18.0 * delta))
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
 		fire_normal()
@@ -242,7 +242,7 @@ func _physics_process(delta: float) -> void:
 	pending_special = false
 
 func fire_normal() -> void:
-	game.play_sound("shot",position,0,1,polarity)
+	game.play_sound("shot", position, 0, 1, polarity)
 	var direction := shot_direction()
 	for spread: float in ([-T.TRIPLE_SPREAD, 0.0, T.TRIPLE_SPREAD] if wears("triple") else [0.0]):
 		game.spawn_bullet(self, direction.rotated(spread))

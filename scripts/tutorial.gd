@@ -48,6 +48,7 @@ func _ready() -> void:
 	terrain.stage = stage
 	world.add_child(terrain)
 	terrain.block_removed.connect(_block_removed)
+	terrain.sound_requested.connect(play_sound)
 	projectiles = Node2D.new()
 	world.add_child(projectiles)
 	effects = Effects.new()

@@ -264,7 +264,7 @@ func _input(event: InputEvent) -> void:
 		else: return
 		var focused := get_viewport().gui_get_focus_owner() as Button
 		if focused != null and focus_buttons.has(focused):
-			var next := neighbor(focused,direction)
+			var next := neighbor(focused, direction)
 			if next != focused: game.play_sound("ui_move")
 			next.grab_focus()
 	get_viewport().set_input_as_handled()

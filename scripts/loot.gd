@@ -22,7 +22,7 @@ func try_collect() -> bool:
 	collected = true
 	if spawn.kind == "key":
 		game.keys += 1
-		game.play_sound("key",position)
+		game.play_sound("key", position)
 	elif spawn.kind == "crystal": game.add_crystals(spawn.amount)
 	queue_free()
 	return true
@@ -31,13 +31,13 @@ func try_open() -> bool:
 	if opened or spawn.kind != "chest" or game.loot_taken.has(spawn.id): return false
 	if not is_instance_valid(game.player) or game.player.dead or game.player.position.distance_to(position) > T.INTERACT_DISTANCE: return false
 	if game.keys <= 0:
-		game.play_sound("chest_locked",position)
+		game.play_sound("chest_locked", position)
 		game.loot_ability = 0
 		game.loot_message = "鍵が必要"
 		game.loot_message_remaining = T.KEY_NEEDED_TIME
 		return false
 	game.keys -= 1
-	game.play_sound("chest_open",position)
+	game.play_sound("chest_open", position)
 	game.loot_taken[spawn.id] = true
 	game.discovered_loot.erase(spawn.id)
 	opened = true

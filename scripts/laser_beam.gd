@@ -66,7 +66,7 @@ func clip_path() -> void:
 
 func fire() -> void:
 	_stop_charge()
-	game.play_sound("laser_fire",source.position if is_instance_valid(source) else position)
+	game.play_sound("laser_fire", source.position if is_instance_valid(source) else position)
 	clip_path()
 	phase = "beam"
 	remaining = T.LASER_DURATION

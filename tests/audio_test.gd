@@ -17,6 +17,7 @@ var wave_metrics: Dictionary = {}
 var game: Node2D
 var event_ids: Dictionary = {}
 var benchmark: Dictionary = {}
+var music_trace: Array[Dictionary] = []
 
 func _initialize() -> void: call_deferred("run")
 func check(ok: bool, message: String) -> void:
@@ -417,6 +418,7 @@ func movement_events() -> void:
 	var fixture:=Terrain.new()
 	fixture.stage={"bounds":Rect2(0,-1400,4096,1500),"solids":[Rect2(0,-1024,4096,128)],"breakables":[],"protected_rects":[]}
 	game.world.add_child(fixture)
+	fixture.sound_requested.connect(game.play_sound)
 	var plan:=Rect2(1504,-1120,32,96)
 	var wall_id: int=fixture.next_wall_id
 	expect("wall_place",func():fixture.place_wall(plan,987654),plan.get_center())
@@ -576,10 +578,10 @@ func music_test() -> void:
 	audio.boss_defeated()
 	audio._process(0.01)
 	check(not audio.boss_music and audio.requested_music.begins_with("region"),"boss defeat returns immediately")
-	for state in ["paused","map","shop","equipment","settings","audio_settings"]:
+	for state in ["paused", "map", "shop", "equipment", "settings", "audio_settings"]:
 		game.state=state
 		audio._process(0.25)
-		check(is_equal_approx(audio.duck_db,-10),state+": -10dB duck")
+		check(is_equal_approx(audio.duck_db, 0 if state == "audio_settings" else -10), state + ": panel uses normal BGM, other modals duck -10dB")
 		game.state="playing"
 		audio._process(0.25)
 		check(is_zero_approx(audio.duck_db),state+": restore BGM")
@@ -638,6 +640,176 @@ func music_test() -> void:
 	event_ids.tutorial_step=true
 	game.finish_tutorial()
 	await frames()
+
+func music_levels() -> Array[float]:
+	return [db_to_linear(game.audio.music[0].volume_db), db_to_linear(game.audio.music[1].volume_db)]
+
+func trace_music(label: String, count: int, previous: Array[float] = []) -> void:
+	var audio: Node = game.audio
+	if previous.is_empty(): previous = music_levels()
+	for frame in range(count):
+		test_progress()
+		var old_ids: Array = audio.music_ids.duplicate()
+		audio._process(1.0 / 60)
+		var levels := music_levels()
+		for slot in range(2):
+			check(levels[slot] - previous[slot] <= 0.100001, label + ": amplitude rise <=0.1 frame %d slot %d" % [frame, slot])
+			if audio.music_target[slot] == 0 and audio.music_ids[slot] == old_ids[slot]:
+				check(levels[slot] <= previous[slot] + 0.000001, label + ": outgoing never rises frame %d slot %d" % [frame, slot])
+		music_trace.append({"case": label, "frame": frame, "state": game.state, "ids": audio.music_ids.duplicate(), "target": audio.music_target.duplicate(), "db": [audio.music[0].volume_db, audio.music[1].volume_db]})
+		previous = levels
+
+func freeze_run() -> void:
+	game.set_physics_process(false)
+	game.world.process_mode = Node.PROCESS_MODE_DISABLED
+
+func warning_ids(cursor: int) -> Array:
+	var recent: Array = game.audio.history().slice(-int(game.audio.request_cursor - cursor))
+	return recent.filter(func(e): return e.id in ["enemy_warn", "enemy_warn_special", "laser_charge", "bomb_warn"]).map(func(e): return e.id)
+
+func terrain_signal_test(source: Node) -> void:
+	var terrain: Node = source.terrain
+	check(terrain.sound_requested.is_connected(source.play_sound), "terrain sound signal connected to source play_sound")
+	var bounds := Rect2()
+	for cell: Vector2i in terrain.occupied:
+		var candidate := Rect2(terrain.pixel_of_cell(cell) - Vector2(0, 96), Vector2(32, 96))
+		if terrain.can_place_wall(candidate, -888):
+			bounds = candidate
+			break
+	check(bounds.has_area(), "real terrain has supported unoccupied wall site")
+	var emitted: Array = []
+	var listener := func(id, point): emitted.append([id, point])
+	terrain.sound_requested.connect(listener)
+	var cursor: int = game.audio.request_cursor
+	var wall: int = terrain.place_wall(bounds, -888)
+	check(wall >= 0, "terrain fixture places real wall")
+	terrain.remove_wall(wall)
+	var recent: Array = game.audio.history().slice(-int(game.audio.request_cursor - cursor))
+	check(emitted == [["wall_place", bounds.get_center()], ["wall_vanish", bounds.get_center()]], "wall signal timing and positions preserved")
+	check(recent.map(func(e): return e.id) == ["wall_place", "wall_vanish"], "both wall signals reach host request history")
+	check(recent.all(func(e): return e.position == bounds.get_center() and e.frame == Engine.get_physics_frames()), "wall history preserves position and physics frame")
+	terrain.sound_requested.disconnect(listener)
+
+func sound_regression_test() -> void:
+	var audio: Node = game.audio
+	audio.set_process(false)
+	group = "sound_warnings"
+	game.start_run(37)
+	freeze_run()
+	for kind in ["laser", "breaker", "turret", "shifter", "builder", "special"]:
+		var actor := make_enemy("turret" if kind == "special" else kind, game.player.position + Vector2(180, 0))
+		actor.shot_clock = 0
+		actor.switch_clock = 100
+		var cursor: int = audio.request_cursor
+		if kind == "special": actor.gauge = T.GAUGE_CAPACITY
+		if kind == "shifter": actor.switch_clock = 0
+		if kind == "builder":
+			# _choose_build depends on nearby occupancy; test its committed warning.
+			actor._begin("windup_build", T.BUILD_WARNING)
+		else:
+			actor._choose_attack(1.0 / 60)
+		var expected: String = {"laser": "laser_charge", "breaker": "bomb_warn", "special": "enemy_warn_special"}.get(kind, "enemy_warn")
+		check(warning_ids(cursor) == [expected], kind + ": exactly one warning request")
+		var recent: Array = audio.history().slice(-int(audio.request_cursor - cursor))
+		check(recent.all(func(e): return e.frame == Engine.get_physics_frames()), kind + ": warning on attack frame")
+		actor.cancel_attack()
+	group = "terrain_signals"
+	terrain_signal_test(game)
+	game.start_tutorial()
+	await frames()
+	game.tutorial_session.set_physics_process(false)
+	terrain_signal_test(game.tutorial_session)
+	game.finish_tutorial()
+	await frames()
+	var terrain_text := FileAccess.get_file_as_string("res://scripts/world_terrain.gd")
+	check(not terrain_text.contains("func _sound(") and not terrain_text.contains('has_method("play_sound")'), "terrain never searches parents for sound API")
+	group = "volume_panel"
+	for state in ["title", "paused", "lost", "won"]:
+		audio.enabled = false
+		audio.enabled = true
+		audio.reset_run()
+		game.start_run(37)
+		freeze_run()
+		trace_music(state + " initial gameplay", 200)
+		game.show_menu(state)
+		trace_music(state + " setup", 600)
+		var slot: int = audio.music_slot
+		var expected := -10.0 if state == "paused" else (-9.0 if state in ["lost", "won"] else 0.0)
+		check(is_equal_approx(audio.music[slot].volume_db, expected), state + ": initial attenuation")
+		game.state = "playing"
+		audio.last_frame.clear()
+		audio.last_id.clear()
+		var handle: int = game.play_sound("laser_charge", game.camera.position, 0, 0.25)
+		game.state = state
+		game.open_audio_settings()
+		trace_music(state + " panel opening", 1)
+		check(audio.music[slot].volume_db < -0.01 if expected < 0 else is_zero_approx(audio.music[slot].volume_db), state + ": opening has no instant unduck")
+		check(handle >= 0 and audio.voices[handle % 32].player.stream_paused, state + ": panel keeps world voice paused")
+		trace_music(state + " panel", 30)
+		check(is_zero_approx(audio.music[slot].volume_db), state + ": panel reaches unattenuated BGM")
+		check(audio.voices[handle % 32].player.stream_paused, state + ": world voice stays paused throughout panel")
+		game.ui.audio_panel._close()
+		trace_music(state + " closing first frame", 1)
+		check(audio.music[slot].volume_db > expected + 0.01 if expected < 0 else is_zero_approx(audio.music[slot].volume_db), state + ": closing has no instant duck")
+		trace_music(state + " closed", 30)
+		check(is_equal_approx(audio.music[slot].volume_db, expected), state + ": original attenuation restored")
+	group = "result_transitions"
+	for state in ["lost", "won"]:
+		for destination in ["retry", "new", "title"]:
+			audio.reset_run()
+			game.start_run(37)
+			freeze_run()
+			trace_music(state + " " + destination + " gameplay", 200)
+			game.show_menu(state)
+			trace_music(state + " " + destination + " result", 600)
+			var slot: int = audio.music_slot
+			check(audio.music_ids[slot] == "title" and is_equal_approx(audio.music[slot].volume_db, -9), state + ": result title at -9dB")
+			var previous := music_levels()
+			var seed_before: int = game.current_seed
+			if destination == "retry": game.primary_action()
+			elif destination == "new": game.new_action()
+			else: game.return_to_title()
+			freeze_run()
+			trace_music(state + " -> " + destination, 59, previous)
+			if destination == "title":
+				check(audio.music[slot].volume_db < -0.01, state + ": title recovery takes at least 1s")
+				check(audio.music_ids[slot] == "title" and audio.music_target[slot] == 1, state + ": same title continues")
+			else:
+				check(audio.music_target[slot] == 0 and audio.music[slot].volume_db < -9, state + ": retry title only fades down")
+				check(game.current_seed == seed_before if destination == "retry" else game.current_seed != seed_before, destination + ": actual menu action executed")
+			trace_music(state + " -> " + destination + " settle", 181)
+			check(is_zero_approx(audio.music[audio.music_slot].volume_db), destination + ": incoming or continuing music reaches normal volume")
+			if destination != "title": check(not audio.music[slot].playing, destination + ": outgoing title stops")
+	group = "music_rise"
+	# A retry before the regional PCM is ready must retain the quiet title.
+	audio.reset_run()
+	game.show_menu("lost")
+	trace_music("pending retry result", 600)
+	var pending_slot: int = audio.music_slot
+	var saved_streams: Dictionary = audio.streams.duplicate()
+	for id: String in Bank.MUSIC_IDS:
+		if id != "title": audio.streams.erase(id)
+	game.primary_action()
+	freeze_run()
+	trace_music("retry awaiting synthesis", 90)
+	check(is_equal_approx(audio.music[pending_slot].volume_db, -9), "retry keeps old title quiet while awaiting synthesis")
+	audio.streams = saved_streams
+	trace_music("retry after synthesis", 240)
+	check(not audio.music[pending_slot].playing, "pending retry eventually stops outgoing title")
+	game.state = "title"
+	for id in ["region0", "boss", "title"]:
+		audio.set_music(id, 1.0)
+		# Pause selection on a modal while manually selecting each fade.
+		game.state = "audio_settings"
+		trace_music("ordinary fade " + id, 90)
+		game.state = "paused"
+		trace_music("pause " + id, 30)
+		game.state = "audio_settings"
+		trace_music("unduck " + id, 30)
+	audio.enabled = false
+	check(audio.music.all(func(p): return not p.playing), "disabled stops every BGM player")
+	audio.enabled = true
+	audio.set_process(true)
 
 func state_bytes() -> PackedByteArray:
 	var p: Node=game.player
@@ -783,6 +955,7 @@ func run() -> void:
 	await event_test()
 	await overlap_test()
 	await music_test()
+	await sound_regression_test()
 	await replay_test()
 	await stress_test()
 	group="coverage"
@@ -806,6 +979,7 @@ func run() -> void:
 	game.free()
 	game=null
 	FileAccess.open(OUT+"audio-results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"groups":groups,"events":event_ids.keys(),"waveforms":wave_metrics,"benchmark":benchmark},"\t"))
+	FileAccess.open(OUT + "fix-music-trace.json", FileAccess.WRITE).store_string(JSON.stringify(music_trace))
 	print("AUDIO RESULT: ",checks," checks, ",failures.size()," failures; groups=",groups)
 	quit(0 if failures.is_empty() else 1)
 

@@ -21,7 +21,7 @@ var audio_return_state := "title"
 
 func play_sound(id: String, at: Variant = null, volume_db: float = 0, pitch: float = 1, color: int = -1) -> int:
 	if not is_instance_valid(audio): return -1
-	return audio.play(id,at,volume_db,pitch,self,color)
+	return audio.play(id, at, volume_db, pitch, self, color)
 
 func open_audio_settings() -> void:
 	audio_return_state = state
@@ -67,7 +67,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 	origin_shift_count += 1
 	stage.origin_sector = origin_sector
 	terrain.shift_origin(delta, origin_sector)
-	if is_instance_valid(audio): audio.shift_origin(self,delta)
+	if is_instance_valid(audio): audio.shift_origin(self, delta)
 	stream.shift_origin(delta)
 	for actor: Node in world.get_children():
 		if actor == player or actor is Enemy:
@@ -337,6 +337,7 @@ func start_run(stage_seed: int) -> void:
 	terrain.stage = stage
 	world.add_child(terrain)
 	terrain.block_removed.connect(_block_removed)
+	terrain.sound_requested.connect(play_sound)
 	projectiles = Node2D.new()
 	projectiles.name = "Projectiles"
 	world.add_child(projectiles)
@@ -676,7 +677,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
 		bullet.position = actor.position + Vector2(launch_side * (actor.body_size.x / 2 + 9), -4)
 	projectiles.add_child(bullet)
-	if actor.faction == 1 and actor.kind != "boss": play_sound("enemy_homing" if guided else "enemy_shot",actor.position)
+	if actor.faction == 1 and actor.kind != "boss": play_sound("enemy_homing" if guided else "enemy_shot", actor.position)
 	return bullet
 
 func spawn_laser(actor: CharacterBody2D) -> Node2D:
@@ -689,7 +690,7 @@ func spawn_laser(actor: CharacterBody2D) -> Node2D:
 	beam.build_curve(actor.global_position + Vector2(actor.facing * (actor.body_size.x / 2 + 9), -4), player.global_position, actor.facing)
 	projectiles.add_child(beam)
 	beam.clip_path()
-	beam.sound_handle = play_sound("laser_charge",actor.position)
+	beam.sound_handle = play_sound("laser_charge", actor.position)
 	return beam
 
 func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
@@ -701,13 +702,13 @@ func spawn_bomb_warning(actor: CharacterBody2D) -> Node2D:
 	bomb.polarity = actor.polarity
 	bomb.target = player.global_position + Vector2(0, player.body_size.y / 2)
 	projectiles.add_child(bomb)
-	play_sound("bomb_warn",actor.position)
+	play_sound("bomb_warn", actor.position)
 	return bomb
 
 func fire_special(actor: CharacterBody2D, amount: int) -> void:
 	if amount <= 0:
 		return
-	play_sound("homing" if actor.faction == 0 else "enemy_homing",actor.position)
+	play_sound("homing" if actor.faction == 0 else "enemy_homing", actor.position)
 	var candidates := targets_for(actor.faction, actor.polarity, actor.global_position)
 	var opposite: Array = candidates.filter(func(target): return target.polarity != actor.polarity)
 	if not opposite.is_empty():
@@ -731,7 +732,7 @@ func show_damage(at: Vector2, amount: int) -> void:
 		effects.show_damage(at, amount)
 
 func _block_removed(bounds: Rect2, player_attack: bool) -> void:
-	play_sound("block_break",bounds.get_center())
+	play_sound("block_break", bounds.get_center())
 	if stream != null: stream.remember_block(bounds)
 	if player_attack and is_instance_valid(player): player.heal(T.BLOCK_HEAL)
 
@@ -741,7 +742,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.get_parent() != world:
 		return
 	if actor.faction == 0:
-		play_sound("death",actor.position)
+		play_sound("death", actor.position)
 		if not ending:
 			ending = true
 			call_deferred("_finish_run")
@@ -750,7 +751,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		return
 	if actor.kind == "boss" and defeated_bosses.has(actor.boss_id): return
 	actor.set_meta("defeat_rewarded", true)
-	play_sound("boss_defeat" if actor.kind == "boss" else ("enhancer_defeat" if actor.kind == "enhancer" else "enemy_defeat"),actor.position)
+	play_sound("boss_defeat" if actor.kind == "boss" else ("enhancer_defeat" if actor.kind == "enhancer" else "enemy_defeat"), actor.position)
 	if actor.kind == "boss" and is_instance_valid(audio): audio.boss_defeated()
 	defeated_enemies[actor.spawn_id] = true
 	if not is_tutorial():
@@ -792,7 +793,7 @@ func _finish_run() -> void:
 
 func add_crystals(amount: int) -> void:
 	if amount <= 0: return
-	play_sound("crystal",player.position if is_instance_valid(player) else null,0,1.0+minf(amount,100)*0.001)
+	play_sound("crystal", player.position if is_instance_valid(player) else null, 0, 1.0 + minf(amount, 100) * 0.001)
 	crystals += amount
 	crystals_earned += amount
 	if is_instance_valid(player) and is_instance_valid(effects): effects.show_crystals(player.position, amount)
@@ -803,7 +804,7 @@ func grant_loot(content: Dictionary) -> void:
 		"potion":
 			if potions < T.POTION_CAPACITY:
 				potions += 1
-				play_sound("item_get",player.position)
+				play_sound("item_get", player.position)
 				loot_message = "回復薬を手に入れた（%d / %d）" % [potions, T.POTION_CAPACITY]
 			else:
 				add_crystals(T.DETOUR_REWARD)
@@ -818,12 +819,12 @@ func grant_loot(content: Dictionary) -> void:
 			else:
 				var id: String = available[posmod(int(content.get("roll", 0)), available.size())]
 				owned_equipment[id] = true
-				play_sound("item_get",player.position)
+				play_sound("item_get", player.position)
 				loot_message = "%sを手に入れた。店か一時停止の「装備」で付け替え" % T.EQUIPMENT[id].name
 			loot_ability = 0
 			loot_message_remaining = T.LOOT_MESSAGE_TIME
 		"ability":
-			play_sound("ability_get",player.position)
+			play_sound("ability_get", player.position)
 			player.abilities |= int(content.ability)
 			loot_ability = int(content.ability)
 			loot_message = ability_help(content.ability)
@@ -922,7 +923,7 @@ func item_price(id: String) -> int:
 
 func buy_item(id: String) -> bool:
 	if state != "shop" or not purchase_reason(id).is_empty():
-		if state == "shop" and Time.get_ticks_msec()-last_shop_action_ms >= int(T.SHOP_ACTION_INTERVAL*1000): play_sound("deny")
+		if state == "shop" and Time.get_ticks_msec() - last_shop_action_ms >= int(T.SHOP_ACTION_INTERVAL * 1000): play_sound("deny")
 		return false
 	var now := Time.get_ticks_msec()
 	if now - last_shop_action_ms < int(T.SHOP_ACTION_INTERVAL * 1000): return false
@@ -953,7 +954,7 @@ func use_potion() -> bool:
 		play_sound("deny")
 		return false
 	potions -= 1
-	play_sound("potion",player.position)
+	play_sound("potion", player.position)
 	ui.update_hud()
 	return true
 

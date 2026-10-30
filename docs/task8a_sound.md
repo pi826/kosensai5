@@ -21,9 +21,13 @@
 
 main の `_ready` で director を1つ作り、再挑戦では保持する。tutorial は host の同じ director と設定を使う。合成順は UI と自機 → 残りの効果音 → タイトル → 地域0/1/2 → ボス。WorkerThreadPool は使わない。Thread.PRIORITY_LOW の専用スレッドで完了した AudioStreamWAV だけを Mutex の受け渡し箱から受け取る。終了時は中止フラグと wait_to_finish で回収する。headless は既定で合成を省略し、`-- --audio-synthesis=on` または main の `audio_synthesis_override=1` で有効にできる。
 
+地形の `wall_place` / `wall_vanish` は `world_terrain.sound_requested(id, point)` signal で知らせる。main の `start_run` と tutorial の `_ready` で、`block_removed` と並べて `play_sound` に接続する。親ノードをたどる音の呼出は行わない。設置・期限・被弾・爆発・解放時の発音位置と時刻は維持する。
+
 ## 効果音
 
 青Aは高く明るく、橙Bは低く温かい射撃・切替・吸収を使う。shot は一斉射撃1回につき1音、director 専用 RNG で音程±3%。aim は前/上/下で倍率1/1.25/0.8、absorb はゲージに応じた和音、crystal は獲得量に応じた小さな音程差、land は落下速度に応じた音量を使う。
+
+通常弾・壁づくり・色切替は `enemy_warn`、特殊攻撃は `enemy_warn_special`。レーザー予告は `laser_charge` だけ、砲弾予告は `bomb_warn` だけを要求し、汎用予告を重ねない。専用予告の開始・取消の時刻は変えない。
 
 全効果音は mono 32000Hz、曲は mono 22050Hz。効果音は4msの立ち上がりと滑らかな減衰、両端0。窓の重みで直流成分を除き、波形全体の倍率でピークを制限する。サンプル単位の切り詰めはしない。頻出の射撃・UIは少ない倍音、風・衝撃のノイズは一次ローパスを通す。
 
@@ -65,7 +69,7 @@ main の `_ready` で director を1つ作り、再挑戦では保持する。tut
 | enemy_homing | 敵の誘導弾発射、一斉発射は1回 | 低めの風の上昇 | 0.250 | -16.96 / -32.29 | 3 / 45 | 10.167 |
 | enemy_shot | 通常敵の通常弾発射 | 高域の少ない短い低音 | 0.060 | -22.61 / -32.11 | 4 / 60 | 2.970 |
 | enemy_switch | 色切替の予告が完了 | 小さなFMベル | 0.180 | -18.86 / -26.88 | 3 / 45 | 7.405 |
-| enemy_warn | 射撃・設置・色切替などの予告開始 | 非常に小さな低い通知 | 0.100 | -24.01 / -33.83 | 3 / 120 | 4.248 |
+| enemy_warn | 通常射撃・壁設置・色切替の予告開始（レーザー・砲弾を除く） | 非常に小さな低い通知 | 0.100 | -24.01 / -33.83 | 3 / 120 | 4.248 |
 | enemy_warn_special | 誘導弾の予告開始 | 少し上がる小さなFM音 | 0.240 | -18.04 / -26.08 | 3 / 120 | 10.395 |
 | enhancer_defeat | 強化の灯の撃破報酬確定 | 金属的な下降音 | 0.700 | -10.58 / -18.63 | 3 / 45 | 37.489 |
 | equip | 店・一時停止で装備を適用 | 短いFMベル | 0.220 | -14.78 / -22.82 | 3 / 45 | 8.613 |
@@ -113,8 +117,9 @@ main の `_ready` で director を1つ作り、再挑戦では保持する。tut
 - タイトル、チュートリアル中と練習完了はタイトル曲。
 - 本編の開始・再挑戦は開始地域。カメラ中心の地域が1.5秒続くと3秒のクロスフェード。
 - 生存ボスが画面内に0.3秒いると1秒でボス曲。毎回先頭から再生。画面外4秒、または撃破で2.5秒かけて地域へ戻す。
-- 一時停止・地図・店・装備・キー設定・音量設定は曲を0.25秒で10dB下げ、復帰時に戻す。
-- 失敗・クリアは0.5秒で曲を消し、死亡音／撃破音のあと0.8／1.5秒遅らせて lose／win。その後タイトル曲を9dB下げて戻す。
+- 一時停止・地図・店・装備・キー設定は曲を0.25秒で10dB下げ、復帰時に戻す。音量パネルでは一時停止の-10dBと結果の-9dBを外し、通常の音量で調整する。開閉は40dB/秒で補正を変え、ワールド効果音の stream_paused は保つ。
+- 失敗・クリアは0.5秒で曲を消し、死亡音／撃破音のあと0.8／1.5秒遅らせて lose／win。その2.5／3.5秒後、タイトル曲を2秒でフェードインし、9dB下げて流す。音量パネル中もこの流れは進む。
+- 結果の補正はプレーヤーごとに保持する。再挑戦で消えるタイトル曲は結果での音量から下がるだけで、新しい地域・ボス・タイトル曲は結果補正なしで始まる。同じタイトル曲を続けてタイトル画面へ戻る場合は、9dB/秒で1秒以上かけて通常音量へ戻す。両プレーヤーの振幅増加は毎秒6以下（1/60秒あたり0.1以下）に制限し、目標音量0のプレーヤーは停止まで上げない。
 - 曲は2つの AudioStreamPlayer でクロスフェード。切替途中で元の地域へ戻る場合は再生位置を保って反転し、別の3曲目へ切り替える場合は音量が大きい方のプレーヤーを残して切り替える。未合成の曲は要求を保持し、完成後にフェードインする。
 
 定位は要求元の `view_rect()` に対する横位置を計算し、プールの各 AudioEffectPanner へ渡す。視界外は距離に応じ最大18dB下げ、視界から半画面幅より離れた音は記録だけ残す。再生ノードを host に集約するため、SubViewport の別 World2D / リスナー設定に依存しない。原点移動では保持した発音位置も同量移す。
@@ -252,3 +257,43 @@ WAV合計は 15,761,340 bytes（15.761 MB）、補助ファイルを含めても
 全ての自動実行・描画確認は `--audio-driver Dummy` で行い、スピーカーには出力していない。人の耳による音色・曲の好み・音量バランス・長時間の疲れ、実機の音声出力の遅れは未確認。WAVを聞いて判断する必要がある。
 
 Windowsのルート証明書ストア読取エラーは変更前の基準実行にも出る環境依存の起動メッセージ。音処理や生成の失敗とは分けて記録する。
+
+## Task 8A の修正（2026-10-30）
+
+1. 音量パネル：`scripts/audio_director.gd` の `_process` で `audio_settings` をBGMのduck対象から外し、結果補正も40dB/秒で0へ戻す。閉じると元の-10/-9dBへ滑らかに戻す。ワールド効果音の `stream_paused` と、`_update_music` の結果シーケンス継続を維持した。
+2. 結果画面からのBGM復帰：同ファイルの `set_music` / `_process` で結果補正 `music_result_db` を2プレーヤー別に保持。消える曲は振幅を上げず、新規曲は結果補正なし、続くタイトル曲は9dB/秒で1秒以上かけて戻す。全BGMの振幅増加は1/60秒あたり0.1以下。再挑戦で地域PCMを待つ間もタイトル曲の-9dBを維持する。
+3. 予告音の重複：`scripts/enemy.gd` の `_begin` で `windup_laser` / `windup_bomb` を汎用 `enemy_warn` の対象から外した。専用音の開始・取消、攻撃処理・時刻・乱数は維持した。
+4. 地形の発音：`scripts/world_terrain.gd` の `place_wall` / `remove_wall` / `explode` で `wall_place` / `wall_vanish` を `sound_requested(id, point)` signalで通知し、親をたどる `_sound` を削除。`scripts/main.gd` の `start_run` と `scripts/tutorial.gd` の `_ready` で `play_sound` に接続した。発音位置と時刻は維持した。
+
+Task 8A追加コードの書式・`interface.gd` の宣言順も統一した。
+
+修正後の全35実行は **181,392項目・失敗0・全終了コード0**（全て `--audio-driver Dummy`）。実行ごとの項目数・引数・終了コードは `builds/qa/sound/fix-suite/results.json`、ログは同ディレクトリに記録した。
+
+`audio_test` は **4,446→39,928項目（+35,482）**。修正後のグループ別内訳は次のとおり（`builds/qa/sound/audio-results.json` の `groups`）。音あり／なしの1,800フレームの状態一致検査も維持した。
+
+| audio_test 内訳 | 項目数 |
+|---|---:|
+| coverage | 60 |
+| events | 141 |
+| invariance | 3,600 |
+| isolation | 4 |
+| music | 48 |
+| music_rise | 4,341 |
+| overlap | 18 |
+| result_transitions | 20,245 |
+| settings | 50 |
+| sound_warnings | 12 |
+| startup | 3 |
+| stress | 4 |
+| synthesis | 518 |
+| terrain_signals | 13 |
+| volume_panel | 10,871 |
+| 合計 | 39,928 |
+
+既存テストの変更は `tests/audio_test.gd` の `music_test` で `audio_settings` の期待値を `duck_db=-10dB` から `0dB` に変更したこと（他の停止画面は-10dBのまま）と、`movement_events` の地形fixtureに `sound_requested` → `game.play_sound` の接続を追加したこと。`wall_place` / `wall_vanish` の既存判定は維持した。
+
+全71音源のPCMは変更前後のSHA-256が71/71一致し、試聴WAV14本と索引 `se_sampler.txt` の計15ファイルも全て一致（不一致0）。記録は `builds/qa/sound/fix-pcm-before.json` / `fix-pcm-after.json`、`fix-before-preview-sha256.json` / `fix-after-preview-sha256.json`、集計は `fix-hash-comparison.json`。合成時間を含む `manifest.json` はファイルハッシュの比較から除外した。
+
+本物の `audio.cfg` は内容・SHA-256・更新時刻とも不変（`builds/qa/sound/fix-before-config.json` / `fix-after-config.json`）。通常描画10枚を再生成し、音量パネル内容の配置・ピクセル一致を確認した（`builds/qa/sound/fix-panel-pixels.json` / `fix-visual-comparison.json`）。
+
+人の聴取、曲の作り直し、既存の音処理の性能目安未達は残る。音源・ID・ゲーム状態・生成・tuning値は変更していない。

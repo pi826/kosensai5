@@ -148,8 +148,8 @@ func run():
 		frame_report.render_frame_max_ms=render_samples.max()
 	var sorted_physics := game.physics_frame_times.duplicate()
 	sorted_physics.sort()
-	frame_report.physics_p95_ms = sorted_physics[int(sorted_physics.size()*0.95)]
-	frame_report.physics_p99_ms = sorted_physics[int(sorted_physics.size()*0.99)]
+	frame_report.physics_p95_ms = sorted_physics[int(sorted_physics.size() * 0.95)]
+	frame_report.physics_p99_ms = sorted_physics[int(sorted_physics.size() * 0.99)]
 	if is_instance_valid(game.audio): frame_report.audio = game.audio.measurements()
 	game.free()
 	var samples: Array[float]=[]

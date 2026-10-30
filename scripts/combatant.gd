@@ -48,7 +48,7 @@ func receive_hit(attack_color: int, damage: int) -> String:
 		absorb_flash = 0.28
 		if is_instance_valid(game):
 			game.effect(global_position, T.COLORS[polarity], "absorb")
-			game.play_sound("absorb" if faction == 0 else "enemy_absorb",position,0,pow(2.0,[0,4,7,12,16][mini(gauge,4)]/12.0) if faction == 0 else 1.0,polarity)
+			game.play_sound("absorb" if faction == 0 else "enemy_absorb", position, 0, pow(2.0, [0, 4, 7, 12, 16][mini(gauge, 4)] / 12.0) if faction == 0 else 1.0, polarity)
 		queue_redraw()
 		return "absorbed"
 	if invulnerability > 0.0:
@@ -63,7 +63,7 @@ func receive_hit(attack_color: int, damage: int) -> String:
 		invulnerability = hurt_invulnerability()
 	if is_instance_valid(game):
 		game.effect(global_position, Color("f8f8ef"), "hit")
-		if previous_hp > hp: game.play_sound("hurt" if faction == 0 else ("boss_hit" if kind == "boss" else "enemy_hit"),position)
+		if previous_hp > hp: game.play_sound("hurt" if faction == 0 else ("boss_hit" if kind == "boss" else "enemy_hit"), position)
 		if faction == 1 and previous_hp > hp:
 			game.show_damage(global_position + Vector2(body_size.x / 2 + 22, -body_size.y / 2 - 12), previous_hp - hp)
 	if hp == 0:

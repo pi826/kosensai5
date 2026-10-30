@@ -126,7 +126,7 @@ func _sound(id: String) -> PackedFloat32Array:
 			noise += 0.14 * (rng.randf_range(-1.0, 1.0) - noise)
 			value = value * (0.35 if kind == 1 else 0.75) + noise * 1.7
 		elif kind == 3:
-			value = _sines[int(phase * 4096 + 650 * _sines[(p * 2) & 4095] * (1.0-t)) & 4095]
+			value = _sines[int(phase * 4096 + 650 * _sines[(p * 2) & 4095] * (1.0 - t)) & 4095]
 		var attack := minf(1.0, float(i) / (SE_RATE * 0.004))
 		var release := 1.0 - t
 		var envelope := attack * release * release
@@ -135,7 +135,7 @@ func _sound(id: String) -> PackedFloat32Array:
 			var step := int(t * 6)
 			var local_t := fmod(t * 6, 1.0)
 			value = _sines[int(phase * [1.0, 1.25, 1.5, 1.0, 1.5, 2.0][step] * 4096) & 4095]
-			envelope *= minf(1.0, local_t * 40.0) * (1.0-local_t)
+			envelope *= minf(1.0, local_t * 40.0) * (1.0 - local_t)
 		data[i] = value * envelope * float(spec[4])
 	return data
 
@@ -149,9 +149,9 @@ func _note(freq: float, seconds: float, kind: int) -> PackedFloat32Array:
 		var p := int(phase * 4096) & 4095
 		var value: float = _sines[p]
 		if kind == 1: value += 0.15 * _sines[(p * 2) & 4095]
-		if kind == 2: value = _sines[int(phase * 4096 + 440 * _sines[(p * 3) & 4095] * (1.0-t)) & 4095]
+		if kind == 2: value = _sines[int(phase * 4096 + 440 * _sines[(p * 3) & 4095] * (1.0 - t)) & 4095]
 		var attack := minf(1.0, float(i) / (MUSIC_RATE * (0.18 if kind == 3 else 0.008)))
-		var release := minf(1.0,(1.0-t)/0.25) if kind == 3 else (1.0-t)*(1.0-t)
+		var release := minf(1.0, (1.0 - t) / 0.25) if kind == 3 else (1.0 - t) * (1.0 - t)
 		data[i] = value * attack * release
 	return data
 
@@ -166,11 +166,11 @@ func _music(id: String) -> PackedFloat32Array:
 	var data := PackedFloat32Array()
 	data.resize(n)
 	var root: float = [146.832, 164.814, 174.614, 110.0, 110.0][index]
-	var scale: Array = [[0,4,7,11,12,7,4,2], [0,3,5,7,10,12,7,5], [0,4,6,11,12,6,4,2], [0,1,7,8,12,7,1,0], [0,0,7,0,3,0,8,7]][index]
+	var scale: Array = [[0, 4, 7, 11, 12, 7, 4, 2], [0, 3, 5, 7, 10, 12, 7, 5], [0, 4, 6, 11, 12, 6, 4, 2], [0, 1, 7, 8, 12, 7, 1, 0], [0, 0, 7, 0, 3, 0, 8, 7]][index]
 	var notes: Array[PackedFloat32Array] = []
 	for semitone in range(13):
 		if stopped(): return data
-		notes.append(_note(root * 2 * pow(2.0, semitone/12.0), beat * 1.8, 2 if index == 2 else 1))
+		notes.append(_note(root * 2 * pow(2.0, semitone / 12.0), beat * 1.8, 2 if index == 2 else 1))
 	var bass := _note(root / 2, beat * 1.5, 0)
 	var pad := _note(root, beat * 6, 3)
 	var fifth := _note(root * 1.5, beat * 6, 3)
@@ -187,31 +187,31 @@ func _music(id: String) -> PackedFloat32Array:
 			_mix(data, fifth, offset, 0.07)
 		if index == 4:
 			for j in range(2205):
-				noise += 0.25 * (rng.randf_range(-1,1)-noise)
-				var t := float(j)/2205
-				data[(offset+j)%n] += noise * minf(1,j/64.0) * (1.0-t)*(1.0-t) * 0.17
+				noise += 0.25 * (rng.randf_range(-1, 1) - noise)
+				var t := float(j) / 2205
+				data[(offset + j) % n] += noise * minf(1, j / 64.0) * (1.0 - t) * (1.0 - t) * 0.17
 	if index == 1 or index == 3:
 		# Periodic filtered noise: circular smoothing gives the same boundary as the interior.
 		var layer := PackedFloat32Array()
 		layer.resize(n)
 		for i in range(n):
-			noise += 0.035 * (rng.randf_range(-1,1)-noise)
+			noise += 0.035 * (rng.randf_range(-1, 1) - noise)
 			layer[i] = noise * 0.035
-		var seam := (layer[0]+layer[-1])/2
+		var seam := (layer[0] + layer[-1]) / 2
 		for i in range(1102):
-			var blend := 1.0-float(i)/1102
-			layer[i] = lerpf(layer[i],seam,blend)
-			layer[n-1-i] = lerpf(layer[n-1-i],seam,blend)
+			var blend := 1.0 - float(i) / 1102
+			layer[i] = lerpf(layer[i], seam, blend)
+			layer[n - 1 - i] = lerpf(layer[n - 1 - i], seam, blend)
 		for i in range(n): data[i] += layer[i]
 	return data
 
 func _mix(into: PackedFloat32Array, note: PackedFloat32Array, offset: int, gain: float) -> void:
 	# Godot packed arrays are reference-counted; indexed writes modify this array in-place.
 	var n := into.size()
-	for i in range(note.size()): into[(offset+i)%n] += note[i]*gain
+	for i in range(note.size()): into[(offset + i) % n] += note[i] * gain
 	# A quiet delayed copy wraps across the boundary, including its entire release tail.
-	var delay := int(MUSIC_RATE*0.19)
-	for i in range(note.size()): into[(offset+i+delay)%n] += note[i]*gain*0.16
+	var delay := int(MUSIC_RATE * 0.19)
+	for i in range(note.size()): into[(offset + i + delay) % n] += note[i] * gain * 0.16
 
 func _encode(samples: PackedFloat32Array, rate: int, loop: bool) -> Dictionary:
 	var total := 0.0
@@ -219,25 +219,25 @@ func _encode(samples: PackedFloat32Array, rate: int, loop: bool) -> Dictionary:
 	var raw_peak := 0.0
 	for i in range(samples.size()):
 		if i % 4096 == 0 and stopped(): return {}
-		var window := 1.0 if loop else minf(1.0,minf(i,samples.size()-1-i)/float(rate*0.004))
-		total += samples[i]*window
-		raw_peak = maxf(raw_peak,absf(samples[i]))
+		var window := 1.0 if loop else minf(1.0, minf(i, samples.size() - 1 - i) / float(rate * 0.004))
+		total += samples[i] * window
+		raw_peak = maxf(raw_peak, absf(samples[i]))
 		weight += window
 	var mean := total / weight
 	# Scale the whole waveform; never flatten individual peaks.
-	var scale := minf(1.0,(0.69 if loop else 0.88)/maxf(0.0001,raw_peak+absf(mean)))
+	var scale := minf(1.0, (0.69 if loop else 0.88) / maxf(0.0001, raw_peak + absf(mean)))
 	var peak := 0.0
 	var sum_sq := 0.0
 	var pcm := PackedByteArray()
-	pcm.resize(samples.size()*2)
+	pcm.resize(samples.size() * 2)
 	for i in range(samples.size()):
 		if i % 4096 == 0 and stopped(): return {}
-		var value := (samples[i] - mean)*scale
+		var value := (samples[i] - mean) * scale
 		# DC removal followed by a 4ms boundary window for non-looping sounds.
-		if not loop: value *= minf(1.0,minf(i,samples.size()-1-i)/float(rate*0.004))
-		pcm.encode_s16(i*2,roundi(value*32767))
-		peak = maxf(peak,absf(value))
-		sum_sq += value*value
+		if not loop: value *= minf(1.0, minf(i, samples.size() - 1 - i) / float(rate * 0.004))
+		pcm.encode_s16(i * 2, roundi(value * 32767))
+		peak = maxf(peak, absf(value))
+		sum_sq += value * value
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
 	stream.mix_rate = rate
@@ -246,4 +246,4 @@ func _encode(samples: PackedFloat32Array, rate: int, loop: bool) -> Dictionary:
 		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		stream.loop_begin = 0
 		stream.loop_end = samples.size()
-	return {"stream": stream, "bytes": pcm.size(), "seconds": float(samples.size())/rate, "peak": peak, "rms": sqrt(sum_sq/samples.size())}
+	return {"stream": stream, "bytes": pcm.size(), "seconds": float(samples.size()) / rate, "peak": peak, "rms": sqrt(sum_sq / samples.size())}

@@ -56,16 +56,16 @@ func action_input(action: String, pressed: bool) -> void:
 func run_sound() -> void:
 	DirAccess.make_dir_recursive_absolute(output)
 	game = Main.new()
-	game.controls_path = output+"visual-controls.cfg"
-	game.audio_settings_path = output+"visual-audio.cfg"
+	game.controls_path = output + "visual-controls.cfg"
+	game.audio_settings_path = output + "visual-audio.cfg"
 	game.audio_synthesis_override = 0
 	root.add_child(game)
 	game.set_physics_process(false)
-	for state in ["title","paused","lost","won"]:
+	for state in ["title", "paused", "lost", "won"]:
 		game.show_menu(state)
-		await capture("sound-"+state)
+		await capture("sound-" + state)
 		game.open_audio_settings()
-		await capture("sound-"+state+"-panel")
+		await capture("sound-" + state + "-panel")
 		game.ui.audio_panel._close()
 	game.show_menu("title")
 	game.start_tutorial()
@@ -76,9 +76,9 @@ func run_sound() -> void:
 	await capture("sound-tutorial-panel")
 	game.finish_tutorial()
 	await frames(2)
-	FileAccess.open(output+"visual-results.json",FileAccess.WRITE).store_string(JSON.stringify({"captures":captures,"failures":failures,"renderer":RenderingServer.get_video_adapter_name()},"\t"))
+	FileAccess.open(output + "visual-results.json", FileAccess.WRITE).store_string(JSON.stringify({"captures": captures, "failures": failures, "renderer": RenderingServer.get_video_adapter_name()}, "\t"))
 	game.free()
-	quit(0 if failures==0 else 1)
+	quit(0 if failures == 0 else 1)
 
 func run_boss_arrow() -> void:
 	DirAccess.make_dir_recursive_absolute(output)

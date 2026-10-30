@@ -45,7 +45,7 @@ func detonate() -> void:
 	if exploded:
 		return
 	exploded = true
-	game.play_sound("bomb_explode",global_position)
+	game.play_sound("bomb_explode", global_position)
 	if is_instance_valid(game.terrain):
 		game.terrain.explode(global_position, T.BOMB_RADIUS)
 	if is_instance_valid(game.player) and not game.player.dead:

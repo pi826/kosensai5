@@ -1,5 +1,6 @@
 extends Node2D
 signal block_removed(bounds: Rect2, player_attack: bool)
+signal sound_requested(id: String, point: Vector2)
 ## One collision world. Rendering is split into spatial batches for canvas culling.
 
 const T := preload("res://scripts/tuning.gd")
@@ -225,7 +226,7 @@ func explode(center: Vector2, radius: float = T.BOMB_RADIUS) -> Array[Vector2i]:
 			removed_walls.append(cell)
 	for id: int in walls.keys():
 		if walls[id].cells.is_empty():
-			_sound("wall_vanish",center)
+			sound_requested.emit("wall_vanish", center)
 			walls.erase(id)
 	_changed(removed_walls, T.WALL_LAYER)
 	return removed
@@ -343,7 +344,7 @@ func place_wall(bounds: Rect2, owner_id: int) -> int:
 		_set_row_cell(cell, T.WALL_LAYER, true)
 		_chunk(_chunk_key(cell)).walls.append(cell)
 	_changed(cells, T.WALL_LAYER)
-	_sound("wall_place",bounds.get_center())
+	sound_requested.emit("wall_place", bounds.get_center())
 	return id
 
 func _erase_wall_cell(cell: Vector2i) -> void:
@@ -355,18 +356,12 @@ func remove_wall(id: int) -> void:
 	if not walls.has(id):
 		return
 	if not walls[id].cells.is_empty():
-		_sound("wall_vanish",(pixel_of_cell(walls[id].cells[0])+pixel_of_cell(walls[id].cells[-1])+Vector2.ONE*TILE_SIZE)/2)
+		sound_requested.emit("wall_vanish", (pixel_of_cell(walls[id].cells[0]) + pixel_of_cell(walls[id].cells[-1]) + Vector2.ONE * TILE_SIZE) / 2)
 	var cells: Array[Vector2i] = walls[id].cells.duplicate()
 	for cell: Vector2i in cells:
 		_erase_wall_cell(cell)
 	walls.erase(id)
 	_changed(cells, T.WALL_LAYER)
-
-func _sound(id: String, point: Vector2) -> void:
-	var parent := get_parent()
-	if parent == null: return
-	var host := parent.get_parent()
-	if host != null and host.has_method("play_sound"): host.play_sound(id,point)
 
 func _physics_process(delta: float) -> void:
 	for id: int in walls.keys():
