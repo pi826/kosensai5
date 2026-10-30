@@ -1,6 +1,6 @@
 # CHROMA SHIFT
 
-**Task 8A：実行時合成の効果音・BGM・地域の環境音と音量設定**を追加しました。設計・計測・検証・試聴WAVは [Task 8A](docs/task8a_sound.md) を参照してください。
+**Task 8B：音を爽快な方向へ再設計**。鋭い効果音と128〜172BPMの曲に変更しました。設計・計測・検査・試聴WAVは [Task 8B](docs/task8b_energetic_sound.md) を参照してください。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
@@ -75,7 +75,7 @@ Task 7Dの同じ1,000区画では、横道のない縦区間の上限超過と�
 - 通常敵100点と誘導弾1回分、ガーディアン1,000点と2回分、ラスボス3,000点と3回分、裏ボス10,000点と5回分（ストック上限5）。消えた通常敵・箱・ハートは45秒後から5秒ごとに25%で戻ります。視界の周囲96pxと他の体・設置壁を避けます。削れた床と倒したボス個体は戻りません。ボス循環では新しい個体を別の区画に配置します。
 - 死亡後は同じシードで再挑戦し、全区画の破壊・敵・ハート・復活時刻・探索・ストック・スコア・ボスの進行を初期化します。
 
-タイトル・一時停止・結果画面の「音量」で全体・BGM・効果音を0〜100%（10%刻み）で変更できます。↑↓で行、←→で調整、Enterで決定、Escで閉じます。マウスのクリック・ドラッグにも対応し、閉じる時に保存します。青Aと橙Bで射撃・吸収・色切替の音が異なり、地域やボスに合わせて曲が滑らかに変わります。音源は起動後に別スレッドで合成します。
+タイトル・一時停止・結果画面の「音量」で全体・BGM・効果音を0〜100%（10%刻み）で変更できます。↑↓で行、←→で調整、Enterで決定、Escで閉じます。マウスのクリック・ドラッグにも対応し、閉じる時に保存します。青Aは高く鋭く、橙Bは低く太い射撃・吸収・色切替の音を使います。曲は持続音だけをキックに合わせて下げ、ドラムのアタックを保ちます。ドラム・動くベース・コード進行・4小節ごとのフィルがあり、地域やボスに合わせて滑らかに変わります。環境音は小さく保ち、音源は起動後に別スレッドで合成します。
 
 ## 区画・地図・カメラ
 
@@ -149,7 +149,7 @@ $env:APPDATA = "$PWD\.userdata"
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/streaming_performance.gd -- --loop-three
 # 音量メニューとパネル10枚。音はスピーカーへ出力しない
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --audio-driver Dummy --path . --fixed-fps 60 --script tests/visual_check.gd -- --sound
-# 音の合成・設定・発音・重なり・曲と1800フレームの状態一致を検査
+# 音の合成・設定・発音・曲と1800フレームの状態一致、energy（テンポ・立ち上がり・明るさ・リズム）を検査
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/audio_test.gd
 # 効果音・曲2ループ・環境音・ジングルの試聴WAVを builds/qa/sound/preview/ に保存
 & .\tools\godot\Godot_v4.7.2-stable_win64_console.exe --headless --audio-driver Dummy --path . --script tests/audio_preview.gd
@@ -175,4 +175,6 @@ Task 7Dの最終検証は全32スクリプト・33実行・136866項目が失敗
 
 Task 7E-fixの最終検証は全33スクリプト・34実行・140979項目、失敗0・終了コード0。通常ループの画面外キュー停止を修正し、約1200キーで管理時間の平均0.031〜0.036ms、推定描画コストが枠の3倍でも進行を確認しました。画面あり検査6781項目も成功。実時間歩行は全シード保留0、p95は10.97／10.93ms、p99は14.43／14.42ms、最大20.16／19.47msです。初回描画は374.894／365.601msで、同環境の修正前375.579／364.816msとほぼ同じですが、過去の約362ms以下は再現できていません。固定fpsの保留158→272の原因は当時の実時間記録がないため未確定です。各テストの項目数、比較、推測と未確認事項は [検証記録](docs/task7e_stream_install.md) を参照してください。
 
-Task 8Aの最終検査は全35実行・145,768項目、失敗0・終了コード0。音検査4,446項目、通常描画10枚も確認しました。試聴WAVは builds/qa/sound/preview/ にあります。音色の試聴と実機の遅延は未確認で、発音を含む負荷の目安未達・計測の変動は [Task 8A](docs/task8a_sound.md) に記録しています。
+Task 8Aの最終検査は全35実行・145,768項目、失敗0・終了コード0。音検査4,446項目、通常描画10枚も確認しました。8Aの試聴WAVは builds/qa/sound/preview-8a/、8Bは builds/qa/sound/preview/ にあります。8Aの発音負荷と計測の変動は [Task 8A](docs/task8a_sound.md)、8Bの全検査と合成時間は [Task 8B](docs/task8b_energetic_sound.md) に記録します。人の聴取・実機の遅延は未確認です。
+
+Task 8Bの最終検査は全35実行・181173 項目、失敗0・全終了コード0。音検査はenergy 181項目を含む40,109項目で、別プロセスでも再実行しました。旧合成はenergyの明るさ・全5曲のリズムが不合格、新合成は全て合格。追加した拍頭・途切れ検査も前回の全体ゲートありで不合格、撤去後は全5曲で合格。合成時間・性能比較・試聴WAV・未確認事項は [Task 8B](docs/task8b_energetic_sound.md) に記録しています。

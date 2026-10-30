@@ -19,6 +19,320 @@ var event_ids: Dictionary = {}
 var benchmark: Dictionary = {}
 var music_trace: Array[Dictionary] = []
 
+# Scale-independent brightness and rhythmic onset measurements, also used by
+# builds/qa/sound/energy/measure*.gd for archived/current banks.
+const ENERGY_ATTACK_IDS := ["shot_a", "shot_b", "enemy_hit", "boss_hit", "enemy_defeat", "hurt", "jump", "land", "dash", "crystal", "ui_move", "ui_confirm"]
+const ENERGY_BRIGHTNESS_MIN := 0.35
+const ENERGY_RHYTHM_MIN := 0.16
+# BS.1770 K weighting, DeMan parameterization used by pyloudnorm.
+# Return normalized [b0,b1,b2,a1,a2] for shelf then RLB, at the actual rate.
+static func k_coefficients(rate: int) -> Array[PackedFloat64Array]:
+	var k := tan(PI * 1681.9744509555319 / rate)
+	var q := 0.7071752369554193
+	var vh := pow(10, 3.99984385397 / 20.0)
+	var vb := pow(vh, 0.499666774155)
+	var a := 1 + k / q + k * k
+	var shelf := PackedFloat64Array([(vh+vb*k/q+k*k)/a, 2*(k*k-vh)/a, (vh-vb*k/q+k*k)/a, 2*(k*k-1)/a, (1-k/q+k*k)/a])
+	k = tan(PI * 38.13547087613982 / rate)
+	q = 0.5003270373253953
+	a = 1 + k / q + k * k
+	return [shelf, PackedFloat64Array([1, -2, 1, 2*(k*k-1)/a, (1-k/q+k*k)/a])]
+
+static func k_weighted(stream: AudioStreamWAV, circular: bool) -> PackedFloat64Array:
+	var pcm := stream.data
+	var n := pcm.size() / 2
+	var warm := mini(n, int(stream.mix_rate * 0.5)) if circular else 0
+	# A zero-input tail includes energy after the last source sample for effects.
+	var tail := 0 if circular else int(stream.mix_rate * 0.05)
+	var data := PackedFloat64Array()
+	data.resize(warm + n + tail)
+	for i in range(warm + n):
+		data[i] = pcm.decode_s16(((i - warm + n) % n) * 2) / 32768.0
+	for c in k_coefficients(stream.mix_rate):
+		var x1 := 0.0
+		var x2 := 0.0
+		var y1 := 0.0
+		var y2 := 0.0
+		for i in range(data.size()):
+			var x := data[i]
+			var y := c[0]*x + c[1]*x1 + c[2]*x2 - c[3]*y1 - c[4]*y2
+			x2 = x1
+			x1 = x
+			y2 = y1
+			y1 = y
+			data[i] = y
+	return data.slice(warm)
+
+static func k_music_rms_db(stream: AudioStreamWAV) -> float:
+	var data := k_weighted(stream, true)
+	var sq := 0.0
+	for value in data: sq += value * value
+	return linear_to_db(sqrt(maxf(1e-20, sq / data.size())))
+
+static func k_effect_max50_db(stream: AudioStreamWAV) -> float:
+	var data := k_weighted(stream, false)
+	var window := int(round(stream.mix_rate * 0.05))
+	var sq := 0.0
+	var largest := 0.0
+	# Every sample offset, fixed 50ms denominator (including short effects).
+	for i in range(data.size()):
+		sq += data[i] * data[i]
+		if i >= window: sq -= data[i-window] * data[i-window]
+		if i >= window-1: largest = maxf(largest, sq)
+	return linear_to_db(sqrt(maxf(1e-20, largest / window)))
+
+# Fresh 8A synthesis, measured with the static functions above; dB RMS, not LUFS.
+const ENERGY_K_8A_MUSIC := {
+	"boss": -13.17576535,
+	"region0": -16.81710942,
+	"region1": -17.15169604,
+	"region2": -19.84009125,
+	"title": -17.47908159,
+}
+const ENERGY_K_8A_EFFECTS := {
+	"enemy_hit": -26.15659051,
+	"enemy_defeat": -18.46875849,
+	"boss_hit": -21.34107985,
+	"boss_defeat": -12.55164622,
+	"enhancer_defeat": -12.13800063,
+	"block_break": -21.34518404,
+	"bomb_explode": -14.79618260,
+	"ability_get": -14.70242037,
+	"arrow_unlock": -16.02508024,
+	"charge": -12.79152491,
+	"key": -14.05376886,
+	"heal": -15.52154251,
+	"item_get": -15.69807171,
+	"chest_open": -14.16177765,
+	"buy": -16.95065912,
+	"tutorial_step": -15.61714248,
+	"absorb_a": -14.98143018,
+	"absorb_b": -15.11818930,
+	"switch_a": -18.07146102,
+	"switch_b": -17.82059691,
+	"hurt": -14.60137240,
+	"death": -11.96046576,
+	"boss_appear": -9.97694475,
+	"win": -12.82354234,
+	"shot_a": -26.22270529,
+	"shot_b": -25.16089042,
+	"enemy_shot": -31.54963154,
+	"enemy_warn": -31.09176416,
+	"enemy_warn_special": -20.82469209,
+	"enemy_homing": -26.35581773,
+	"enemy_absorb": -19.06193244,
+	"enemy_switch": -22.23774930,
+	"boss_shot": -21.34888750,
+	"bomb_warn": -22.67699988,
+	"laser_charge": -19.57027678,
+	"laser_fire": -21.70650014,
+	"amb0_drop": -22.34500939,
+	"amb0_ripple": -29.81123872,
+	"amb1_chime": -18.62533145,
+	"amb1_ring": -23.39277977,
+	"amb2_ember": -31.46079407,
+	"amb2_metal": -21.25941199,
+}
+const ENERGY_K_COMBAT := ["enemy_hit","enemy_defeat","boss_hit","boss_defeat","enhancer_defeat","block_break","bomb_explode"]
+const ENERGY_K_IMPORTANT := ["ability_get","arrow_unlock","charge","key","heal","item_get","chest_open","buy","tutorial_step","absorb_a","absorb_b","switch_a","switch_b","hurt","death","boss_appear","win"]
+const ENERGY_K_QUIET := ["enemy_shot","enemy_warn","enemy_warn_special","enemy_homing","enemy_absorb","enemy_switch","boss_shot","bomb_warn","laser_charge","laser_fire","amb0_drop","amb0_ripple","amb1_chime","amb1_ring","amb2_ember","amb2_metal"]
+const ENERGY_K_TOLERANCE_DB := 0.5
+const ENERGY_QUIET_LIMITS := {
+	"enemy_shot": [-22.61, -32.11], "enemy_warn": [-24.01, -33.83],
+	"enemy_warn_special": [-18.04, -26.08], "enemy_homing": [-16.96, -32.29],
+	"enemy_absorb": [-15.37, -23.41], "enemy_switch": [-18.86, -26.88],
+	"boss_shot": [-12.40, -25.56],
+	"bomb_warn": [-17.99, -27.94], "laser_charge": [-15.11, -25.03],
+	"amb0_drop": [-18.66, -28.65], "amb0_ripple": [-20.38, -36.68],
+	"amb1_chime": [-18.51, -26.57], "amb1_ring": [-20.11, -30.10],
+	"amb2_ember": [-22.03, -36.38], "amb2_metal": [-19.28, -27.34]
+}
+
+static func energy_features(stream: AudioStreamWAV) -> Dictionary:
+	var pcm := stream.data
+	var n := pcm.size() / 2
+	var block := int(stream.mix_rate * 0.01)
+	var sq := 0.0
+	var diff_sq := 0.0
+	var peak := 0.0
+	var previous := 0.0
+	var envelope: Array[float] = []
+	var block_sq := 0.0
+	for i in range(n):
+		var value := pcm.decode_s16(i*2) / 32768.0
+		sq += value * value
+		diff_sq += (value-previous) * (value-previous)
+		peak = maxf(peak, absf(value))
+		previous = value
+		block_sq += value * value
+		if (i+1) % block == 0:
+			envelope.append(sqrt(block_sq / block))
+			block_sq = 0
+	var onset := -1.0
+	for i in range(n):
+		if absf(pcm.decode_s16(i*2) / 32768.0) >= peak * 0.5:
+			onset = i * 1000.0 / stream.mix_rate
+			break
+	var rises := 0.0
+	var level := 0.0
+	for i in range(envelope.size()):
+		level += envelope[i]
+		rises += maxf(0, envelope[i] - envelope[(i+envelope.size()-1) % envelope.size()])
+	return {"brightness": sqrt(diff_sq / maxf(0.00000001, sq)), "rhythm": rises / maxf(0.00000001, level), "attack_ms": onset}
+
+# Average 2ms RMS windows at the same musical phase, aligned independently to
+# every cycle (no accumulated sample/block rounding). PCM normalized by 32768.
+# The last bin can be shorter than 2ms; every sample belongs to one phase bin.
+static func phase_envelope(stream: AudioStreamWAV, period: float) -> Array[float]:
+	var pcm := stream.data
+	var n := pcm.size() / 2
+	var bins := int(ceil(period / 0.002))
+	var envelope: Array[float] = []
+	envelope.resize(bins)
+	envelope.fill(0.0)
+	var cycles := int(round(float(n) / stream.mix_rate / period))
+	for cycle in range(cycles):
+		for bin_index in range(bins):
+			var first := int(round((cycle * period + bin_index * 0.002) * stream.mix_rate))
+			var end := mini(n, int(round((cycle * period + minf((bin_index+1)*0.002, period)) * stream.mix_rate)))
+			var sq := 0.0
+			for i in range(first, end):
+				var value := pcm.decode_s16(i*2) / 32768.0
+				sq += value * value
+			envelope[bin_index] += sqrt(sq / maxi(1, end-first)) / cycles
+	return envelope
+
+static func beat_attack_features(stream: AudioStreamWAV, bpm: float) -> Dictionary:
+	var half_bar := phase_envelope(stream, 120.0 / bpm)
+	var eighth := phase_envelope(stream, 30.0 / bpm)
+	var maximum: float = half_bar.max()
+	return {"peak_ms": half_bar.find(maximum) * 2.0,
+		"head_db": linear_to_db(maxf(1e-10, (half_bar[0]+half_bar[1]+half_bar[2]) / 3.0 / maximum)),
+		"eighth_min_db": linear_to_db(maxf(1e-10, float(eighth.min()) / float(eighth.max())))}
+
+func energy_test() -> void:
+	group = "energy"
+	k_measurement_test()
+	var report: Dictionary = {"effects": {}, "music": {}, "thresholds": {"brightness": ENERGY_BRIGHTNESS_MIN, "rhythm": ENERGY_RHYTHM_MIN, "attack_ms": 10}}
+	var brightness := 0.0
+	for id: String in ENERGY_ATTACK_IDS:
+		var features := energy_features(streams[id])
+		report.effects[id] = features
+		brightness += features.brightness
+		check(features.attack_ms >= 0 and features.attack_ms <= 10, id + ": reaches half peak within 10ms")
+	brightness /= ENERGY_ATTACK_IDS.size()
+	report.brightness_mean = brightness
+	check(brightness >= ENERGY_BRIGHTNESS_MIN, "mean first-difference RMS / RMS >= brightness threshold")
+	var loudness: Array[float] = []
+	for id: String in Bank.MUSIC_IDS:
+		var stream: AudioStreamWAV = streams[id]
+		var features := energy_features(stream)
+		report.music[id] = features
+		check(Bank.MUSIC_BPM[id] >= 120, id + ": BPM >=120")
+		check(Bank.MUSIC_BEATS[id] % 4 == 0, id + ": whole four-beat bars")
+		check(absf(stream.get_length() - Bank.MUSIC_BEATS[id] * 60.0 / Bank.MUSIC_BPM[id]) <= 1.0 / stream.mix_rate, id + ": duration matches beats/BPM within one sample")
+		check(features.rhythm >= ENERGY_RHYTHM_MIN, id + ": positive 10ms RMS flux / mean RMS >= rhythm threshold")
+		var attack := beat_attack_features(stream, Bank.MUSIC_BPM[id])
+		report.music[id].beat_attack = attack
+		check(attack.peak_ms <= 25 and attack.head_db >= -6, id + ": half-bar peak within 25ms and first 6ms within -6dB")
+		check(attack.eighth_min_db >= -12, id + ": eighth-phase envelope floor within -12dB")
+		check(0 in Bank.MUSIC_KICKS[Bank.MUSIC_IDS.find(id)] and 8 in Bank.MUSIC_KICKS[Bank.MUSIC_IDS.find(id)], id + ": half-bar attack grid has kicks at sixteenths 0 and 8")
+		if id != "boss": check(Bank.MUSIC_BPM.boss > Bank.MUSIC_BPM[id], "boss faster than " + id)
+		loudness.append(wave_metrics[id].rms_dbfs)
+	check(Bank.MUSIC_BPM.boss >= 160, "boss BPM >=160")
+	check(loudness.max() - loudness.min() <= 6, "music RMS within +/-3dB")
+	for id: String in ENERGY_QUIET_LIMITS:
+		check(wave_metrics[id].peak_dbfs <= ENERGY_QUIET_LIMITS[id][0] + 1, id + ": peak no more than 8A +1dB")
+		check(wave_metrics[id].rms_dbfs <= ENERGY_QUIET_LIMITS[id][1] + 1, id + ": RMS no more than 8A +1dB")
+	report.k_music = {}
+	report.k_effects = {}
+	var k_levels: Array[float] = []
+	for id: String in Bank.MUSIC_IDS:
+		var level := k_music_rms_db(streams[id])
+		report.k_music[id] = level
+		k_levels.append(level)
+		check(level >= ENERGY_K_8A_MUSIC.title - 1, id + ": K RMS >= 8A title -1dB")
+	check(k_levels.max() - k_levels.min() <= 3, "music K RMS spread <=3dB")
+	check(report.k_music.boss >= k_levels.max() - 0.5, "boss K RMS within 0.5dB of loudest")
+	for id: String in ENERGY_K_8A_EFFECTS:
+		var level := k_effect_max50_db(streams[id])
+		var delta: float = level - ENERGY_K_8A_EFFECTS[id]
+		report.k_effects[id] = {"db": level, "delta_8a_db": delta}
+		var tolerance := ENERGY_K_TOLERANCE_DB
+		if id in ENERGY_K_COMBAT:
+			check(delta >= 1-tolerance and delta <= 6+tolerance, id + ": K max50ms 8A +1..+6dB (+/-0.5)")
+		elif id in ENERGY_K_IMPORTANT:
+			check(delta >= -1-tolerance, id + ": K max50ms >= 8A -1dB (+/-0.5)")
+		elif id in ["shot_a", "shot_b"]:
+			check(delta >= -tolerance and delta <= 3+tolerance, id + ": K max50ms 8A 0..+3dB (+/-0.5)")
+		else:
+			check(id in ENERGY_K_QUIET, id + ": assigned K quiet category")
+			check(delta <= (3 if id == "laser_fire" else 1) + tolerance, id + ": K max50ms quiet ceiling (+/-0.5)")
+	var drum_patterns := {}
+	var bass_patterns := {}
+	var hooks := {}
+	for index in range(Bank.MUSIC_IDS.size()):
+		var id: String = Bank.MUSIC_IDS[index]
+		drum_patterns[str(Bank.MUSIC_KICKS[index])] = true
+		bass_patterns[str(Bank.MUSIC_BASS[index])] = true
+		hooks[str(Bank.MUSIC_HOOKS[index])] = true
+		var has_step := false
+		var melody: Array = Bank.MUSIC_HOOKS[index]
+		for i in range(1, melody.size()):
+			if absi(melody[i][1]-melody[i-1][1]) in [1,2]: has_step = true
+		check(has_step and melody[-1][0] >= 16, id + ": two-bar melody contains stepwise motion")
+		var pcm: PackedByteArray = streams[id].data
+		var bar_bytes := int(round(4*60.0/Bank.MUSIC_BPM[id]*streams[id].mix_rate))*2
+		var section := int(round(32*60.0/Bank.MUSIC_BPM[id]*streams[id].mix_rate))*2
+		check(pcm.slice(0,bar_bytes) != pcm.slice(section,section+bar_bytes), id + ": bar 9 varies the A section")
+	check(drum_patterns.size() == 5 and bass_patterns.size() == 5 and hooks.size() == 5, "five distinct drum/bass/hook patterns")
+	check(Bank.MUSIC_SNARES[3] == [8] and Bank.MUSIC_KICKS[4].size() == 8, "region2 halftime / boss eighth-note kicks")
+	check(Bank.SOUNDS.loop_up[3] == 10 and Bank.SOUNDS.loop_up[0] == 0.95, "loop_up escalation voice / fixed duration")
+	check(Bank.LOOP_UP_INTERVALS == [0,3,6,9,12,15,18,21], "loop_up rising diminished motif, distinct from major rewards")
+	benchmark.energy = report
+
+# Checks the filter against BS.1770's 48kHz reference and analytical sine gain,
+# then checks circular warm-up, amplitude scaling and sample-wise max-window RMS.
+func k_measurement_test() -> void:
+	var reference := [PackedFloat64Array([1.53512485958697,-2.69169618940638,1.19839281085285,-1.69065929318241,0.73248077421585]), PackedFloat64Array([1,-2,1,-1.99004745483398,0.99007225036621])]
+	var coefficients := k_coefficients(48000)
+	for stage in range(2):
+		for j in range(5): check(absf(coefficients[stage][j]-reference[stage][j]) < 1e-8, "K biquad matches 48kHz ITU reference")
+	for rate: int in [22050,32000]:
+		var stream := AudioStreamWAV.new()
+		stream.mix_rate = rate
+		stream.format = AudioStreamWAV.FORMAT_16_BITS
+		var pcm := PackedByteArray()
+		pcm.resize(rate*2)
+		for i in range(rate): pcm.encode_s16(i*2, roundi(8192*sin(TAU*1000*i/rate)))
+		stream.data = pcm
+		var gain := 1.0
+		var w := TAU*1000/rate
+		for c in k_coefficients(rate):
+			var nr: float = c[0]+c[1]*cos(w)+c[2]*cos(2*w)
+			var ni: float = -c[1]*sin(w)-c[2]*sin(2*w)
+			var dr: float = 1+c[3]*cos(w)+c[4]*cos(2*w)
+			var di: float = -c[3]*sin(w)-c[4]*sin(2*w)
+			gain *= sqrt((nr*nr+ni*ni)/(dr*dr+di*di))
+		var measured := k_music_rms_db(stream)
+		check(absf(measured-linear_to_db(0.25/sqrt(2)*gain)) < 0.002, "K sine response at " + str(rate))
+		var shifted := pcm.slice(137*2)
+		shifted.append_array(pcm.slice(0,137*2))
+		stream.data = shifted
+		check(absf(k_music_rms_db(stream)-measured) < 0.0001, "K circular rotation invariance at " + str(rate))
+		for i in range(rate): pcm.encode_s16(i*2, roundi(pcm.decode_s16(i*2)*0.5))
+		stream.data = pcm
+		check(absf(k_music_rms_db(stream)-measured+6.0206) < 0.002, "K amplitude scaling at " + str(rate))
+		stream.data = pcm.slice(0,int(rate*0.065)*2)
+		var filtered := k_weighted(stream,false)
+		var width := int(round(rate*0.05))
+		var maximum := 0.0
+		for start in range(filtered.size()-width+1):
+			var sq := 0.0
+			for i in range(start,start+width): sq += filtered[i]*filtered[i]
+			maximum = maxf(maximum,sq/width)
+		check(absf(k_effect_max50_db(stream)-linear_to_db(sqrt(maximum))) < 1e-8, "K sliding max equals brute force at " + str(rate))
+
 func _initialize() -> void: call_deferred("run")
 func check(ok: bool, message: String) -> void:
 	checks += 1
@@ -944,6 +1258,7 @@ func run() -> void:
 	await startup_test()
 	group="synthesis"
 	await synthesize()
+	energy_test()
 	game=Main.new()
 	game.controls_path=OUT+"test-controls.cfg"
 	game.audio_settings_path=OUT+"test-audio.cfg"
