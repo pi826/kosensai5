@@ -97,9 +97,11 @@ var _sines := PackedFloat32Array()
 var _pulse := PackedFloat32Array()
 var _metal := PackedFloat32Array()
 var _grit := PackedFloat32Array()
+var _skip_ids: Array = []
 
-func start() -> void:
+func start(skip_ids: Array = []) -> void:
 	if thread != null: return
+	_skip_ids = skip_ids.duplicate()
 	started_usec = Time.get_ticks_usec()
 	thread = Thread.new()
 	thread.start(_work, Thread.PRIORITY_LOW)
@@ -138,6 +140,7 @@ func _work() -> void:
 		_metal[i] = (sin(p) + 0.45 * sin(3*p) + 0.26 * sin(7*p)) / 1.4
 		_grit[i] = (sin(p) + 0.6 * sin(3*p) + 0.35 * sin(5*p) + 0.18 * sin(7*p)) / 1.5
 	for id: String in SOUNDS.keys() + MUSIC_IDS:
+		if _skip_ids.has(id): continue
 		if stopped(): break
 		var began := Time.get_ticks_usec()
 		var music := MUSIC_IDS.has(id)

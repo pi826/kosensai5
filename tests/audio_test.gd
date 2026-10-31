@@ -6,7 +6,8 @@ const Enemy := preload("res://scripts/enemy.gd")
 const Loot := preload("res://scripts/loot.gd")
 const Terrain := preload("res://scripts/world_terrain.gd")
 const T := preload("res://scripts/tuning.gd")
-const OUT := "res://builds/qa/sound/"
+const Assets := preload("res://scripts/sound_assets.gd")
+var OUT := "res://builds/qa/sound/assets/audio-%s-%d/" % [Time.get_datetime_string_from_system().replace(":", ""), OS.get_process_id()]
 var checks := 0
 var failures: Array[String] = []
 var groups: Dictionary = {}
@@ -38,16 +39,24 @@ static func k_coefficients(rate: int) -> Array[PackedFloat64Array]:
 	a = 1 + k / q + k * k
 	return [shelf, PackedFloat64Array([1, -2, 1, 2*(k*k-1)/a, (1-k/q+k*k)/a])]
 
-static func k_weighted(stream: AudioStreamWAV, circular: bool) -> PackedFloat64Array:
+static func k_weighted(stream: AudioStreamWAV, circular: bool, channel: int = 0, pitch: float = 1.0, gain_db: float = 0.0) -> PackedFloat64Array:
 	var pcm := stream.data
-	var n := pcm.size() / 2
+	var channels := 2 if stream.stereo else 1
+	var source_n := pcm.size() / (2 * channels)
+	var n := int(ceil(source_n / pitch))
 	var warm := mini(n, int(stream.mix_rate * 0.5)) if circular else 0
 	# A zero-input tail includes energy after the last source sample for effects.
 	var tail := 0 if circular else int(stream.mix_rate * 0.05)
 	var data := PackedFloat64Array()
 	data.resize(warm + n + tail)
+	var gain := db_to_linear(gain_db)
 	for i in range(warm + n):
-		data[i] = pcm.decode_s16(((i - warm + n) % n) * 2) / 32768.0
+		var position := ((i - warm + n) % n) * pitch
+		var first := mini(source_n - 1, int(position))
+		var second := (first + 1) % source_n if circular else mini(source_n - 1, first + 1)
+		var a := pcm.decode_s16((first * channels + channel) * 2) / 32768.0
+		var b := pcm.decode_s16((second * channels + channel) * 2) / 32768.0
+		data[i] = lerpf(a, b, position - first) * gain
 	for c in k_coefficients(stream.mix_rate):
 		var x1 := 0.0
 		var x2 := 0.0
@@ -63,14 +72,18 @@ static func k_weighted(stream: AudioStreamWAV, circular: bool) -> PackedFloat64A
 			data[i] = y
 	return data.slice(warm)
 
-static func k_music_rms_db(stream: AudioStreamWAV) -> float:
-	var data := k_weighted(stream, true)
+static func k_music_rms_db(stream: AudioStreamWAV, gain_db: float = 0.0) -> float:
 	var sq := 0.0
-	for value in data: sq += value * value
-	return linear_to_db(sqrt(maxf(1e-20, sq / data.size())))
+	var n := 0
+	for channel in range(2 if stream.stereo else 1):
+		var data := k_weighted(stream, true, channel, 1.0, gain_db)
+		n = data.size()
+		for value in data: sq += value * value
+	# BS.1770: sum L/R channel mean squares (no divide by channel count).
+	return linear_to_db(sqrt(maxf(1e-20, sq / n)))
 
-static func k_effect_max50_db(stream: AudioStreamWAV) -> float:
-	var data := k_weighted(stream, false)
+static func k_effect_max50_db(stream: AudioStreamWAV, pitch: float = 1.0, gain_db: float = 0.0) -> float:
+	var data := k_weighted(stream, false, 0, pitch, gain_db)
 	var window := int(round(stream.mix_rate * 0.05))
 	var sq := 0.0
 	var largest := 0.0
@@ -440,6 +453,7 @@ func startup_test() -> void:
 	initial.controls_path=OUT+"startup-controls.cfg"
 	initial.audio_settings_path=OUT+"startup-audio.cfg"
 	initial.audio_synthesis_override=1
+	initial.set_meta("sound_set_override", "synth")
 	root.add_child(initial)
 	initial.set_physics_process(false)
 	var effects_ready:=0.0
@@ -454,6 +468,7 @@ func startup_test() -> void:
 	check(effects_ready>0 and effects_ready<2000,"real main receives all effects within 2s of scene creation")
 	check(title_ready>0 and title_ready<4000,"real main receives title within 4s of scene creation")
 	check(initial.audio.setup_ms<10,"setup including thread start <10ms")
+	check(initial.audio.sound_set == "synth" and initial.audio.asset_loaded.is_empty() and initial.audio.asset_queue.is_empty(), "synth override never queues material imports")
 	initial.free()
 
 func settings_test() -> void:
@@ -1252,6 +1267,207 @@ func stress_test() -> void:
 	benchmark.stress.frames=180
 	benchmark.stress.max_voices=max_voices
 
+# Decode imported QOA through the engine mixer for a separate post-import check.
+# The source-WAV measurements below stay at 44100Hz; this probe uses mix rate.
+static func decoded_pcm(stream: AudioStreamWAV) -> AudioStreamWAV:
+	var rate := int(AudioServer.get_mix_rate())
+	var count := int(round(stream.get_length() * rate))
+	var playback := stream.instantiate_playback()
+	playback.start()
+	var pcm := PackedByteArray()
+	pcm.resize(count * 4)
+	var offset := 0
+	while offset < count:
+		var block := playback.mix_audio(1.0, mini(4096, count-offset))
+		if block.is_empty(): break
+		for value in block:
+			pcm.encode_s16(offset*4, clampi(int(round(value.x*32768)), -32768, 32767))
+			pcm.encode_s16(offset*4+2, clampi(int(round(value.y*32768)), -32768, 32767))
+			offset += 1
+	playback.stop()
+	var result := AudioStreamWAV.new()
+	result.format = AudioStreamWAV.FORMAT_16_BITS
+	result.stereo = true
+	result.mix_rate = rate
+	result.data = pcm
+	return result
+
+func assets_test() -> void:
+	group = "assets"
+	var sine := AudioStreamWAV.new()
+	sine.format = AudioStreamWAV.FORMAT_16_BITS
+	sine.mix_rate = 44100
+	var mono := PackedByteArray()
+	var stereo := PackedByteArray()
+	mono.resize(44100*2)
+	stereo.resize(44100*4)
+	for i in range(44100):
+		var sample := roundi(8192*sin(TAU*1000*i/44100))
+		mono.encode_s16(i*2, sample)
+		stereo.encode_s16(i*4, sample)
+		stereo.encode_s16(i*4+2, sample)
+	sine.data = mono
+	var mono_level := k_music_rms_db(sine)
+	var analytical_gain := 1.0
+	var frequency := TAU*1000/44100
+	for c in k_coefficients(44100):
+		var nr: float = c[0]+c[1]*cos(frequency)+c[2]*cos(2*frequency)
+		var ni: float = -c[1]*sin(frequency)-c[2]*sin(2*frequency)
+		var dr: float = 1+c[3]*cos(frequency)+c[4]*cos(2*frequency)
+		var di: float = -c[3]*sin(frequency)-c[4]*sin(2*frequency)
+		analytical_gain *= sqrt((nr*nr+ni*ni)/(dr*dr+di*di))
+	check(absf(mono_level-linear_to_db(0.25/sqrt(2)*analytical_gain)) < 0.002, "K analytical 44100Hz sine response")
+	sine.data = stereo
+	sine.stereo = true
+	check(absf(k_music_rms_db(sine)-mono_level-3.01029996) < 0.00001, "stereo K uses sum of channel mean squares")
+	check(Assets.EFFECTS.size() == 58 and Assets.MUSIC.size() == 4, "exact 58 effect / 4 music assignments")
+	for id: String in Bank.SOUNDS:
+		check(Assets.EFFECTS.has(id) != Assets.SYNTH_EFFECTS.has(id), id + ": exactly one effect source")
+	for id: String in Bank.MUSIC_IDS:
+		check(Assets.MUSIC.has(id) != Assets.SYNTH_MUSIC.has(id), id + ": exactly one music source")
+	check(Assets.SYNTH_EFFECTS.size() == 8 and Assets.SYNTH_MUSIC == ["boss"], "eight effects and boss stay synthesized")
+	var source_bytes := {}
+	for path: String in Assets.SHA256:
+		test_progress()
+		check(FileAccess.file_exists(path), path + ": source exists")
+		var config := ConfigFile.new()
+		check(config.load(path+".import") == OK, path + ": import configuration exists")
+		check(config.get_value("params", "edit/trim", true) == false and config.get_value("params", "edit/normalize", true) == false, path + ": explicit trim/normalize disabled")
+		var music_path: bool = Assets.MUSIC.values().any(func(spec): return spec.path == path)
+		check(config.get_value("params", "compress/mode", -1) == (2 if music_path else 0) and config.get_value("params", "edit/loop_mode", -1) == (2 if music_path else 1), path + ": explicit compression and loop policy")
+		var bytes := FileAccess.get_file_as_bytes(path)
+		var hash := HashingContext.new()
+		hash.start(HashingContext.HASH_SHA256)
+		hash.update(bytes)
+		check(hash.finish().hex_encode() == Assets.SHA256[path], path + ": source ZIP member SHA256")
+		source_bytes[path] = bytes
+	var metrics := {"effects": {}, "music": {}}
+	for id: String in Assets.EFFECTS:
+		test_progress()
+		var spec: Dictionary = Assets.EFFECTS[id]
+		var stream := load(spec.path) as AudioStreamWAV
+		check(stream != null, id + ": imported effect exists")
+		if stream == null: continue
+		check(stream.mix_rate == 44100 and not stream.stereo and stream.format == AudioStreamWAV.FORMAT_16_BITS and stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, id + ": mono 44100Hz PCM / no loop")
+		var raw := AudioStreamWAV.load_from_buffer(source_bytes[spec.path], {"compress/mode": 0})
+		check(stream.data == raw.data, id + ": no trimming or normalization")
+		var target := k_effect_max50_db(streams[id])
+		var actual := k_effect_max50_db(stream, spec.pitch, spec.gain_db)
+		var peak := 0.0
+		var pcm := stream.data
+		for i in range(pcm.size()/2): peak = maxf(peak, absf(pcm.decode_s16(i*2)/32768.0))
+		var peak_db := linear_to_db(peak) + float(spec.gain_db)
+		var shortfall := target-actual
+		check(peak_db <= -1.0 + 0.000001, id + ": peak <= -1dBFS")
+		if Assets.PEAK_LIMITED.has(id):
+			check(absf(peak_db + 1) < 0.00001 and absf(shortfall-float(Assets.PEAK_LIMITED[id])) < 0.0001, id + ": documented peak-limited shortfall")
+		else: check(absf(shortfall) <= 1.0, id + ": K max50ms within 1dB of 8B")
+		metrics.effects[id] = {"synth_k": target, "asset_k": actual, "peak_dbfs": peak_db, "shortfall_db": shortfall}
+	for id: String in Assets.MUSIC:
+		test_progress()
+		var spec: Dictionary = Assets.MUSIC[id]
+		var stream := load(spec.path) as AudioStreamWAV
+		check(stream != null, id + ": imported music exists")
+		if stream == null: continue
+		var raw := AudioStreamWAV.load_from_buffer(source_bytes[spec.path], {"compress/mode": 0})
+		check(stream.format == AudioStreamWAV.FORMAT_QOA and stream.stereo and stream.mix_rate == 44100 and stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and stream.loop_begin == 0 and stream.loop_end == raw.data.size()/4, id + ": stereo QOA forward whole-loop")
+		check(absf(stream.get_length()-raw.get_length()) < 1.0/44100, id + ": full source duration")
+		var target := k_music_rms_db(streams[id])
+		var actual := k_music_rms_db(raw, spec.gain_db)
+		var decoded := k_music_rms_db(decoded_pcm(stream), spec.gain_db)
+		check(absf(actual-target) <= 0.5, id + ": source stereo K sum within 0.5dB")
+		check(absf(decoded-target) <= 0.5, id + ": decoded QOA K sum within 0.5dB")
+		metrics.music[id] = {"synth_k": target, "asset_k": actual, "qoa_k": decoded}
+	benchmark.assets_levels = metrics
+	# Fresh director: no source-WAV parsing or synchronous resource load at runtime.
+	var initial := Main.new()
+	initial.controls_path = OUT + "assets-controls.cfg"
+	initial.audio_settings_path = OUT + "assets-audio.cfg"
+	initial.audio_synthesis_override = 1
+	initial.set_meta("sound_set_override", "assets")
+	var began := Time.get_ticks_usec()
+	root.add_child(initial)
+	initial.set_physics_process(false)
+	var audio: Node = initial.audio
+	var effects_ready := 0.0
+	var title_ready := 0.0
+	while audio.streams.size() < 71 and Time.get_ticks_usec()-began < 20000000:
+		test_progress()
+		OS.delay_msec(2)
+		await process_frame
+		if effects_ready == 0 and Bank.SOUNDS.keys().all(func(id): return audio.streams.has(id)): effects_ready = (Time.get_ticks_usec()-began)/1000.0
+		if title_ready == 0 and audio.streams.has("title"): title_ready = (Time.get_ticks_usec()-began)/1000.0
+	check(effects_ready > 0 and effects_ready <= 1300, "asset effects ready <=1.3s")
+	check(title_ready > 0 and title_ready <= 3000, "asset title ready <=3s")
+	check(audio.asset_service_max_usec < 8000 and audio.asset_operation_max_usec < 8000, "asset main-thread service/operation each <8ms")
+	check(audio.asset_stream_bytes <= 16*1024*1024, "resident imported stream data <=16MiB")
+	check(audio.asset_loaded.size() == 62 and audio.bank.snapshot().ids.size() == 9, "asset mode only synthesizes nine unmapped streams")
+	var expected_synth_order: Array = (Bank.SOUNDS.keys() + Bank.MUSIC_IDS).filter(func(id): return not Assets.EFFECTS.has(id) and not Assets.MUSIC.has(id))
+	check(audio.bank.snapshot().ids.keys() == expected_synth_order, "remaining synthesis keeps original order")
+	for id: String in Bank.SOUNDS.keys() + Bank.MUSIC_IDS:
+		check(audio.asset_loaded.has(id) == (Assets.EFFECTS.has(id) or Assets.MUSIC.has(id)), id + ": selected source")
+		if audio.asset_loaded.has(id):
+			var spec: Dictionary = Assets.EFFECTS.get(id, Assets.MUSIC.get(id, {}))
+			check(audio.streams[id].resource_path == spec.path, id + ": plays imported source path")
+		else: check(audio.streams[id].data == streams[id].data, id + ": unchanged synthesized stream")
+	for id: String in Assets.EFFECTS:
+		audio.stop_world()
+		for voice: Dictionary in audio.voices: audio.stop_handle(voice.handle)
+		audio.last_id.clear()
+		audio.last_frame.clear()
+		var handle: int = audio.play(id, null, -2.0, 1.1)
+		check(handle >= 0, id + ": material playable")
+		if handle < 0: continue
+		var voice: Dictionary = audio.voices[handle % 32]
+		var spec: Dictionary = Assets.EFFECTS[id]
+		check(voice.player.stream == audio.streams[id] and is_equal_approx(voice.player.pitch_scale, 1.1*float(spec.pitch)) and is_equal_approx(voice.player.volume_db, -2.0+float(spec.gain_db)), id + ": stream / multiplied pitch / additive gain")
+		check(absf(voice.until-audio.clock_ms-voice.player.stream.get_length()/voice.player.pitch_scale*1000) < 0.001, id + ": voice length uses actual pitch")
+	audio.set_process(false)
+	initial.state = "audio_settings"
+	audio.set_music("region0", 1.0)
+	check(is_equal_approx(audio.music[audio.music_slot].volume_db, -80.0+float(Assets.MUSIC.region0.gain_db)), "music gain offset also applies at playback start")
+	audio.set_music("title", 1.0)
+	for i in range(240): audio._process(1.0/60)
+	check(is_equal_approx(audio.music[audio.music_slot].volume_db, Assets.MUSIC.title.gain_db), "music normal gain offset")
+	initial.state = "paused"
+	for i in range(60): audio._process(1.0/60)
+	check(is_equal_approx(audio.music[audio.music_slot].volume_db, Assets.MUSIC.title.gain_db-10), "music duck preserves gain offset")
+	initial.state = "lost"
+	for i in range(600): audio._process(1.0/60)
+	check(is_equal_approx(audio.music[audio.music_slot].volume_db, Assets.MUSIC.title.gain_db-9), "result -9dB preserves gain offset")
+	initial.state = "title"
+	for i in range(240): audio._process(1.0/60)
+	check(is_equal_approx(audio.music[audio.music_slot].volume_db, Assets.MUSIC.title.gain_db), "result recovery preserves gain offset")
+	benchmark.assets_startup = {"effects_ms": effects_ready, "title_ms": title_ready, "stream_bytes": audio.asset_stream_bytes, "service_max_ms": audio.asset_service_max_usec/1000.0, "operation_max_ms": audio.asset_operation_max_usec/1000.0, "setup_ms": audio.setup_ms, "synthesis": audio.bank.snapshot()}
+	# The same 1800-frame replay with the actual material streams.
+	var synth_streams := streams
+	streams = audio.streams.duplicate()
+	game.audio.sound_set = "assets"
+	game.audio.asset_loaded = audio.asset_loaded.duplicate()
+	var silent: Array = await replay(false)
+	var audible: Array = await replay(true)
+	for i in range(1800): check(silent[i] == audible[i], "disabled/assets exact state frame %d" % i)
+	streams = synth_streams
+	game.audio.asset_loaded.clear()
+	game.audio.sound_set = "synth"
+	initial.free()
+	# Failure on one ID only; other IDs from the same source remain material.
+	var director := preload("res://scripts/audio_director.gd").new()
+	director.game = game
+	director.synthesis_override = 1
+	director.sound_set_override = "assets"
+	director.asset_paths_override = {"shot_a": "res://assets/audio/sfx/missing-test.wav"}
+	game.add_child(director)
+	var deadline := Time.get_ticks_msec() + 20000
+	while director.streams.size() < 71 and Time.get_ticks_msec() < deadline:
+		test_progress()
+		OS.delay_msec(2)
+		await process_frame
+	check(director.asset_warned.keys() == ["shot_a"] and not director.asset_loaded.has("shot_a") and director.asset_loaded.has("shot_b"), "only failed ID warns once and falls back")
+	check(director.streams.has("shot_a") and director.streams.shot_a.data == streams.shot_a.data, "failed ID receives exact synth PCM")
+	check(director.asset_spec("shot_a").is_empty(), "fallback has no material pitch/gain")
+	director.free()
+
 func run() -> void:
 	DirAccess.make_dir_recursive_absolute(OUT)
 	var real_cfg:=FileAccess.get_file_as_bytes("user://audio.cfg") if FileAccess.file_exists("user://audio.cfg") else PackedByteArray()
@@ -1263,6 +1479,7 @@ func run() -> void:
 	game.controls_path=OUT+"test-controls.cfg"
 	game.audio_settings_path=OUT+"test-audio.cfg"
 	game.audio_synthesis_override=0
+	game.set_meta("sound_set_override", "synth")
 	root.add_child(game)
 	game.set_physics_process(false)
 	game.audio.streams=streams.duplicate()
@@ -1273,6 +1490,8 @@ func run() -> void:
 	await sound_regression_test()
 	await replay_test()
 	await stress_test()
+	print("AUDIO: legacy groups complete; checking materials")
+	await assets_test()
 	group="coverage"
 	for id: String in Bank.SOUNDS:
 		if id.begins_with("amb"): continue
@@ -1291,6 +1510,7 @@ func run() -> void:
 	root.add_child(game)
 	check(AudioServer.bus_count==buses,"repeated main does not duplicate buses")
 	check(game.audio.bank.thread==null,"headless skips synthesis")
+	check(game.audio.asset_queue.is_empty() and game.audio.asset_pending.is_empty() and game.audio.asset_loaded.is_empty(), "headless default skips material loading too")
 	game.free()
 	game=null
 	FileAccess.open(OUT+"audio-results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"groups":groups,"events":event_ids.keys(),"waveforms":wave_metrics,"benchmark":benchmark},"\t"))

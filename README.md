@@ -1,6 +1,7 @@
 # CHROMA SHIFT
 
 **Task 8B：音を爽快な方向へ再設計**。鋭い効果音と128〜172BPMの曲に変更しました。設計・計測・検査・試聴WAVは [Task 8B](docs/task8b_energetic_sound.md) を参照してください。
+Task 8CではCC0素材の効果音58 IDと曲4枠を既定にしました。全35実行の成功は直接実行で確認しました（Codexのサンドボックス内では時間条件が不安定でした）。合成音への切り替え・音量計測・検査・試聴ファイルは [Task 8C](docs/task8c_asset_sound.md) に記録しています。
 Godot 4.7.2 Standard / GDScript、1280×720、Compatibilityレンダラー。
 [現行仕様](docs/seamless_world.md)、[実装・検証と性能](docs/task5b_streaming.md)、[段階実装計画](docs/roadmap_v2.md)を参照してください。
 生成の詳細は [区画生成](docs/task5b_sectors.md)、操作は [Task 4A](docs/task4a_controls.md)、表示・物理・接触ダメージは [Task 5A](docs/task5a_ui_feel.md)、敵は [第3段階](docs/phase3_enemies.md)にあります。
@@ -76,6 +77,8 @@ Task 7Dの同じ1,000区画では、横道のない縦区間の上限超過と�
 - 死亡後は同じシードで再挑戦し、全区画の破壊・敵・ハート・復活時刻・探索・ストック・スコア・ボスの進行を初期化します。
 
 タイトル・一時停止・結果画面の「音量」で全体・BGM・効果音を0〜100%（10%刻み）で変更できます。↑↓で行、←→で調整、Enterで決定、Escで閉じます。マウスのクリック・ドラッグにも対応し、閉じる時に保存します。青Aは高く鋭く、橙Bは低く太い射撃・吸収・色切替の音を使います。曲は持続音だけをキックに合わせて下げ、ドラムのアタックを保ちます。ドラム・動くベース・コード進行・4小節ごとのフィルがあり、地域やボスに合わせて滑らかに変わります。環境音は小さく保ち、音源は起動後に別スレッドで合成します。
+
+Task 8Cの既定音源はJuhani JunkalaのCC0素材（[出典とファイル一覧](assets/audio/CREDITS.md)）。環境音・ジングル・ボス曲は合成を使います。起動引数 `-- --sound-set=synth` で全て8B合成へ戻せます。素材版の試聴は `builds/qa/sound/preview-assets/`、計測と未確認事項は [Task 8C](docs/task8c_asset_sound.md) を参照してください。クローン直後は素材がインポートされていないため合成音で動きます。素材を使うには一度 open-editor.cmd でエディターを開いてください。
 
 ## 区画・地図・カメラ
 

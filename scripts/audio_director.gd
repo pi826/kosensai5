@@ -3,6 +3,7 @@ extends Node
 ## independent of physics World2D, camera audio listeners and floating origins.
 const Bank := preload("res://scripts/sound_bank.gd")
 const Settings := preload("res://scripts/audio_settings.gd")
+const Assets := preload("res://scripts/sound_assets.gd")
 const LIMIT := 32
 const RESERVED := 8
 const PRIORITY := ["hurt", "death", "absorb", "charge", "heal", "potion", "homing", "ability_get", "arrow_unlock", "boss_appear", "boss_defeat", "loop_up", "key", "item_get", "buy", "deny", "equip", "shop_open", "tutorial_step", "win", "lose", "pause", "map_open", "map_close", "empty"]
@@ -12,6 +13,20 @@ var bank := Bank.new()
 var settings := Settings.new()
 var streams: Dictionary = {}
 var synthesis_override := -1 # -1 auto, 0 off, 1 on (also --audio-synthesis=on)
+var sound_set_override := "" # "", "synth", "assets"; set before _ready for tests.
+var sound_set := "assets"
+var asset_paths_override: Dictionary = {} # Test-only missing/import-failure fixtures.
+var asset_loaded: Dictionary = {}
+var asset_pending: Dictionary = {}
+var asset_queue: Array = []
+var asset_warned: Dictionary = {}
+var fallback_pending: Array = []
+var fallback_bank: RefCounted
+var asset_started_usec := 0
+var asset_ready_ms: Dictionary = {}
+var asset_service_max_usec := 0
+var asset_operation_max_usec := 0
+var asset_stream_bytes := 0
 var enabled := true:
 	set(value):
 		enabled = value
@@ -106,12 +121,101 @@ func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--audio-synthesis=on": synth = true
 		if arg == "--audio-synthesis=off": synth = false
+		if arg == "--sound-set=synth": sound_set = "synth"
+		if arg == "--sound-set=assets": sound_set = "assets"
+	if sound_set_override.is_empty(): sound_set_override = game.get_meta("sound_set_override", "")
+	if sound_set_override in ["synth", "assets"]: sound_set = sound_set_override
 	if synthesis_override >= 0: synth = synthesis_override == 1
-	if synth: bank.start()
+	if synth:
+		if sound_set == "assets":
+			asset_started_usec = Time.get_ticks_usec()
+			asset_queue = Assets.EFFECTS.keys() + Assets.MUSIC.keys()
+			bank.start(asset_queue)
+		else: bank.start()
 	setup_ms = (Time.get_ticks_usec() - began) / 1000.0
 
 func _exit_tree() -> void:
 	bank.shutdown()
+	if fallback_bank != null: fallback_bank.shutdown()
+	# A completed threaded request must be retrieved even if the host closes.
+	# This cleanup is outside the frame/service timing and never changes state.
+	var joined: Dictionary = {}
+	for path: String in asset_pending.values():
+		if not joined.has(path):
+			ResourceLoader.load_threaded_get(path)
+			joined[path] = true
+	asset_pending.clear()
+
+func asset_spec(id: String) -> Dictionary:
+	if not asset_loaded.has(id): return {}
+	return Assets.EFFECTS.get(id, Assets.MUSIC.get(id, {}))
+
+func music_asset_db(slot: int) -> float:
+	return float(asset_spec(music_ids[slot]).get("gain_db", 0.0))
+
+func _asset_failed(id: String) -> void:
+	if not asset_warned.has(id):
+		asset_warned[id] = true
+		push_warning("Audio asset unavailable; using synthesis for ID: " + id)
+		fallback_pending.append(id)
+
+func _service_assets() -> void:
+	if asset_started_usec == 0: return
+	if asset_queue.is_empty() and asset_pending.is_empty() and fallback_pending.is_empty() and fallback_bank == null: return
+	var began := Time.get_ticks_usec()
+	# Queue/get only while within a small frame budget. Never get before LOADED.
+	# Both effects and QOA tracks use Godot's background resource loader.
+	while not asset_queue.is_empty() and Time.get_ticks_usec() - began < 1500:
+		var id: String = asset_queue.pop_front()
+		var spec: Dictionary = Assets.EFFECTS.get(id, Assets.MUSIC.get(id, {}))
+		var path: String = asset_paths_override.get(id, spec.path)
+		var op := Time.get_ticks_usec()
+		if asset_pending.values().has(path):
+			asset_pending[id] = path
+		elif ResourceLoader.exists(path) and ResourceLoader.load_threaded_request(path, "AudioStreamWAV") == OK:
+			asset_pending[id] = path
+		else: _asset_failed(id)
+		asset_operation_max_usec = maxi(asset_operation_max_usec, Time.get_ticks_usec() - op)
+	for id: String in asset_pending.keys():
+		if not asset_pending.has(id): continue
+		if Time.get_ticks_usec() - began >= 1500: break
+		var path: String = asset_pending[id]
+		var op := Time.get_ticks_usec()
+		var status := ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var stream := ResourceLoader.load_threaded_get(path) as AudioStreamWAV
+			for sharing: String in asset_pending.keys():
+				if asset_pending[sharing] != path: continue
+				if stream != null:
+					streams[sharing] = stream
+					asset_loaded[sharing] = true
+					asset_ready_ms[sharing] = (Time.get_ticks_usec() - asset_started_usec) / 1000.0
+				else: _asset_failed(sharing)
+				asset_pending.erase(sharing)
+		elif status in [ResourceLoader.THREAD_LOAD_FAILED, ResourceLoader.THREAD_LOAD_INVALID_RESOURCE]:
+			_asset_failed(id)
+			asset_pending.erase(id)
+		asset_operation_max_usec = maxi(asset_operation_max_usec, Time.get_ticks_usec() - op)
+	if fallback_bank != null:
+		streams.merge(fallback_bank.collect())
+		if fallback_bank.snapshot().complete:
+			fallback_bank.shutdown()
+			fallback_bank = null
+	if fallback_bank == null and not fallback_pending.is_empty():
+		var skip: Array = Bank.SOUNDS.keys() + Bank.MUSIC_IDS
+		for id: String in fallback_pending: skip.erase(id)
+		fallback_pending.clear()
+		fallback_bank = Bank.new()
+		fallback_bank.start(skip)
+	# Shared source files (shot/switch/absorb) count once in resident stream data.
+	var seen: Dictionary = {}
+	asset_stream_bytes = 0
+	for id: String in asset_loaded:
+		var stream: AudioStreamWAV = streams[id]
+		if not seen.has(stream.get_instance_id()):
+			seen[stream.get_instance_id()] = true
+			asset_stream_bytes += stream.data.size()
+	asset_service_max_usec = maxi(asset_service_max_usec, Time.get_ticks_usec() - began)
 
 func source_game() -> Node:
 	return game.tutorial_session if is_instance_valid(game.tutorial_session) else game
@@ -140,6 +244,9 @@ func play(id: String, point: Variant = null, volume_db: float = 0, pitch: float 
 	var frame := Engine.get_physics_frames()
 	var actual := id + ("_a" if color == 0 else "_b") if id in ["shot", "switch", "absorb"] else id
 	if id == "shot": pitch *= rng.randf_range(0.97, 1.03)
+	var spec := asset_spec(actual)
+	pitch *= float(spec.get("pitch", 1.0))
+	volume_db += float(spec.get("gain_db", 0.0))
 	var entry := {"frame": frame, "id": id, "sample": actual, "position": point, "played": false, "reason": "", "volume_db": volume_db, "pitch": pitch, "pan": 0.0, "voice": -1}
 	var reason := ""
 	var priority := PRIORITY.has(id) or id.begins_with("ui_")
@@ -252,7 +359,7 @@ func set_music(id: String, seconds: float) -> void:
 	var player := music[music_slot]
 	player.stop()
 	player.stream = streams[id]
-	player.volume_db = -80
+	player.volume_db = -80.0 + float(asset_spec(id).get("gain_db", 0.0))
 	player.play()
 	music_result_db[music_slot] = -9.0 if ending_started and source_game().state != "audio_settings" else 0.0
 	music_ids[music_slot] = id
@@ -265,6 +372,7 @@ func _process(delta: float) -> void:
 	var began := Time.get_ticks_usec()
 	tick_active = true
 	streams.merge(bank.collect())
+	_service_assets()
 	clock_ms += delta * 1000
 	var source := source_game()
 	var state: String = source.state
@@ -292,7 +400,8 @@ func _process(delta: float) -> void:
 	if paused_state(state) and not requested_music.is_empty() and current_music != requested_music:
 		set_music(requested_music, 1.0)
 	for i in range(2):
-		var previous := db_to_linear(music[i].volume_db)
+		var asset_db := music_asset_db(i)
+		var previous := db_to_linear(music[i].volume_db - asset_db)
 		# Outgoing tracks retain their result attenuation until stopped. An
 		# active title recovers over at least one second after leaving results.
 		if music_target[i] > 0:
@@ -306,10 +415,11 @@ func _process(delta: float) -> void:
 		music_gain[i] = move_toward(music_gain[i], music_target[i], delta / fade_seconds)
 		var amplitude := maxf(0.0001, music_gain[i]) * db_to_linear(duck_db + music_result_db[i])
 		# Bound every upward step, including simultaneous fade-in and unduck.
-		amplitude = minf(amplitude, previous + delta * 6.0)
+		# Keep the original envelope bound and the actual output bound with makeup.
+		amplitude = minf(amplitude, previous + delta * 6.0 / maxf(1.0, db_to_linear(asset_db)))
 		if music_target[i] == 0:
 			amplitude = minf(amplitude, previous)
-		music[i].volume_db = linear_to_db(maxf(0.00000001, amplitude))
+		music[i].volume_db = linear_to_db(maxf(0.00000001, amplitude)) + asset_db
 		if music_gain[i] == 0 and music_target[i] == 0: music[i].stop()
 	var usec := Time.get_ticks_usec() - began
 	process_usec_total += usec
@@ -390,4 +500,6 @@ func boss_defeated() -> void:
 	boss_outside = 4
 
 func measurements() -> Dictionary:
-	return {"setup_ms": setup_ms, "process_mean_ms": process_usec_total / float(maxi(1, process_samples)) / 1000, "process_max_ms": process_usec_max / 1000.0, "play_mean_ms": play_usec_total / float(maxi(1, play_samples)) / 1000, "play_max_ms": play_usec_max / 1000.0, "play_calls": play_samples, "process_frames": process_samples, "frame_work_mean_ms": frame_work_usec_total / float(maxi(1, process_samples)) / 1000, "frame_work_max_ms": frame_work_usec_max / 1000.0, "synthesis": bank.snapshot()}
+	var result := {"setup_ms": setup_ms, "process_mean_ms": process_usec_total / float(maxi(1, process_samples)) / 1000, "process_max_ms": process_usec_max / 1000.0, "play_mean_ms": play_usec_total / float(maxi(1, play_samples)) / 1000, "play_max_ms": play_usec_max / 1000.0, "play_calls": play_samples, "process_frames": process_samples, "frame_work_mean_ms": frame_work_usec_total / float(maxi(1, process_samples)) / 1000, "frame_work_max_ms": frame_work_usec_max / 1000.0, "synthesis": bank.snapshot()}
+	result.assets = {"sound_set": sound_set, "loaded": asset_loaded.size(), "pending": asset_pending.size(), "stream_bytes": asset_stream_bytes, "ready_ms": asset_ready_ms.duplicate(), "service_max_ms": asset_service_max_usec / 1000.0, "operation_max_ms": asset_operation_max_usec / 1000.0, "fallback_ids": asset_warned.keys()}
+	return result
