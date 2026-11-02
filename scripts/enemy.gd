@@ -87,7 +87,7 @@ func _physics_process(delta: float) -> void:
 	# The cached field drawing extends beyond the body. Clear it on exit even
 	# though ordinary offscreen actors normally skip redraws.
 	if kind == "enhancer" and was_visible and not on_screen: queue_redraw()
-	tick_visuals(delta, on_screen)
+	tick_visuals(delta, on_screen and (Engine.get_physics_frames() + get_instance_id()) % T.ENEMY_REDRAW_INTERVAL == 0)
 	if not on_screen:
 		was_visible = false
 		if action != "idle" or is_instance_valid(laser_beam) or is_instance_valid(bomb): cancel_attack()
@@ -301,11 +301,11 @@ func _complete_action() -> void:
 func _draw() -> void:
 	if field_active():
 		draw_circle(Vector2.ZERO, T.ENHANCER_RADIUS, T.ENHANCER_FIELD_COLOR)
-		draw_arc(Vector2.ZERO, T.ENHANCER_RADIUS, 0, TAU, 80, Color(T.ENHANCER_RING_COLOR, 0.35), 2, true)
+		draw_arc(Vector2.ZERO, T.ENHANCER_RADIUS, 0, TAU, 80, Color(T.ENHANCER_RING_COLOR, 0.35), 2, false)
 	super._draw()
 	if kind == "enhancer":
-		draw_arc(Vector2.ZERO, 29, 0, TAU, 32, T.ENHANCER_RING_COLOR, 3, true)
-	if enhanced(): draw_arc(Vector2.ZERO, body_size.length()/2+6, 0, TAU, 40, T.ENHANCER_RING_COLOR, 3, true)
+		draw_arc(Vector2.ZERO, 29, 0, TAU, 32, T.ENHANCER_RING_COLOR, 3, false)
+	if enhanced(): draw_arc(Vector2.ZERO, body_size.length()/2+6, 0, TAU, 40, T.ENHANCER_RING_COLOR, 3, false)
 	if action == "windup_build" and wall_plan.has_area():
 		var local := Rect2(to_local(wall_plan.position), wall_plan.size)
 		draw_rect(local, Color("dbbd8430"))

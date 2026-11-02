@@ -25,6 +25,7 @@ var service_did_work := false # Explicit work, independent of the nonzero pollin
 var hold_frames := 0
 var unload_count := 0
 var center := Vector2i.ZERO
+var player_point := Vector2.ZERO
 var priority_point := Vector2.ZERO
 var pending_population: Dictionary = {} # IDs and integer sectors survive origin shifts.
 var population_queue: Array[String] = []
@@ -192,6 +193,7 @@ func _launch(at: Vector2i) -> void:
 	job.task_id = WorkerThreadPool.add_task(job.run, false, "sector %s" % at)
 
 func request_around(point: Vector2, velocity: Vector2 = Vector2.ZERO) -> void:
+	player_point = point
 	center = sector_at(point)
 	var ahead := Vector2(signf(velocity.x)*T.MOVE_SPEED,signf(velocity.y)*T.MAX_FALL_SPEED)
 	priority_point = point+ahead*T.STREAM_LOOK_AHEAD_SECONDS
@@ -205,6 +207,13 @@ func request_around(point: Vector2, velocity: Vector2 = Vector2.ZERO) -> void:
 
 func priority_score(at: Vector2i) -> float:
 	return (sector_offset(at)+T.SECTOR_SIZE/2).distance_squared_to(priority_point)
+
+func _should_unload(at: Vector2i) -> bool:
+	if distance(at, center) < T.STREAM_UNLOAD_DISTANCE: return false
+	var rect := Rect2(sector_offset(at), T.SECTOR_SIZE)
+	var gap_x := maxf(maxf(rect.position.x - player_point.x, player_point.x - rect.end.x), 0.0) / T.SECTOR_SIZE.x
+	var gap_y := maxf(maxf(rect.position.y - player_point.y, player_point.y - rect.end.y), 0.0) / T.SECTOR_SIZE.y
+	return maxf(gap_x, gap_y) >= T.STREAM_UNLOAD_GAP
 
 func service() -> void:
 	var begin := Time.get_ticks_usec()
@@ -220,7 +229,7 @@ func service() -> void:
 			WorkerThreadPool.wait_for_task_completion(job.task_id)
 			jobs.erase(at)
 			generation_times.append(job.generation_ms)
-			if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE: continue
+			if _should_unload(at): continue
 			_take_result(job)
 			active_job = job
 			actor_index = 0
@@ -251,7 +260,7 @@ func service() -> void:
 	if active_job == null:
 		if game.terrain.unloading.is_empty():
 			for at: Vector2i in loaded.keys():
-				if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE:
+				if _should_unload(at):
 					service_did_work = true
 					_begin_unload(at)
 					break

@@ -6,9 +6,35 @@ const Combatant := preload("res://scripts/combatant.gd")
 const T := preload("res://scripts/tuning.gd")
 const Terrain := preload("res://scripts/world_terrain.gd")
 const O := preload("res://scripts/origin_shift.gd")
+const Support := preload("res://tests/stream_test_support.gd")
 var game: Node2D
 var checks := 0
 var failures: Array[String] = []
+
+class RedrawProbe extends "res://scripts/enemy.gd":
+	var redraw_flags: Array[bool] = []
+	func tick_visuals(delta: float, redraw: bool = true) -> void:
+		redraw_flags.append(redraw)
+		super.tick_visuals(delta, redraw)
+
+class MapFixture extends RefCounted:
+	var stage: Dictionary
+	var explored_cells: Dictionary = {}
+	var discovered_bosses: Dictionary = {}
+	var defeated_bosses: Dictionary = {}
+	var discovered_loot: Dictionary = {}
+	var loot_taken: Dictionary = {}
+	var discovered_merchants: Dictionary = {}
+	var player: Node2D
+	func _init() -> void:
+		stage = {"bounds": Rect2(-4096, -4096, 8192, 8192), "start_position": Vector2(320, 320), "solids": []}
+		player = Node2D.new()
+		player.position = Vector2(320, 320)
+		for y in range(2):
+			for x in range(3): explored_cells[Vector2i(x, y)] = true
+	func view_rect() -> Rect2: return Rect2(0, 0, 1280, 720)
+	func biome_at(_point: Vector2) -> int: return 0
+	func map_origin() -> Vector2i: return Vector2i.ZERO
 
 func _initialize() -> void: call_deferred("run")
 
@@ -429,6 +455,159 @@ func check_terrain() -> void:
 	check(before.size() > 0 and remaining.is_empty(), "unload after an origin shift removes every chunk owned by the sector")
 	check(not terrain.sectors.has(at) and not game.stream.loaded.has(at), "unload releases sector data")
 
+func check_retention() -> void:
+	var stream = game.stream
+	var saved_center: Vector2i = stream.center
+	var saved_point: Vector2 = stream.player_point
+	var origin: Vector2i = game.origin_sector
+	stream.center = origin
+	stream.player_point = stream.sector_offset(origin) + Vector2(1, 1)
+	check(not stream._should_unload(origin + Vector2i(2, 0)), "unload keeps a sector two away")
+	check(stream._should_unload(origin + Vector2i(3, 0)), "unload releases a sector three away with enough gap")
+	stream.player_point = stream.sector_offset(origin) + Vector2(T.SECTOR_SIZE.x - 1.0, T.SECTOR_SIZE.y * 0.5)
+	check(not stream._should_unload(origin + Vector2i(3, 0)), "unload keeps a sector three away inside the gap")
+	stream.center = saved_center
+	stream.player_point = saved_point
+	await reset_game()
+	var moved: Vector2 = T.SECTOR_START + Vector2(T.SECTOR_SIZE.x * 3.0, 0)
+	check(await Support.ready(self, game, moved, 2), "three-sector move loads its neighborhood")
+	var frames_used := 0
+	var unchanged := 0
+	while frames_used < 400 and unchanged < 6:
+		var before: int = game.stream.loaded.size()
+		game.stream.request_around(moved)
+		game.stream.service()
+		await frames(1)
+		frames_used += 1
+		if game.stream.loaded.size() == before: unchanged += 1
+		else: unchanged = 0
+	check(game.stream.loaded.size() <= 30, "retained sectors stay bounded after a long move")
+	var left := Vector2(T.SECTOR_SIZE.x * 3.95, T.SECTOR_START.y)
+	var right := Vector2(T.SECTOR_SIZE.x * 4.05, T.SECTOR_START.y)
+	check(await Support.ready(self, game, left, 2), "boundary fixture loads")
+	for index in range(200):
+		game.stream.request_around(left)
+		game.stream.service()
+		await frames(1)
+	var before_unloads: int = game.stream.unload_count
+	for index in range(60):
+		var point: Vector2 = left if index % 2 == 0 else right
+		game.player.position = point
+		game.stream.request_around(point)
+		game.stream.service()
+		await frames(1)
+	for index in range(6):
+		game.stream.request_around(right)
+		game.stream.service()
+		await frames(1)
+	check(game.stream.unload_count <= before_unloads + 1, "boundary oscillation settles instead of unloading forever")
+	var restored_at := Vector2i(2147483647, 2147483647)
+	var restored_cell := Vector2i(2147483647, 2147483647)
+	for at: Vector2i in game.stream.loaded:
+		var cell := open_surface_in(at)
+		if cell.x != 2147483647:
+			restored_at = at
+			restored_cell = cell
+			break
+	check(restored_at.x != 2147483647, "restore fixture has an open surface")
+	if restored_at.x == 2147483647: return
+	game.terrain.explode(game.terrain.pixel_of_cell(restored_cell) + Vector2.ONE * T.TILE_SIZE / 2, 1.0)
+	check(game.terrain.destroyed_cells.has(restored_cell), "restore fixture records destroyed terrain")
+	game.stream._unload(restored_at)
+	check(not game.stream.loaded.has(restored_at), "restore fixture sector unloads")
+	check(await Support.ready(self, game, game.stream.sector_offset(restored_at) + T.SECTOR_START, 1), "restore fixture sector reloads")
+	check(game.terrain.destroyed_cells.has(restored_cell), "unloaded sector restores its saved terrain state")
+
+func check_collision_visibility() -> void:
+	check(not game.terrain.collision_root.visible, "terrain collision root stays hidden from drawing")
+	await reset_game()
+	check(not game.terrain.collision_root.visible, "rebuilt terrain collision root stays hidden")
+	var at: Vector2i = game.origin_sector
+	var cell := open_surface_in(at)
+	check(cell.x != 2147483647, "collision fixture has an open floor")
+	if cell.x == 2147483647: return
+	var floor_point: Vector2 = game.terrain.pixel_of_cell(cell) + Vector2(T.TILE_SIZE / 2, 0)
+	game.player.position = floor_point + Vector2(0, -T.PLAYER_SIZE.y / 2 - 3)
+	game.player.velocity = Vector2.ZERO
+	game.player.set_physics_process(true)
+	await frames(40)
+	check(game.player.is_on_floor(), "player lands on the hidden collision floor")
+	game.player.set_physics_process(false)
+	game.player.position = floor_point + Vector2(0, -T.TILE_SIZE * 4)
+	var bullet = game.spawn_bullet(game.player, Vector2.DOWN)
+	bullet.life = 1000.0
+	var waited := 0
+	while is_instance_valid(bullet) and waited < 40:
+		await frames(1)
+		waited += 1
+	check(not is_instance_valid(bullet) and waited < 40, "bullet hits terrain through the hidden collision root")
+
+func check_trail_layer() -> void:
+	await reset_game()
+	check(game.trail_layer != null and game.trail_layer.get_parent() == game.world, "trail layer belongs to the world")
+	var children: Array = game.world.get_children()
+	check(children.find(game.trail_layer) < children.find(game.projectiles), "trail layer draws before projectiles")
+	game.player.position = T.SECTOR_START
+	game.player.velocity = Vector2.ZERO
+	var bullet = game.spawn_bullet(game.player, Vector2.UP)
+	bullet.life = 1000.0
+	bullet.speed = 10.0
+	await frames(6)
+	check(is_instance_valid(bullet) and bullet.trail.size() > 1, "bullet trail keeps growing")
+	if not is_instance_valid(bullet): return
+	bullet.set_physics_process(false)
+	var points: PackedVector2Array = bullet.trail.duplicate()
+	var origin: Vector2 = bullet.position
+	var delta: Vector2 = game.shift_origin(Vector2i(1, 0))
+	var shifted: bool = bullet.position.distance_to(origin + delta) < 0.01
+	for index in range(points.size()): shifted = shifted and bullet.trail[index].distance_to(points[index] + delta) < 0.01
+	check(shifted, "origin shift moves the trail with its bullet")
+	check(game.trail_layer.position == Vector2.ZERO, "trail layer stays at the origin")
+
+func check_enemy_redraws() -> void:
+	await reset_game()
+	var probe := RedrawProbe.new()
+	probe.game = game
+	probe.kind = "walker"
+	probe.spawn_id = "perf_redraw_probe"
+	probe.position = game.player.position + Vector2(120, 0)
+	probe.wake_delay = 999.0
+	game.world.add_child(probe)
+	await frames(2)
+	game.camera.position = game.player.position
+	probe.redraw_flags.clear()
+	probe.art_fire_remaining = 10.0
+	await frames(30)
+	check(probe.redraw_flags.size() == 30, "enemy ticks its visuals every physics frame")
+	check(probe.redraw_flags.count(true) == 10, "onscreen enemy redraws once per interval")
+	check(absf(probe.art_fire_remaining - 9.5) < 0.001, "visual timers keep decreasing every frame")
+	probe.free()
+
+func check_minimap_images() -> void:
+	var minimap = game.ui.minimap
+	minimap.clear_cache()
+	minimap.queue_redraw()
+	await frames(3)
+	check(minimap._textures.size() > 0, "minimap draws explored sectors from cached images")
+	var fake := MapFixture.new()
+	var fallback := Minimap.new()
+	fallback.game = fake
+	fallback.size = Vector2(240, 170)
+	root.add_child(fallback)
+	var draws: Array[int] = [0]
+	fallback.draw.connect(func(): draws[0] += 1)
+	fallback.queue_redraw()
+	await frames(3)
+	check(draws[0] > 0 and fallback.displayed_cells().size() > 0, "minimap without explored images keeps the rectangle path")
+	check(fallback._textures.is_empty(), "rectangle path creates no sector textures")
+	fallback.free()
+	fake.player.free()
+	minimap.clear_cache()
+	game.start_run(37)
+	check(minimap._textures.is_empty(), "start_run clears the minimap image cache")
+	freeze()
+	await frames(2)
+
 func check_tick_visuals() -> void:
 	var actor := Combatant.new()
 	root.add_child(actor)
@@ -471,6 +650,11 @@ func run() -> void:
 	await check_staged_unload()
 	await check_support_revisions()
 	check_tick_visuals()
+	await check_retention()
+	await check_collision_visibility()
+	await check_trail_layer()
+	await check_enemy_redraws()
+	await check_minimap_images()
 	game.free()
 	await frames(2)
 	print("PERF BEHAVIOR: %d checks, %d failures" % [checks, failures.size()])

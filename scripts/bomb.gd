@@ -59,7 +59,7 @@ func detonate() -> void:
 func _draw() -> void:
 	var tint: Color = T.COLORS[polarity]
 	var mark := to_local(target)
-	draw_arc(mark, T.BOMB_RADIUS, 0, TAU, 32, Color(tint, 0.5), 2, true)
+	draw_arc(mark, T.BOMB_RADIUS, 0, TAU, 32, Color(tint, 0.5), 2, false)
 	draw_line(mark - Vector2(12, 0), mark + Vector2(12, 0), tint, 2)
 	draw_line(mark - Vector2(0, 12), mark + Vector2(0, 12), tint, 2)
 	var sprite_at := Vector2.ZERO if phase == "flight" else mark
@@ -70,5 +70,5 @@ func _draw() -> void:
 	if drawn: return
 	if phase == "flight":
 		draw_circle(Vector2.ZERO, 9, tint.darkened(0.6))
-		draw_arc(Vector2.ZERO, 9, 0, TAU, 20, tint, 2, true)
+		draw_arc(Vector2.ZERO, 9, 0, TAU, 20, tint, 2, false)
 		draw_line(Vector2.ZERO, -velocity.normalized() * 18, tint, 3)

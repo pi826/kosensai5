@@ -75,18 +75,18 @@ func _draw() -> void:
 		var radius := 8.0 + fraction * (54.0 if burst.kind == "defeat" else 26.0)
 		if burst.kind == "bomb":
 			draw_circle(burst.at, T.BOMB_RADIUS * (1 - fraction), Color(tint, tint.a * 0.15))
-			draw_arc(burst.at, T.BOMB_RADIUS, 0, TAU, 32, tint, 3, true)
+			draw_arc(burst.at, T.BOMB_RADIUS, 0, TAU, 32, tint, 3, false)
 		if burst.kind == "land" or burst.kind == "jump":
 			for i in range(6):
 				var side := -1.0 if i < 3 else 1.0
 				var offset := Vector2(side * (8 + fraction * (30 + i * 4)), -sin(fraction * PI) * (5 + i * 2))
 				draw_circle(burst.at + offset, (2.0 + fraction * 4) * (1 - fraction), tint)
 		elif burst.kind == "absorb" or burst.kind == "switch":
-			draw_arc(burst.at, radius, 0, TAU, 24, tint, 2, true)
+			draw_arc(burst.at, radius, 0, TAU, 24, tint, 2, false)
 		else:
 			for i in range(8):
 				var direction := Vector2.from_angle(i * TAU / 8)
-				draw_line(burst.at + direction * radius * 0.55, burst.at + direction * radius, tint, 3, true)
+				draw_line(burst.at + direction * radius * 0.55, burst.at + direction * radius, tint, 3, false)
 	var font := ThemeDB.fallback_font
 	for number: Dictionary in crystal_numbers:
 		var at: Vector2 = number.at + Vector2(0, -number.age * 36)

@@ -4,13 +4,10 @@ var center_point: Dictionary = {}
 var zoom := T.LARGE_MAP_SCALE
 var dragging := false
 var last_draw_ms := 0.0
-var drawn_cells := 0
 var drawn_fragments := 0
 var close_button: Button
 var help_label: Label
 var _directions: Dictionary = {}
-var _textures: Dictionary = {}
-var _versions: Dictionary = {}
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -94,33 +91,10 @@ func _geometry_for_cell(cell: Vector2i) -> Array:
 	drawn_fragments += geometry.size()
 	return preload("res://scripts/origin_shift.gd").geometry(geometry, Vector2(cell) * CELL_SIZE)
 
-func clear_cache() -> void:
-	_textures.clear()
-	_versions.clear()
-
 func _panel_style() -> StyleBoxFlat:
 	var style := super._panel_style()
 	style.bg_color = Color("080e15")
 	return style
-
-func _draw_explored(bounds: Rect2, origin: Vector2, scale_factor: float) -> void:
-	drawn_cells = 0
-	var first: Vector2i = Vector2i((bounds.position / T.SECTOR_SIZE).floor()) + game.origin_sector
-	var last: Vector2i = Vector2i((bounds.end / T.SECTOR_SIZE).floor()) + game.origin_sector
-	for y in range(first.y, last.y + 1):
-		for x in range(first.x, last.x + 1):
-			var sector := Vector2i(x, y)
-			if not game.explored_images.has(sector): continue
-			var image: Image = game.explored_images[sector]
-			if not _textures.has(sector): _textures[sector] = ImageTexture.create_from_image(image)
-			elif _versions.get(sector, -1) != game.map_sector_revisions[sector]: _textures[sector].update(image)
-			_versions[sector] = game.map_sector_revisions[sector]
-			var position := Vector2(sector - game.origin_sector) * T.SECTOR_SIZE
-			var visible_world := Rect2(position, T.SECTOR_SIZE).intersection(bounds)
-			var destination := Rect2(origin + visible_world.position * scale_factor, visible_world.size * scale_factor)
-			var source := Rect2((visible_world.position - position) / T.TILE_SIZE, visible_world.size / T.TILE_SIZE)
-			draw_texture_rect_region(_textures[sector], destination, source)
-			drawn_cells += game.explored_by_sector.get(sector, {}).size()
 
 func _draw() -> void:
 	if center_point.is_empty(): return

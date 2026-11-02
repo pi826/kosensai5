@@ -202,11 +202,15 @@ func _draw() -> void:
 		for x in [-1, 1]:
 			for y in [-1, 1]:
 				var corner := center + Vector2(x, y) * T.LOCK_MARK_SIZE
-				var points := PackedVector2Array([corner - Vector2(x * 6, 0), corner, corner - Vector2(0, y * 6)])
-				draw_polyline(points, Color("07111d"), 5, true)
-				draw_polyline(points, Color.WHITE, 2, true)
+				var start_y: float = corner.y - 6 if y > 0 else corner.y
+				var dark_x: float = corner.x - 6 if x > 0 else corner.x - 2.5
+				var white_x: float = corner.x - 6 if x > 0 else corner.x - 1
+				draw_rect(Rect2(dark_x, corner.y - 2.5, 8.5, 5), Color("07111d"))
+				draw_rect(Rect2(white_x, corner.y - 1, 7, 2), Color.WHITE)
+				draw_rect(Rect2(corner.x - 2.5, start_y, 5, 6), Color("07111d"))
+				draw_rect(Rect2(corner.x - 1, start_y, 2, 6), Color.WHITE)
 	if absorb_flash > 0:
-		draw_arc(Vector2.ZERO, body_size.x * 0.65 + (0.28 - absorb_flash) * 55, 0, TAU, 32, Color(tint, absorb_flash * 3), 3, true)
+		draw_arc(Vector2.ZERO, body_size.x * 0.65 + (0.28 - absorb_flash) * 55, 0, TAU, 32, Color(tint, absorb_flash * 3), 3, false)
 	if faction == 1:
 		var width := body_size.x + 12
 		var hp_text := str(hp)
@@ -220,7 +224,7 @@ func _draw() -> void:
 	if action.begins_with("windup"):
 		var warning_color: Color = T.COLORS[next_polarity] if action == "windup_switch" else tint
 		var radius := body_size.x * 0.7 + 5 + sin(Time.get_ticks_msec() * 0.025) * 3
-		draw_arc(Vector2.ZERO, radius, 0, TAU, 40, warning_color, 2, true)
+		draw_arc(Vector2.ZERO, radius, 0, TAU, 40, warning_color, 2, false)
 		var message := "切替 → " + ("青" if next_polarity == 0 else "橙") if action == "windup_switch" else ("誘導弾 !" if action == "windup_special" else "!")
 		draw_string(ThemeDB.fallback_font, Vector2(-30, -body_size.y / 2 - (104 if sprite_drawn else 54)), message, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, warning_color)
 

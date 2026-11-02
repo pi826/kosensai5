@@ -74,6 +74,7 @@ func _ready() -> void:
 	z_index = -2
 	collision_root = Node2D.new()
 	collision_root.name = "Collision"
+	collision_root.hide()
 	add_child(collision_root)
 	render_root = Node2D.new()
 	render_root.name = "TileBatches"

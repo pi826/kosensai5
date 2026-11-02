@@ -12,6 +12,9 @@ var _terrain_version: Array[int] = [-1, -1]
 var _map_key: Array = []
 var _last_redraw_frame := -1000000
 var _redraws := 0
+var _textures: Dictionary = {}
+var _versions: Dictionary = {}
+var drawn_cells := 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -223,7 +226,37 @@ func _panel_style() -> StyleBoxFlat:
 	style.set_corner_radius_all(7)
 	return style
 
+func clear_cache() -> void:
+	_textures.clear()
+	_versions.clear()
+
 func _draw_explored(bounds: Rect2, origin: Vector2, scale_factor: float) -> void:
+	var images = game.get("explored_images") if game != null else null
+	if images == null:
+		_draw_explored_rects(bounds, origin, scale_factor)
+		return
+	drawn_cells = 0
+	var origin_sector: Vector2i = game.get("origin_sector") if game.get("origin_sector") != null else Vector2i.ZERO
+	var revisions = game.get("map_sector_revisions")
+	var first: Vector2i = Vector2i((bounds.position / T.SECTOR_SIZE).floor()) + origin_sector
+	var last: Vector2i = Vector2i((bounds.end / T.SECTOR_SIZE).floor()) + origin_sector
+	for y in range(first.y, last.y + 1):
+		for x in range(first.x, last.x + 1):
+			var sector := Vector2i(x, y)
+			if not images.has(sector): continue
+			var revision: int = revisions.get(sector, 0) if revisions != null else 0
+			var image: Image = images[sector]
+			if not _textures.has(sector): _textures[sector] = ImageTexture.create_from_image(image)
+			elif _versions.get(sector, -1) != revision: _textures[sector].update(image)
+			_versions[sector] = revision
+			var position := Vector2(sector - origin_sector) * T.SECTOR_SIZE
+			var visible_world := Rect2(position, T.SECTOR_SIZE).intersection(bounds)
+			var destination := Rect2(origin + visible_world.position * scale_factor, visible_world.size * scale_factor)
+			var source := Rect2((visible_world.position - position) / T.TILE_SIZE, visible_world.size / T.TILE_SIZE)
+			draw_texture_rect_region(_textures[sector], destination, source)
+			drawn_cells += game.explored_by_sector.get(sector, {}).size()
+
+func _draw_explored_rects(bounds: Rect2, origin: Vector2, scale_factor: float) -> void:
 	var biomes := {}
 	for cell: Vector2i in displayed_cells():
 		var cell_box := Rect2(Vector2(cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE).intersection(bounds)

@@ -66,12 +66,6 @@ func _physics_process(delta: float) -> void:
 
 func _draw() -> void:
 	var tint: Color = T.COLORS[polarity]
-	if trail.size() > 1:
-		var local_trail := PackedVector2Array()
-		for point in trail:
-			local_trail.append(to_local(point))
-		if Art.enabled(): draw_polyline(local_trail, Color("091326"), 7 if homing else 5, false)
-		draw_polyline(local_trail, Color(tint, 0.4), 4 if homing else 2, true)
 	var kind := "bullet_" + ("player" if faction == 0 else "enemy") + ("_homing" if homing else "")
 	draw_set_transform(Vector2.ZERO, direction.angle())
 	var drawn := Art.draw_frame(self,kind,"flight",polarity,art_age,Vector2.ZERO,1)

@@ -4,6 +4,7 @@ const SectorStream := preload("res://scripts/sector_stream.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Bullet := preload("res://scripts/projectile.gd")
+const TrailLayer := preload("res://scripts/trail_layer.gd")
 const LaserBeam := preload("res://scripts/laser_beam.gd")
 const Bomb := preload("res://scripts/bomb.gd")
 const WorldTerrain := preload("res://scripts/streamed_terrain.gd")
@@ -145,6 +146,7 @@ var boss: CharacterBody2D
 var world: Node2D
 var terrain: Node2D
 var projectiles: Node2D
+var trail_layer: Node2D
 var effects: Node2D
 var camera: Camera2D
 var ui: CanvasLayer
@@ -337,6 +339,7 @@ func start_run(stage_seed: int) -> void:
 	explored_images.clear()
 	map_sector_revisions.clear()
 	ui.large_map.clear_cache()
+	ui.minimap.clear_cache()
 	_map_record_revision = -1
 	visited_sectors.clear()
 	discovered_bosses.clear()
@@ -355,6 +358,10 @@ func start_run(stage_seed: int) -> void:
 	world.add_child(terrain)
 	terrain.block_removed.connect(_block_removed)
 	terrain.sound_requested.connect(play_sound)
+	trail_layer = TrailLayer.new()
+	trail_layer.name = "Trails"
+	trail_layer.game = self
+	world.add_child(trail_layer)
 	projectiles = Node2D.new()
 	projectiles.name = "Projectiles"
 	world.add_child(projectiles)

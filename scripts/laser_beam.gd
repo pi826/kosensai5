@@ -120,11 +120,11 @@ func _draw() -> void:
 	if phase == "warning":
 		tint.a = 0.35 if int(elapsed * 12) % 2 == 0 else 0.8
 		for index in range(1, path.size(), 2):
-			draw_line(to_local(path[index - 1]), to_local(path[index]), tint, 2, true)
+			draw_line(to_local(path[index - 1]), to_local(path[index]), tint, 2, false)
 	else:
 		var local_path := PackedVector2Array()
 		for point in path:
 			local_path.append(to_local(point))
-		draw_polyline(local_path, Color(tint, 0.25), T.LASER_RADIUS * 3, true)
-		draw_polyline(local_path, tint, T.LASER_RADIUS * 2, true)
-		draw_polyline(local_path, Color.WHITE, 2, true)
+		draw_polyline(local_path, Color(tint, 0.25), T.LASER_RADIUS * 3, false)
+		draw_polyline(local_path, tint, T.LASER_RADIUS * 2, false)
+		draw_polyline(local_path, Color.WHITE, 2, false)
