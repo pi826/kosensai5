@@ -31,6 +31,7 @@ func run() -> void:
 	var terrain := Terrain.new()
 	terrain.stage = {"bounds": Rect2(0, 0, 12288, 3072), "solids": [Rect2(0, 0, 96, 96), Rect2(160, 128, 96, 16)]}
 	root.add_child(terrain)
+	preload("res://tests/polish_art_checks.gd").boundaries(check,terrain)
 	check(terrain.tile_masks.size() == 9, "Thin shelves do not fill a solid tile")
 	check(terrain.mask_for_cell(Vector2i(1, 1)) == 255, "Filled centre connects in all eight directions")
 	check(terrain.mask_for_cell(Vector2i(0, 0)) == Terrain.EAST | Terrain.SOUTH_EAST | Terrain.SOUTH, "Outer corner connects only inward")

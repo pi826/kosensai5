@@ -1,9 +1,18 @@
 extends RefCounted
+const IMPACT_DOWN := 0.05
+const IMPACT_UP := 0.60
+const IMPACT_GUARDIAN_SCALE := 0.30
+const IMPACT_MAJOR_SCALE := 0.22
+const IMPACT_GUARDIAN_HOLD := 0.55
+const IMPACT_MAJOR_HOLD := 0.85
+const IMPACT_GUARDIAN_AMPLITUDE := 22.0
+const IMPACT_MAJOR_AMPLITUDE := 30.0
+const IMPACT_RING_SECONDS := 1.3
 ## All prototype balance and movement values live here (pixels / seconds).
 
 const VIEW_SIZE := Vector2(1280, 720)
 const COLORS := [Color("57d8ff"), Color("ffac63")]
-const COLOR_NAMES := ["A / 青", "B / 橙"]
+const COLOR_NAMES := ["青", "橙"]
 const PLAYER_SIZE := Vector2(30, 44)
 const ENEMY_SIZE := Vector2(38, 44)
 const BOSS_SIZE := Vector2(106, 116)

@@ -17,6 +17,7 @@ func _ready() -> void:
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(12)
 	add_theme_stylebox_override("panel", style)
+	preload("res://scripts/art_skin.gd").apply(self)
 	var margin := MarginContainer.new()
 	for edge in ["left", "top", "right", "bottom"]: margin.add_theme_constant_override("margin_" + edge, 24)
 	add_child(margin)

@@ -127,16 +127,17 @@ func _draw() -> void:
 	var started := Time.get_ticks_usec()
 	drawn_fragments = 0
 	super._draw()
-	# Legend icons use the same geometric shapes as the map, independent of font coverage.
-	draw_circle(Vector2(38,73), 3, Color.WHITE)
+	# Same image silhouettes as map markers; each missing ID keeps its fallback.
+	if not draw_mark("map_player",Vector2(38,73),20): draw_circle(Vector2(38,73),3,Color.WHITE)
 	for at: Vector2 in [Vector2(134,73), Vector2(500,98)]:
+		if draw_mark("map_boss" if at.y==73 else "map_chest",at,20): continue
 		draw_colored_polygon(PackedVector2Array([at+Vector2(0,-4),at+Vector2(4,0),at+Vector2(0,4),at+Vector2(-4,0)]), Color("f0d8b2") if at.y == 73 else T.CRYSTAL_COLOR)
 	draw_polyline(PackedVector2Array([Vector2(746,73),Vector2(750,77),Vector2(757,69)]),Color("d9f4d9"),2)
-	draw_rect(Rect2(34,96,8,6),T.MERCHANT_COLOR,false,1.5)
-	draw_colored_polygon(PackedVector2Array([Vector2(33,96),Vector2(38,91),Vector2(43,96)]),T.MERCHANT_COLOR)
-	draw_rect(Rect2(206,95,8,6),Color("ffdf80"),false,1.5)
-	draw_circle(Vector2(348,95),3,Color("ffdf80"),false,1.5,true)
-	draw_line(Vector2(350,97),Vector2(356,103),Color("ffdf80"),1.5)
+	if not draw_mark("map_merchant",Vector2(38,98),20): draw_rect(Rect2(34,96,8,6),T.MERCHANT_COLOR,false,1.5)
+	if not draw_mark("map_chest",Vector2(210,98),20): draw_rect(Rect2(206,95,8,6),Color("ffdf80"),false,1.5)
+	if not draw_mark("map_key",Vector2(350,98),20):
+		draw_circle(Vector2(348,95),3,Color("ffdf80"),false,1.5,true)
+		draw_line(Vector2(350,97),Vector2(356,103),Color("ffdf80"),1.5)
 	draw_line(Vector2(736,98),Vector2(751,98),Color("9fb7cc"),1)
 	var world := world_area()
 	var area := map_area()

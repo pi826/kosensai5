@@ -15,6 +15,8 @@ const BossCycle := preload("res://scripts/boss_cycle.gd")
 const O := preload("res://scripts/origin_shift.gd")
 const AudioDirector := preload("res://scripts/audio_director.gd")
 var audio: Node
+var boss_impact: CanvasLayer
+var impact_effect_override := -1
 var audio_settings_path := "user://audio.cfg"
 var audio_synthesis_override := -1
 var audio_return_state := "title"
@@ -70,6 +72,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 	if is_instance_valid(audio): audio.shift_origin(self, delta)
 	stream.shift_origin(delta)
 	for actor: Node in world.get_children():
+		if actor.is_in_group("sprite_remnants"): actor.position += delta
 		if actor == player or actor is Enemy:
 			actor.position += delta
 			if actor == player: player.drop_clear_y += delta.y
@@ -113,7 +116,10 @@ class PhysicsProbe extends Node:
 var stage: Dictionary = {}
 var last_start_metrics: Dictionary = {}
 var current_seed := 1
-var state := "title"
+var state := "title":
+	set(value):
+		if value != "playing" and is_instance_valid(boss_impact): boss_impact.cancel()
+		state = value
 var score := 0
 var elapsed := 0.0
 var kills := 0
@@ -190,6 +196,7 @@ func is_tutorial() -> bool:
 
 func start_tutorial() -> void:
 	if is_instance_valid(tutorial_session): return
+	if is_instance_valid(boss_impact): boss_impact.cancel()
 	if is_instance_valid(audio): audio.reset_run()
 	play_sound("ui_confirm")
 	tutorial_seed_text = ui.seed_field.text
@@ -243,6 +250,9 @@ func return_to_title() -> void:
 	show_menu("title")
 
 func _ready() -> void:
+	var sprite_loader := preload("res://scripts/sprite_loader.gd").new()
+	sprite_loader.game = self
+	add_child(sprite_loader)
 	process_physics_priority = -100
 	process_priority = 1000 # Redraw after world callbacks (excavation, walls, restores).
 	_register_inputs()
@@ -257,6 +267,10 @@ func _ready() -> void:
 	ui = Interface.new()
 	ui.game = self
 	add_child(ui)
+	boss_impact = preload("res://scripts/boss_impact.gd").new()
+	boss_impact.game = self
+	boss_impact.override_enabled = impact_effect_override
+	add_child(boss_impact)
 	var probe := PhysicsProbe.new()
 	probe.game = self
 	probe.process_physics_priority = 1000
@@ -272,6 +286,7 @@ func _random_seed() -> int:
 	return int(Time.get_ticks_usec() % 2147483647)
 
 func start_run(stage_seed: int) -> void:
+	if is_instance_valid(boss_impact): boss_impact.cancel()
 	var started := Time.get_ticks_usec()
 	if is_instance_valid(audio): audio.reset_run()
 	stream_install_ms = 0.0
@@ -366,6 +381,7 @@ func start_run(stage_seed: int) -> void:
 	last_start_metrics = {"seed": stage_seed, "generation_ms": stream.generation_times.reduce(func(a, b): return a + b, 0.0), "start_run_ms": (Time.get_ticks_usec() - started) / 1000.0, "terrain_bodies": terrain.collision_body_count(), "actors": stage.spawns.size() + 1}
 
 func _exit_tree() -> void:
+	if is_instance_valid(boss_impact): boss_impact.cancel()
 	if boss_cycle != null: boss_cycle.shutdown()
 	if stream != null: stream.shutdown()
 
@@ -751,6 +767,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		return
 	if actor.kind == "boss" and defeated_bosses.has(actor.boss_id): return
 	actor.set_meta("defeat_rewarded", true)
+	if actor.kind == "boss" and is_instance_valid(boss_impact): boss_impact.start(actor.position, actor.boss_role)
 	play_sound("boss_defeat" if actor.kind == "boss" else ("enhancer_defeat" if actor.kind == "enhancer" else "enemy_defeat"), actor.position)
 	if actor.kind == "boss" and is_instance_valid(audio): audio.boss_defeated()
 	defeated_enemies[actor.spawn_id] = true
@@ -787,6 +804,7 @@ func _finish_run() -> void:
 	if not is_instance_valid(player) or player.dead:
 		show_menu("lost")
 	elif boss_cycle.phase == "complete":
+		if is_instance_valid(boss_impact) and boss_impact.active: return
 		show_menu("won")
 	else:
 		ending = false
@@ -960,6 +978,7 @@ func use_potion() -> bool:
 
 func resume_run() -> void:
 	state = "playing"
+	if ending and boss_cycle != null and boss_cycle.phase == "complete": call_deferred("_finish_run")
 	ui.menu.hide()
 	ui.shop_panel.hide()
 	world.process_mode = Node.PROCESS_MODE_INHERIT

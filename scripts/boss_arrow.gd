@@ -1,6 +1,7 @@
 extends Control
 ## Draw in the HUD canvas, above terrain/actors/shots, below menus and other HUD.
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 var game: Node2D
 
 func _process(_delta: float) -> void:
@@ -11,6 +12,10 @@ func _draw() -> void:
 	if target.is_empty(): return
 	var direction: Vector2 = target.direction
 	var center: Vector2 = game.player.get_global_transform_with_canvas().origin + direction * T.BOSS_ARROW_RADIUS
+	draw_set_transform(center,direction.angle())
+	var drawn := Art.draw_frame(self,"boss_arrow","idle",0,0,Vector2.ZERO,1)
+	draw_set_transform(Vector2.ZERO)
+	if drawn: return
 	var side := direction.orthogonal()
 	var half := T.BOSS_ARROW_LENGTH / 2
 	var width := T.BOSS_ARROW_WIDTH / 2

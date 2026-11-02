@@ -130,7 +130,7 @@ func stocks():
 	p.homing_charges = 1
 	clear_bullets()
 	game.ui.update_hud()
-	check(game.ui.gauge_label.text == "誘導弾 ■□□□□  吸収2/4" and game.ui.gauge_bar.value == 2 and game.ui.gauge_bar.max_value == 4, "HUD shows stocks and separate absorption progress")
+	check(game.ui.gauge_label.text == "誘導弾 1/5  吸収2/4" and game.ui.gauge_bar.value == 2 and game.ui.gauge_bar.max_value == 4, "headless HUD fallback shows stock counts and separate absorption progress")
 	for e in targets: e.free()
 	p.homing_charges = 0
 	var e = enemies()[0]

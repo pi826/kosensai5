@@ -1,6 +1,7 @@
 extends Node2D
 ## Fixed quadratic curve; only terrain clipping is refreshed at ignition.
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 
 var game: Node2D
 var source: Node2D
@@ -114,6 +115,7 @@ static func segment_touches_rect(start: Vector2, end: Vector2, rect: Rect2, radi
 func _draw() -> void:
 	if path.size() < 2 or phase == "cancelled":
 		return
+	if Art.draw_beam(self,path,phase,polarity,elapsed): return
 	var tint: Color = T.COLORS[polarity]
 	if phase == "warning":
 		tint.a = 0.35 if int(elapsed * 12) % 2 == 0 else 0.8

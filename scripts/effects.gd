@@ -1,5 +1,6 @@
 extends Node2D
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 const PlayerHealthDisplay := preload("res://scripts/player_health_display.gd")
 
 var bursts: Array = []
@@ -66,6 +67,8 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	for burst: Dictionary in bursts:
+		var polarity := 0 if burst.color.b > burst.color.r else 1
+		if Art.draw_frame(self,"burst",burst.kind,polarity,burst.age,burst.at,1): continue
 		var fraction: float = burst.age / 0.45
 		var tint: Color = burst.color
 		tint.a = 1.0 - fraction

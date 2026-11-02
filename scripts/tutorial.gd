@@ -28,8 +28,12 @@ class Marker extends Node2D:
 	var session: Node2D
 	func _draw() -> void:
 		var point: Vector2 = session.goal() - Vector2(0, T.TUTORIAL_MARKER_HEIGHT)
-		draw_circle(point, 20, Color("57d8ff30"))
-		draw_polyline(PackedVector2Array([point + Vector2(-12, -5), point + Vector2(0, 8), point + Vector2(12, -5)]), Color("b9f4ff"), 4, true)
+		draw_set_transform(point,PI/2)
+		var drawn := preload("res://scripts/sprite_art.gd").draw_frame(self,"boss_arrow","idle",0,0,Vector2.ZERO,1)
+		draw_set_transform(Vector2.ZERO)
+		if not drawn:
+			draw_circle(point, 20, Color("57d8ff30"))
+			draw_polyline(PackedVector2Array([point + Vector2(-12, -5), point + Vector2(0, 8), point + Vector2(12, -5)]), Color("b9f4ff"), 4, true)
 		draw_arc(session.goal(), T.TUTORIAL_GOAL_RADIUS, 0, TAU, 40, Color("8fe9ff"), 2, true)
 
 func is_tutorial() -> bool:

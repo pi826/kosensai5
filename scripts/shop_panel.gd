@@ -151,6 +151,7 @@ func _rebuild() -> void:
 					extent = Vector2(248, 352) if equipment_index == 0 else Vector2(247, 170)
 				equipment_index += 1
 			var button := _tile(at, extent, category)
+			button.art_id = id
 			button.pressed.connect(_buy.bind(id))
 			item_buttons[id] = button
 	else:
@@ -158,6 +159,7 @@ func _rebuild() -> void:
 		for slot: String in T.EQUIPMENT_SLOTS:
 			var selected: String = game.player.equipment[slot]
 			var current := _tile(Vector2(column * 342, 0), Vector2(330, 120), slot)
+			current.art_id = selected
 			current_cards[slot] = current
 			current.pressed.connect(_equip.bind(slot, selected))
 			if not selected.is_empty(): equipment_buttons[slot + ":" + selected] = current
@@ -166,6 +168,7 @@ func _rebuild() -> void:
 			for i in range(alternatives.size()):
 				var id: String = alternatives[i]
 				var button := _tile(Vector2(column * 342, 128 + i * 56), Vector2(330, 50), slot, true)
+				button.art_id = id
 				button.pressed.connect(_equip.bind(slot, id))
 				equipment_buttons[slot + ":" + id] = button
 			column += 1

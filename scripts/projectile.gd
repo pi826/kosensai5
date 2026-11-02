@@ -1,5 +1,7 @@
 extends Node2D
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
+var art_age := 0.0
 
 var game: Node2D
 var faction := 0
@@ -15,6 +17,7 @@ var penetrations := 0
 var hit_bodies: Array[RID] = []
 
 func _physics_process(delta: float) -> void:
+	art_age += delta
 	life -= delta
 	if life <= 0:
 		queue_free()
@@ -67,7 +70,13 @@ func _draw() -> void:
 		var local_trail := PackedVector2Array()
 		for point in trail:
 			local_trail.append(to_local(point))
+		if Art.enabled(): draw_polyline(local_trail, Color("091326"), 7 if homing else 5, false)
 		draw_polyline(local_trail, Color(tint, 0.4), 4 if homing else 2, true)
+	var kind := "bullet_" + ("player" if faction == 0 else "enemy") + ("_homing" if homing else "")
+	draw_set_transform(Vector2.ZERO, direction.angle())
+	var drawn := Art.draw_frame(self,kind,"flight",polarity,art_age,Vector2.ZERO,1)
+	draw_set_transform(Vector2.ZERO)
+	if drawn: return
 	draw_circle(Vector2.ZERO, 10 if homing else 6, Color(tint, 0.15))
 	draw_circle(Vector2.ZERO, 5 if homing else 3.5, tint)
 	if homing:

@@ -4,6 +4,7 @@ signal sound_requested(id: String, point: Vector2)
 ## One collision world. Rendering is split into spatial batches for canvas culling.
 
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 const Generator := preload("res://scripts/stage_generator.gd")
 const TILE_SIZE := 32
 const DRAW_CHUNK_SIZE := 512
@@ -371,6 +372,8 @@ func _physics_process(delta: float) -> void:
 		elif walls[id].remaining <= T.WALL_BLINK_TIME:
 			for cell: Vector2i in walls[id].cells:
 				request_chunk_redraw(_chunk_key(cell))
+		elif walls[id].remaining >= T.WALL_LIFETIME-0.22:
+			for cell: Vector2i in walls[id].cells: request_chunk_redraw(_chunk_key(cell))
 
 func map_geometry(area: Rect2) -> Array[Rect2]:
 	var fragments: Array[Rect2] = []
@@ -389,6 +392,10 @@ func draw_wall(canvas: Node2D, cell: Vector2i) -> void:
 	var tint := Color("dbbd84")
 	if wall.remaining <= T.WALL_BLINK_TIME and int(wall.remaining * 10) % 2 == 0:
 		tint.a = 0.35
+	var age: float = T.WALL_LIFETIME-wall.remaining
+	var state := "appear" if age < 0.2 else ("vanish" if wall.remaining < 0.2 else "idle")
+	var seconds: float = 0.2-wall.remaining if state == "vanish" else age
+	if Art.draw_frame(canvas,"wall",state,0,seconds,pixel_of_cell(cell)-canvas.position,1,Color(1,1,1,tint.a)): return
 	var rect := Rect2(pixel_of_cell(cell) - canvas.position + Vector2.ONE, Vector2.ONE * (TILE_SIZE - 2))
 	canvas.draw_rect(rect, Color(tint, tint.a * 0.25))
 	canvas.draw_rect(rect, tint, false, 2)
@@ -482,6 +489,7 @@ func theme_at_x(x: float) -> Dictionary:
 func draw_tile(canvas: Node2D, cell: Vector2i, mask: int) -> void:
 	var world_at := pixel_of_cell(cell)
 	var at := world_at - canvas.position
+	if Art.draw_tile(canvas, self, cell, mask, at): return
 	var theme := theme_at(world_at + Vector2.ONE * TILE_SIZE / 2.0)
 	canvas.draw_rect(Rect2(at, Vector2.ONE * TILE_SIZE), theme.body)
 	if mask == 255 and not block_cells.has(cell): return
@@ -514,6 +522,10 @@ func _draw_corner(canvas: Node2D, corner: Vector2, inward: Vector2, mask: int, a
 		canvas.draw_line(corner + Vector2(inward.x * 4, inward.y), corner + Vector2(inward.x, inward.y * 4), theme.edge, 2.0)
 
 func draw_shelf(canvas: Node2D, world_shelf: Rect2) -> void:
+	if Art.draw_shelf(canvas, self, world_shelf): return
+	draw_shelf_shape(canvas,world_shelf)
+
+func draw_shelf_shape(canvas: Node2D, world_shelf: Rect2) -> void:
 	var shelf := Rect2(world_shelf.position - canvas.position, world_shelf.size)
 	var theme := theme_at(world_shelf.get_center())
 	canvas.draw_rect(shelf, theme.shadow)

@@ -50,7 +50,9 @@ func bar_segments() -> Dictionary:
 func _draw() -> void:
 	var segments := bar_segments()
 	var start := -T.PLAYER_HP_BAR_SIZE / 2
-	draw_rect(Rect2(start - Vector2.ONE * 2, T.PLAYER_HP_BAR_SIZE + Vector2.ONE * 4), Color("07111d"))
+	var frame := preload("res://scripts/art_skin.gd").style("button-normal")
+	if frame != null: draw_style_box(frame,Rect2(start-Vector2.ONE*3,T.PLAYER_HP_BAR_SIZE+Vector2.ONE*6))
+	else: draw_rect(Rect2(start - Vector2.ONE * 2, T.PLAYER_HP_BAR_SIZE + Vector2.ONE * 4), Color("07111d"))
 	var x := start.x
 	for key in ["green", "healing", "red", "gray"]:
 		var width: float = segments[key]

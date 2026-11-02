@@ -27,6 +27,7 @@ var asset_ready_ms: Dictionary = {}
 var asset_service_max_usec := 0
 var asset_operation_max_usec := 0
 var asset_stream_bytes := 0
+var asset_sizes: Dictionary = {}
 var enabled := true:
 	set(value):
 		enabled = value
@@ -49,6 +50,11 @@ var requested_music := ""
 var fade_seconds := 1.0
 var duck_db := 0.0
 var duck_target := 0.0
+var impact_duck_db := 0.0
+var impact_duck_age := 1.0
+var impact_duck_depth := 0.0
+const HEAVY := ["boss_defeat", "boss_appear", "bomb_explode", "enhancer_defeat", "death", "hurt"]
+const MEDIUM_DEFEAT := ["enemy_defeat", "block_break", "boss_hit"]
 var last_id: Dictionary = {}
 var last_frame: Dictionary = {}
 var requests: Array[Dictionary] = []
@@ -135,6 +141,12 @@ func _ready() -> void:
 	setup_ms = (Time.get_ticks_usec() - began) / 1000.0
 
 func _exit_tree() -> void:
+	for voice: Dictionary in voices:
+		voice.player.stop()
+		voice.player.stream = null
+	for player: AudioStreamPlayer in music:
+		player.stop()
+		player.stream = null
 	bank.shutdown()
 	if fallback_bank != null: fallback_bank.shutdown()
 	# A completed threaded request must be retrieved even if the host closes.
@@ -172,7 +184,7 @@ func _service_assets() -> void:
 		var op := Time.get_ticks_usec()
 		if asset_pending.values().has(path):
 			asset_pending[id] = path
-		elif ResourceLoader.exists(path) and ResourceLoader.load_threaded_request(path, "AudioStreamWAV") == OK:
+		elif ResourceLoader.exists(path) and ResourceLoader.load_threaded_request(path, "AudioStream") == OK:
 			asset_pending[id] = path
 		else: _asset_failed(id)
 		asset_operation_max_usec = maxi(asset_operation_max_usec, Time.get_ticks_usec() - op)
@@ -183,7 +195,9 @@ func _service_assets() -> void:
 		var op := Time.get_ticks_usec()
 		var status := ResourceLoader.load_threaded_get_status(path)
 		if status == ResourceLoader.THREAD_LOAD_LOADED:
-			var stream := ResourceLoader.load_threaded_get(path) as AudioStreamWAV
+			var stream := ResourceLoader.load_threaded_get(path) as AudioStream
+			if stream != null and not asset_sizes.has(stream.get_instance_id()):
+				asset_sizes[stream.get_instance_id()] = stream_bytes(stream)
 			for sharing: String in asset_pending.keys():
 				if asset_pending[sharing] != path: continue
 				if stream != null:
@@ -193,8 +207,12 @@ func _service_assets() -> void:
 				else: _asset_failed(sharing)
 				asset_pending.erase(sharing)
 		elif status in [ResourceLoader.THREAD_LOAD_FAILED, ResourceLoader.THREAD_LOAD_INVALID_RESOURCE]:
-			_asset_failed(id)
-			asset_pending.erase(id)
+			# Failed threaded requests also own a loader reference until retrieved.
+			if status == ResourceLoader.THREAD_LOAD_FAILED: ResourceLoader.load_threaded_get(path)
+			for sharing: String in asset_pending.keys():
+				if asset_pending[sharing] != path: continue
+				_asset_failed(sharing)
+				asset_pending.erase(sharing)
 		asset_operation_max_usec = maxi(asset_operation_max_usec, Time.get_ticks_usec() - op)
 	if fallback_bank != null:
 		streams.merge(fallback_bank.collect())
@@ -211,11 +229,32 @@ func _service_assets() -> void:
 	var seen: Dictionary = {}
 	asset_stream_bytes = 0
 	for id: String in asset_loaded:
-		var stream: AudioStreamWAV = streams[id]
+		var stream: AudioStream = streams[id]
 		if not seen.has(stream.get_instance_id()):
 			seen[stream.get_instance_id()] = true
-			asset_stream_bytes += stream.data.size()
+			asset_stream_bytes += int(asset_sizes[stream.get_instance_id()])
 	asset_service_max_usec = maxi(asset_service_max_usec, Time.get_ticks_usec() - began)
+
+static func stream_bytes(stream: AudioStream) -> int:
+	if stream is AudioStreamWAV: return stream.data.size()
+	if stream is AudioStreamOggVorbis:
+		var count := 0
+		for page in stream.packet_sequence.packet_data:
+			for packet in page: count += packet.size()
+		return count
+	return 0
+
+func trigger_impact_duck(id: String) -> void:
+	var depth := -7.0 if HEAVY.has(id) else (-4.0 if MEDIUM_DEFEAT.has(id) else 0.0)
+	if depth == 0.0: return
+	impact_duck_depth = minf(depth, impact_duck_db)
+	impact_duck_age = 0.0
+	# Immediate attack meets the 30ms bound even at low rendering rates.
+	impact_duck_db = impact_duck_depth
+	for i in range(music.size()):
+		var attenuation := maxf(-14.0, duck_db+music_result_db[i]+impact_duck_db)
+		var target := linear_to_db(maxf(0.0001, music_gain[i]))+attenuation+music_asset_db(i)
+		music[i].volume_db = minf(music[i].volume_db, target)
 
 func source_game() -> Node:
 	return game.tutorial_session if is_instance_valid(game.tutorial_session) else game
@@ -292,6 +331,7 @@ func play(id: String, point: Variant = null, volume_db: float = 0, pitch: float 
 		AudioServer.set_bus_send(voice.bus, "BGM" if bgm else "SE")
 		voice.pan.pan = pan
 		player.play()
+		trigger_impact_duck(id)
 		voice.id = id
 		voice.world = world
 		voice.source = weakref(source)
@@ -327,6 +367,8 @@ func shift_origin(source: Node, delta: Vector2) -> void:
 		if voice.world and voice.source != null and voice.source.get_ref() == source: voice.point += delta
 
 func reset_run() -> void:
+	impact_duck_db = 0.0
+	impact_duck_age = 1.0
 	stop_world()
 	region = -1
 	candidate_region = -1
@@ -373,7 +415,14 @@ func _process(delta: float) -> void:
 	tick_active = true
 	streams.merge(bank.collect())
 	_service_assets()
-	clock_ms += delta * 1000
+	# Voice deadlines use media time, not wall time: global pitch changes affect
+	# BGM and all SE together, including voices started before the slow motion.
+	var real_delta := delta / maxf(0.0001, Engine.time_scale)
+	var media_delta := real_delta * AudioServer.playback_speed_scale
+	clock_ms += media_delta * 1000
+	delta = real_delta
+	impact_duck_age += real_delta
+	impact_duck_db = lerpf(impact_duck_depth, 0.0, clampf(impact_duck_age/0.3, 0.0, 1.0))
 	var source := source_game()
 	var state: String = source.state
 	var paused := paused_state(state)
@@ -383,7 +432,7 @@ func _process(delta: float) -> void:
 		if voice.until <= clock_ms: continue
 		if voice.world:
 			voice.player.stream_paused = paused
-			if paused: voice.until += delta * 1000
+			if paused: voice.until += media_delta * 1000
 			if not paused and voice.source != null:
 				var owner: Node = voice.source.get_ref()
 				if is_instance_valid(owner):
@@ -413,7 +462,8 @@ func _process(delta: float) -> void:
 			var speed := 9.0 if not ending_started and state != "audio_settings" else 40.0
 			music_result_db[i] = move_toward(music_result_db[i], result_target, delta * speed)
 		music_gain[i] = move_toward(music_gain[i], music_target[i], delta / fade_seconds)
-		var amplitude := maxf(0.0001, music_gain[i]) * db_to_linear(duck_db + music_result_db[i])
+		var attenuation := maxf(-14.0, duck_db + music_result_db[i] + impact_duck_db)
+		var amplitude := maxf(0.0001, music_gain[i]) * db_to_linear(attenuation)
 		# Bound every upward step, including simultaneous fade-in and unduck.
 		# Keep the original envelope bound and the actual output bound with makeup.
 		amplitude = minf(amplitude, previous + delta * 6.0 / maxf(1.0, db_to_linear(asset_db)))

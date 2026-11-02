@@ -1,5 +1,6 @@
 extends CanvasLayer
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 const KeySettingsPanel := preload("res://scripts/key_settings_panel.gd")
 const Minimap := preload("res://scripts/minimap.gd")
 const ShopPanel := preload("res://scripts/shop_panel.gd")
@@ -11,6 +12,8 @@ var menu: Control
 var health_label: Label
 var health_bar: ProgressBar
 var color_label: Label
+var color_icon: TextureRect
+var boss_color_icon: TextureRect
 var score_label: Label
 var progress_label: Label
 var gauge_label: Label
@@ -54,6 +57,7 @@ var audio_button: Button
 var audio_overlay: Control
 var audio_panel: PanelContainer
 var navigation_input := false
+var art_skin: Control
 
 func _input(event: InputEvent) -> void:
 	if not is_instance_valid(menu) or not menu.is_visible_in_tree(): return
@@ -89,8 +93,8 @@ func _ready() -> void:
 	top.add_theme_stylebox_override("panel", panel_style(Color("0d1b2be8")))
 	place(top, Vector2(24, 18), Vector2(1232, 88))
 	hud.add_child(top)
-	health_label = label("", 21)
-	place(health_label, Vector2(44, 27), Vector2(310, 32))
+	health_label = hud_label("", 21)
+	place(health_label, Vector2(74, 27), Vector2(270, 32))
 	hud.add_child(health_label)
 	health_bar = ProgressBar.new()
 	health_bar.show_percentage = false
@@ -102,13 +106,18 @@ func _ready() -> void:
 	health_bar.add_theme_stylebox_override("fill", health_fill)
 	place(health_bar, Vector2(44, 62), Vector2(275, 7))
 	hud.add_child(health_bar)
-	color_label = label("", 22)
+	color_label = hud_label("", 22)
 	place(color_label, Vector2(362, 27), Vector2(135, 32))
 	hud.add_child(color_label)
-	angle_label = label("", 16)
+	color_icon = TextureRect.new()
+	color_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	color_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place(color_icon, Vector2(362, 27), Vector2(32, 32))
+	hud.add_child(color_icon)
+	angle_label = hud_label("", 16)
 	place(angle_label, Vector2(362, 61), Vector2(155, 24))
 	hud.add_child(angle_label)
-	gauge_label = label("", 17)
+	gauge_label = hud_label("", 17)
 	place(gauge_label, Vector2(522, 26), Vector2(320, 28))
 	hud.add_child(gauge_label)
 	gauge_bar = ProgressBar.new()
@@ -118,20 +127,20 @@ func _ready() -> void:
 	gauge_bar.add_theme_stylebox_override("fill", panel_style(Color.WHITE))
 	place(gauge_bar, Vector2(524, 62), Vector2(220, 12))
 	hud.add_child(gauge_bar)
-	score_label = label("", 21)
+	score_label = hud_label("", 21)
 	place(score_label, Vector2(862, 27), Vector2(375, 30))
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hud.add_child(score_label)
-	loot_label = label("", 16, T.CRYSTAL_COLOR)
+	loot_label = hud_label("", 16, T.CRYSTAL_COLOR)
 	place(loot_label, Vector2(840, 80), Vector2(394, 24))
 	loot_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hud.add_child(loot_label)
-	loot_notice = label("", 20, T.CRYSTAL_COLOR)
+	loot_notice = hud_label("", 20, T.CRYSTAL_COLOR)
 	place(loot_notice, Vector2(80, 570), Vector2(1120, 64))
 	loot_notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	loot_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hud.add_child(loot_notice)
-	progress_label = label("", 14, Color("91acbd"))
+	progress_label = hud_label("", 14, Color("91acbd"))
 	place(progress_label, Vector2(44, 78), Vector2(445, 22))
 	hud.add_child(progress_label)
 	progress_bar = ProgressBar.new()
@@ -140,13 +149,13 @@ func _ready() -> void:
 	progress_bar.add_theme_stylebox_override("fill", panel_style(Color("4b7189")))
 	place(progress_bar, Vector2(866, 73), Vector2(366, 5))
 	hud.add_child(progress_bar)
-	location_label = label("", 20, Color("c8decf"))
+	location_label = hud_label("", 20, Color("c8decf"))
 	place(location_label, Vector2(44, 118), Vector2(365, 30))
 	hud.add_child(location_label)
-	objective_label = label("", 15, Color("a3b4bd"))
+	objective_label = hud_label("", 15, Color("a3b4bd"))
 	place(objective_label, Vector2(44, 151), Vector2(365, 28))
 	hud.add_child(objective_label)
-	boss_arrow_label = label("", 14, Color("a3b4bd"))
+	boss_arrow_label = hud_label("", 14, Color("a3b4bd"))
 	place(boss_arrow_label, Vector2(44, 182), Vector2(365, 24))
 	hud.add_child(boss_arrow_label)
 	minimap = Minimap.new()
@@ -156,36 +165,46 @@ func _ready() -> void:
 	hud.add_child(minimap)
 	for i in range(3):
 		var slot: String = T.EQUIPMENT_SLOTS.keys()[i]
-		var entry := label("", 14)
+		var entry := hud_label("", 14)
 		place(entry, Vector2(902, 236 + i * 26), Vector2(354, 26))
 		entry.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		hud.add_child(entry)
 		equipment_labels[slot] = entry
-	equipment_hint = label("", 13, Color("ffdf80"))
+	equipment_hint = hud_label("", 13, Color("ffdf80"))
 	place(equipment_hint, Vector2(902, 318), Vector2(354, 25))
 	equipment_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	hud.add_child(equipment_hint)
-	boss_label = label("", 16)
+	boss_label = hud_label("", 16)
 	place(boss_label, Vector2(420, 120), Vector2(440, 28))
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(boss_label)
-	boss_hp_label = label("", 28)
+	boss_color_icon = TextureRect.new()
+	boss_color_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boss_color_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place(boss_color_icon, Vector2(750, 118), Vector2(32, 32))
+	hud.add_child(boss_color_icon)
+	boss_hp_label = hud_label("", 28)
 	place(boss_hp_label, Vector2(420, 148), Vector2(440, 40))
 	boss_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(boss_hp_label)
-	hint_label = label("", 22)
+	hint_label = hud_label("", 22)
 	place(hint_label, Vector2(190, 280), Vector2(700, 120))
 	hint_label.add_theme_font_size_override("font_size", 20)
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud.add_child(hint_label)
-	announcement_label = label("", 24, Color("fff0bb"))
+	announcement_label = hud_label("", 24, Color("fff0bb"))
 	place(announcement_label, Vector2(80, 235), Vector2(780, 64))
 	announcement_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	announcement_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	announcement_label.add_theme_color_override("font_shadow_color", Color("07111d"))
 	announcement_label.add_theme_constant_override("shadow_outline_size", 6)
 	hud.add_child(announcement_label)
-	controls_label = label("", 14, Color("97b3c5"))
+	controls_label = hud_label("", 14, Color("97b3c5"))
+	var controls_shade := ColorRect.new()
+	controls_shade.color = Color("040c16c8")
+	controls_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place(controls_shade,Vector2(12,662),Vector2(1256,58))
+	root.add_child(controls_shade)
 	place(controls_label, Vector2(24, 670), Vector2(1232, 45))
 	controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -309,6 +328,9 @@ func _ready() -> void:
 	large_map.game = game
 	root.add_child(large_map)
 	large_map.hide()
+	art_skin = preload("res://scripts/art_skin.gd").new()
+	art_skin.ui = self
+	root.add_child(art_skin)
 	refresh_bindings()
 
 func refresh_bindings() -> void:
@@ -358,8 +380,11 @@ func update_hud() -> void:
 	health_bar.value = health
 	health_bar.modulate = Color("ffac82") if health <= maximum * 0.3 else Color.WHITE
 	var color_index: int = game.player.polarity if live else 0
-	color_label.text = T.COLOR_NAMES[color_index]
+	color_icon.texture = Art.icon(color_index)
+	color_icon.visible = color_icon.texture != null
+	color_label.text = "" if color_icon.visible else T.COLOR_NAMES[color_index]
 	color_label.modulate = T.COLORS[color_index]
+	boss_color_icon.hide()
 	angle_label.text = "射撃方向 " + (game.player.aim_name() if live else T.AIM_NAMES[0])
 	var charge: int = game.player.gauge if live else 0
 	var required: int = game.player.absorptions_per_charge() if live else T.ABSORPTIONS_PER_CHARGE
@@ -368,9 +393,12 @@ func update_hud() -> void:
 	gauge_bar.modulate = T.COLORS[color_index]
 	var stocks: int = game.player.homing_charges if live else 0
 	var capacity: int = game.player.charge_capacity() if live else T.HOMING_CHARGE_CAPACITY
-	gauge_label.text = "誘導弾 %s%s  吸収%d/%d" % ["■".repeat(stocks), "□".repeat(capacity - stocks), charge, required]
+	var sprites := Art.enabled()
+	gauge_label.text = "誘導弾" if sprites else "誘導弾 %d/%d  吸収%d/%d" % [stocks,capacity,charge,required]
+	gauge_bar.visible = not sprites
 	score_label.text = "スコア  %06d    時間 %s" % [game.score, game.clock_text()]
 	loot_label.text = "結晶 %d    鍵 %d    回復薬 %d/%d" % [game.crystals, game.keys, game.potions, T.POTION_CAPACITY]
+	loot_label.modulate.a = 0.0 if sprites else 1.0
 	loot_label.visible = not game.is_tutorial()
 	loot_notice.visible = not game.is_tutorial() and game.state == "playing"
 	loot_notice.text = game.loot_message if game.loot_message_remaining > 0 else game.interaction_hint()
@@ -402,7 +430,11 @@ func update_hud() -> void:
 	boss_label.visible = boss_visible
 	if boss_visible:
 		boss_hp_label.text = str(game.boss.hp)
-		boss_label.text = "%s  /  %s" % [preload("res://scripts/boss_cycle.gd").name_for(game.boss.boss_role), T.COLOR_NAMES[game.boss.polarity]]
+		boss_color_icon.texture = Art.icon(game.boss.polarity)
+		boss_color_icon.visible = boss_color_icon.texture != null
+		var boss_name: String = preload("res://scripts/boss_cycle.gd").name_for(game.boss.boss_role)
+		boss_label.text = boss_name if boss_color_icon.visible else "%s  /  %s" % [boss_name, T.COLOR_NAMES[game.boss.polarity]]
+		boss_color_icon.position.x = 640 + boss_label.get_theme_font("font").get_string_size(boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x / 2 + 6
 	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0
 
 func explored_sector_count() -> int:
@@ -411,6 +443,7 @@ func explored_sector_count() -> int:
 func show_menu(next_state: String) -> void:
 	menu.show()
 	var title := next_state == "title"
+	menu_title.modulate.a = 0.0 if title and Art.enabled() and preload("res://scripts/art_skin.gd").image("logo")!=null else 1.0
 	place(menu_card, Vector2(260, 44 if title else 134), Vector2(760, 610 if title else 520))
 	place(eyebrow, Vector2(300, 56 if title else 160), Vector2(680, 24))
 	place(menu_title, Vector2(300, 80 if title else 191), Vector2(680, 72))
@@ -467,6 +500,14 @@ func show_menu(next_state: String) -> void:
 		new_button.text = "チュートリアルを最初から"
 	update_hud()
 	primary_button.grab_focus()
+
+func hud_label(text: String, size: int, tint: Color = Color("dce9ef")) -> Label:
+	var result := label(text,size,tint)
+	# All HUD and central prompts share this factory, including interaction and
+	# equipment hints. An opaque outline remains legible over bright rock.
+	result.add_theme_color_override("font_outline_color", Color("04090f"))
+	result.add_theme_constant_override("outline_size", 6)
+	return result
 
 func label(text: String, size: int, tint: Color = Color("dce9ef")) -> Label:
 	var result := Label.new()

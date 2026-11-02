@@ -1,0 +1,2552 @@
+{
+  "hashes": {
+    "assets/art/backdrops/0-0.png": "e198c775314c82086e40048b7ad98adc24905cd7f5c58ee8a732c200f79c3bfb",
+    "assets/art/backdrops/0-1.png": "30b65133a8cfb36bedda5e02bdc0db0866d312d10074e5b61f1e9b5690b0f130",
+    "assets/art/backdrops/1-0.png": "ebd0ed2caa2db78423e3b7be6ea8e3531e7892ee0e509fc74c71f3d0261f00a2",
+    "assets/art/backdrops/1-1.png": "5f149b4aa83f67de2824135d5656b22878f2a4babbc6fb1c0e24796eac59a082",
+    "assets/art/backdrops/2-0.png": "721f7f3d8123fdcadba3fbb4a505ee89700b774ea3a8f1911bedd7ee6e2032ab",
+    "assets/art/backdrops/2-1.png": "0f5d204bad075169582a6071e0ed6b4ab49b248fd547296fb109c216700c1d15",
+    "assets/art/bosses/final-blue.png": "ba8aa54902a7cc2a75ac1d80d21d81358b045bec15c1b51d16cc70d0f7c27de8",
+    "assets/art/bosses/final-orange.png": "840aa70ad1313ca387a69943dd3b64952d4b803a1cb21e45d130fe621f37aff5",
+    "assets/art/bosses/guardian-blue.png": "9701345c03c089cb56db60e8ad989d772bf6b63727f3557c9e29960c75874437",
+    "assets/art/bosses/guardian-orange.png": "713c5c0fd311cf1feeb23fd6a8939a9de6f790af16f32052531dfa6a461b10a1",
+    "assets/art/bosses/secret-blue.png": "0040d758f763b430133d35eda7dca565344bc8106dd95086fee44e911703df6d",
+    "assets/art/bosses/secret-orange.png": "10a38a533239c94dbe38b28a5fba2780535a1c22a8d38b4bfa17b40f1c1688f4",
+    "assets/art/effects/burst-blue.png": "26ff1ac6c0bb95d618f96ddb534010ffec28ac3c57c3b3930334472ed1f045c1",
+    "assets/art/effects/burst-orange.png": "d39860bb32502376da9a601558aefbcd393c6f7ebc5037b779e51c3adf8c7169",
+    "assets/art/enemies/breaker-blue.png": "356a735419b35e0d4284b38a63f2f777a530eb456c02b1bd898a90b1636d7ec4",
+    "assets/art/enemies/breaker-orange.png": "4143207fb5bf301edfee54f6128e84bb689bb3e4fddac37682979695b10cbdf3",
+    "assets/art/enemies/builder-blue.png": "c3653e523697f3be0ba6aa386e306c5417df6699fdc28e32778853af9d1bf9b2",
+    "assets/art/enemies/builder-orange.png": "667f35c4218d25c0f3204ecbd3c702e33cbd47b5c4d922e50dbdf2ced7f139bb",
+    "assets/art/enemies/enhancer-blue.png": "c4283db9151f8dacceed19cd57b399c8c1f5b0f9e50ecc63dc0705662740e4ec",
+    "assets/art/enemies/enhancer-orange.png": "14454c8e08e5f9884f403a37ca4daa31f9796cddbb83e32e45740b654a29c691",
+    "assets/art/enemies/flyer-blue.png": "44b8bb5a206765149759b9bffb919b1d9ccbd1559c2deae57cbc0a7a16f79d62",
+    "assets/art/enemies/flyer-orange.png": "c6695d3329a970f1bbb52b1b2c53fb909bd1426b3892385fea39b5c93186ef91",
+    "assets/art/enemies/laser-blue.png": "03ab4ad5a4af8a1f029972d9c445fa6f2bc788d5f996fc83908bc30e4eca1a08",
+    "assets/art/enemies/laser-orange.png": "a3a463260c91981b768284cd8744fe66702eee68eb28267f63c0ebbdc6050bd7",
+    "assets/art/enemies/shifter-blue.png": "c2fd571bfde21ee8b95defeba07136ac9463e6a4fca2d02f1101e3f3bbd900db",
+    "assets/art/enemies/shifter-orange.png": "8ea31d9b08d50c4f77569dfaeacacce00b55fcd9e3d9ef22bac9578b3d39eb68",
+    "assets/art/enemies/turret-blue.png": "c4a91e088ad5c947624aaa96cc5786294fe929b333dc515192013947521b720a",
+    "assets/art/enemies/turret-orange.png": "ee9666b1d6fcacb5508fdb45921953ba9c5469a19a0dc53fc61c9208209e3c70",
+    "assets/art/enemies/walker-blue.png": "1701a20a4e26ef1acbf342eca713fe0e11303ab3ed0160e57bddcbef0a94c915",
+    "assets/art/enemies/walker-orange.png": "fe407e36d81855ad9cf7b9349908a58a2243d882bd8cae994f1f057ac90e6514",
+    "assets/art/hud/boss_arrow-blue.png": "56185694e81984008873b9d43aa469d493dd0d6d3b8c26c357194ddc5cea52a2",
+    "assets/art/hud/colors.png": "25fc6ba5284eefd3a3f23956ee5597a5a0a961461522f489bf03f4a5f1d981ca",
+    "assets/art/items/absorb.png": "e3bf2755d5e229ac9309cbc374c79cc707021ac434c052ddfa10d693c065d394",
+    "assets/art/items/boots.png": "3d68c5ab298c07fe91499caf3de2acc46b8d74d1df961f94822958eec39f11e9",
+    "assets/art/items/chest.png": "918ce73649686474340858e606261749c0d86cf647ce49b4b5ddf36a6887959c",
+    "assets/art/items/crystal.png": "41d58a1d9ed46a3d95b0feec5c103e197b165095267aac61069495dcbb33005a",
+    "assets/art/items/cushion.png": "51b324d1006d5eccde34e89304a8488aa79190ee42e978f8e4adca0040822c76",
+    "assets/art/items/heart.png": "d776e5913a172ffca2430845c5343497ecf0bd0c633355589a29c00bb9804c6d",
+    "assets/art/items/homing.png": "02a0ab476c39c204916f329fab432bd17038c0001e6f6e77bf1aedc5519bb98a",
+    "assets/art/items/invincible.png": "03dbc92bd8d34ab0de40da56c8e7d9a23f333f3c7d2f22d8a96feca8a405956f",
+    "assets/art/items/key.png": "af4f584b3819d1a29568bf2a2d5702d07760775952cb55af98d2b657a8a16730",
+    "assets/art/items/merchant.png": "d4592a672ef5bba294a0d931102c27918d2fb2913a65ed333afdc6b1bac100dc",
+    "assets/art/items/pierce.png": "15a311077aa56a128cffb8597ed68fc5002820d3521c5ed69f496dc045438b56",
+    "assets/art/items/potion.png": "d5cc6ab3324f799c5baab6dfa2a80046d879977e445894d02fff8b9dd6772a8f",
+    "assets/art/items/rapid.png": "c182581e53d6003844f98782b2932a4f18afc3b4b631f4cae72e90d493a7564d",
+    "assets/art/items/shell.png": "2a8246d70d4c1c84dfe63ee8fc96a9a980bb7e3665bd42e0a48d42deb0c0cec7",
+    "assets/art/items/target.png": "d0c31be3d294470467b4d7e7207e118aa70ee8a22311030b79756c49887f2411",
+    "assets/art/items/triple.png": "04948f487f519305ea533e66d6e306af10496e05e2b9e0a2aa24b9c789020162",
+    "assets/art/player/blue-arm.png": "d652d8a1895c4008a4df024fe03a2af953f8da23aae980af9a0a45aeaa8ade0a",
+    "assets/art/player/blue.png": "50f2472e6e1ba9a94a6d49cd70653e41674997f9ded1f9ecde965843b9b2ed1d",
+    "assets/art/player/orange-arm.png": "4ce0e4d7fbffa861e5406cd134f3e1453e09a23f4330b63100d1ba9465a643e1",
+    "assets/art/player/orange.png": "bfa19ffd3b8c87ab3117e2e18f89dbe0d5497f1ce2775816fa591bd5cb0cc980",
+    "assets/art/projectiles/bomb-blue.png": "91c071e9bdadd31d29e88b2621d027c1114eed49d73d1e20dd7b15442c8520cf",
+    "assets/art/projectiles/bomb-orange.png": "5020523c9e596cde198ac6dfd1cd43ffa648643f8b36882dd60c4276e2180770",
+    "assets/art/projectiles/bullet_enemy-blue.png": "93b78c8ad947a62bfbb0fe191f6c521bec8b8c6400cd7453f4581d3e091a47a7",
+    "assets/art/projectiles/bullet_enemy-orange.png": "723a77f0f4f25482f7653cd07792303b3504160a7f8b31cac460aff2d34f0d3a",
+    "assets/art/projectiles/bullet_enemy_homing-blue.png": "33413c0a06892d288b316c7e8b2a93a464ebe29f7e3091d8bd7c5251d02c04c9",
+    "assets/art/projectiles/bullet_enemy_homing-orange.png": "fc4651231c3281f4f1a7740afc4d250b3c8bfa0f5260fc5354a5a317daa745db",
+    "assets/art/projectiles/bullet_player-blue.png": "67b27e96da20e717acc3fa6111845c562123c755b82445be70a863672fcd4a4f",
+    "assets/art/projectiles/bullet_player-orange.png": "9c4a922db363e571bc2cc0436c677acd423ef77db7940ba85adbb654cb8c024f",
+    "assets/art/projectiles/bullet_player_homing-blue.png": "5be9c0dadc76a931a97c5cdb7064afb67681fd0f11bf76f37e46770cf57e99f5",
+    "assets/art/projectiles/bullet_player_homing-orange.png": "f02da0aa503e4e7221b3ed86132379134661d92cac16c805cd0e30414dddba52",
+    "assets/art/projectiles/laser-blue.png": "d6152316fe18af3cf16b88fef336b82ae7462dcac97340c35a7009d05beee77b",
+    "assets/art/projectiles/laser-orange.png": "c4e6c8f96f8d8232ad207c013ca2a92acc8b4988f859f455f5d442d60c308d64",
+    "assets/art/terrain/ash.png": "37eaa6096803cb95b9e9e06d9259d3e0c52cfb3bf10a3e3ce912ad77495bdab2",
+    "assets/art/terrain/crystal.png": "15c3f026c328f4b4dd2930d38db2321e2148f524fd4245b3a88b6cf66d16585a",
+    "assets/art/terrain/special-ash.png": "54177688de30b318222ffe0586f29e3874f42724116e63e749387816269b7f21",
+    "assets/art/terrain/special-crystal.png": "ab42f995272c574cd4f77040cef626c0a0bcc12aded71f7a9dfa6bd96db8b96f",
+    "assets/art/terrain/special.png": "e58f11eee4e7a8a4db13593a24e85411ac2042f9c3cb1857f8883f1936666b0a",
+    "assets/art/terrain/wall-blue.png": "4dde1daf9961a401bfab58a5b0aa22de34236d57965506f4053169f30496f82e",
+    "assets/art/terrain/waterway.png": "0c0b36d526368463414c61cc2d3ee81e5264fed8ad8783664e93afaa94dfb3e5",
+    "assets/art/ui/armor.png": "d2b8b462161a745b4210bb15e08c9405ec4336481c7e37a18f560c93a29a6422",
+    "assets/art/ui/button-focus.png": "fdc067866dce9a4891228a93c7014ef1688bd862095c6d110c6687505879321c",
+    "assets/art/ui/button-normal.png": "c9b6f8ca394a6e445773f4a4673538fb5fe68cb45b87826904ef35985713fa92",
+    "assets/art/ui/button-pressed.png": "e92c868bd31abd4d2be4e3f6df0b8910ad28d8046003de36e560e42957060b69",
+    "assets/art/ui/button-selected.png": "60e8895de61e2fc5bc0003b30d3b579d4293bd85915f36ac465dd120b7970bb1",
+    "assets/art/ui/charm.png": "6db6ecf4e2f65f5a11ae571bcc2b1117c54835c3d177981f52d93630b455af08",
+    "assets/art/ui/cursor.png": "7470344993eda67f373d9e2c037b1ae4bda0d39d920c86f660fb6200603c4ecb",
+    "assets/art/ui/grabber.png": "29dd0595330c0c338568c00614085ede05332556ec21768bc7e59c609cada89c",
+    "assets/art/ui/logo.png": "3c01824fbcf8b1e360b898a301d8585930fe0ae8af99d548fd381862920be4c4",
+    "assets/art/ui/map_boss.png": "4d27a110a4a5ade4b5c9fdcf30d05d32887942a50ea33b3f1264f2ad5a406888",
+    "assets/art/ui/map_chest.png": "3bc5953e8e908e1364be0532a59356e8f4b492a180537618b23f34fe43c1d441",
+    "assets/art/ui/map_key.png": "e3aa545d10dfe1c899166e462a6b8a8fcad07018c54e77bbe647aa4fa084b7a9",
+    "assets/art/ui/map_merchant.png": "4df6072d1b7cdb41d22c5d83887daf3fc017222a34a95135ef218a64f1f4e115",
+    "assets/art/ui/map_player.png": "1a50818474f8d282b5e8e3e3417a9aaefbdb8aeb48f07a20d8298cc6e470a723",
+    "assets/art/ui/missile.png": "6db6ecf4e2f65f5a11ae571bcc2b1117c54835c3d177981f52d93630b455af08",
+    "assets/art/ui/panel.png": "c407d4f3cddccf429c7eb3a7cc5f51b88292cbe5e54a62d66683cbcd321bd1bf",
+    "assets/art/ui/title-robot.png": "fb276e9f74f2e0e6cd2d32de8e179435c99d45f1f02798c12e4cad2e09008c24",
+    "assets/art/ui/weapon.png": "fa9f9048a1e752cfb9dd5e84145269ae647e31653230ef4ba2e4b8a9542a0c60"
+  },
+  "new_generations": 2,
+  "new_sources": [
+    "stage2.png",
+    "stage3.png"
+  ],
+  "reused_sources": [
+    "player.png",
+    "enemies.png",
+    "terrain.png",
+    "hud.png"
+  ],
+  "sheets": {
+    "absorb/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/absorb.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "armor/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/armor.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "bomb/flight": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/projectiles/bomb-{color}.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "boots/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/boots.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "boss_arrow/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 1,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/hud/boss_arrow-blue.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "breaker/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "breaker/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "breaker/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "breaker/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "breaker/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "breaker/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "breaker/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "breaker/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/breaker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "builder/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "builder/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "builder/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "builder/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "builder/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "builder/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "builder/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "builder/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/builder-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "bullet_enemy/flight": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/projectiles/bullet_enemy-{color}.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "bullet_enemy_homing/flight": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/projectiles/bullet_enemy_homing-{color}.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "bullet_player/flight": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/projectiles/bullet_player-{color}.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "bullet_player_homing/flight": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/projectiles/bullet_player_homing-{color}.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "burst/absorb": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 2
+    },
+    "burst/bomb": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 6
+    },
+    "burst/dash": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 7
+    },
+    "burst/defeat": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 0
+    },
+    "burst/hit": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 1
+    },
+    "burst/jump": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 5
+    },
+    "burst/land": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 4
+    },
+    "burst/switch": {
+      "cell": [
+        256,
+        256
+      ],
+      "fps": 13.333333333333332,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/effects/burst-{color}.png",
+      "pivot": [
+        128,
+        128
+      ],
+      "row": 3
+    },
+    "charm/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/charm.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "chest/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/chest.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "chest/locked": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/chest.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 1
+    },
+    "chest/open": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": false,
+      "path": "res://assets/art/items/chest.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 3
+    },
+    "chest/opening": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/items/chest.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 2
+    },
+    "crystal/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/crystal.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "cursor/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/ui/cursor.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "cushion/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/cushion.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "enhancer/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "enhancer/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "enhancer/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "enhancer/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "enhancer/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "enhancer/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "enhancer/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "enhancer/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/enhancer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "final/death": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 8,
+      "frames": 8,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 5
+    },
+    "final/fire": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 3
+    },
+    "final/fire_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 9
+    },
+    "final/hurt": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 4
+    },
+    "final/idle": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 0
+    },
+    "final/move": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 1
+    },
+    "final/switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 7
+    },
+    "final/windup": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 2
+    },
+    "final/windup_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 8
+    },
+    "final/windup_switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/final-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 6
+    },
+    "flyer/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "flyer/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "flyer/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "flyer/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "flyer/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "flyer/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/enemies/flyer-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "guardian/death": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 8,
+      "frames": 8,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 5
+    },
+    "guardian/fire": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 3
+    },
+    "guardian/fire_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 9
+    },
+    "guardian/hurt": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 4
+    },
+    "guardian/idle": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 0
+    },
+    "guardian/move": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 1
+    },
+    "guardian/switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 7
+    },
+    "guardian/windup": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 2
+    },
+    "guardian/windup_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 8
+    },
+    "guardian/windup_switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/guardian-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 6
+    },
+    "heart/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/heart.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "homing/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/homing.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "invincible/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/invincible.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "key/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/key.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "laser/beam": {
+      "cell": [
+        64,
+        24
+      ],
+      "fps": 20,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/projectiles/laser-{color}.png",
+      "pivot": [
+        0,
+        12
+      ],
+      "row": 1
+    },
+    "laser/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "laser/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "laser/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "laser/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "laser/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "laser/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "laser/warning": {
+      "cell": [
+        64,
+        24
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/projectiles/laser-{color}.png",
+      "pivot": [
+        0,
+        12
+      ],
+      "row": 0
+    },
+    "laser/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "laser/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/laser-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "map_boss/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/map_boss.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "map_chest/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/map_chest.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "map_key/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/map_key.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "map_merchant/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/map_merchant.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "map_player/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/map_player.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "merchant/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/merchant.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "missile/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/missile.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    },
+    "pierce/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/pierce.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "player/dash": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "player/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 9
+    },
+    "player/fall": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "player/glide": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "player/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 8
+    },
+    "player/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "player/jump": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "player/land": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "player/run": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "player/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 10
+    },
+    "player/wall": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "player_arm/dash": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "player_arm/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 9
+    },
+    "player_arm/fall": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "player_arm/glide": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "player_arm/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 8
+    },
+    "player_arm/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "player_arm/jump": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "player_arm/land": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "player_arm/run": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "player_arm/shoot_down": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 13
+    },
+    "player_arm/shoot_front": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 11
+    },
+    "player_arm/shoot_up": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 2,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 12
+    },
+    "player_arm/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 10
+    },
+    "player_arm/wall": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/player/{color}-arm.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "potion/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/potion.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "rapid/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/rapid.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "secret/death": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 8,
+      "frames": 8,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 5
+    },
+    "secret/fire": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 3
+    },
+    "secret/fire_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 16,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 9
+    },
+    "secret/hurt": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 4
+    },
+    "secret/idle": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 0
+    },
+    "secret/move": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 1
+    },
+    "secret/switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 7
+    },
+    "secret/windup": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 2
+    },
+    "secret/windup_special": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 8
+    },
+    "secret/windup_switch": {
+      "cell": [
+        320,
+        320
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/bosses/secret-{color}.png",
+      "pivot": [
+        160,
+        275
+      ],
+      "row": 6
+    },
+    "shell/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/shell.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "shifter/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "shifter/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "shifter/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "shifter/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "shifter/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "shifter/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "shifter/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "shifter/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/shifter-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "target/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/target.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "triple/idle": {
+      "cell": [
+        48,
+        48
+      ],
+      "fps": 8,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/items/triple.png",
+      "pivot": [
+        24,
+        24
+      ],
+      "row": 0
+    },
+    "turret/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "turret/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "turret/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "turret/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "turret/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "turret/switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 7
+    },
+    "turret/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "turret/windup_switch": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/enemies/turret-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 6
+    },
+    "walker/death": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 6,
+      "loop": false,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 5
+    },
+    "walker/fire": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 16,
+      "frames": 3,
+      "loop": false,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 3
+    },
+    "walker/hurt": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 12,
+      "frames": 2,
+      "loop": false,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 4
+    },
+    "walker/idle": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 6,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 0
+    },
+    "walker/move": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 8,
+      "loop": true,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 1
+    },
+    "walker/windup": {
+      "cell": [
+        96,
+        96
+      ],
+      "fps": 10,
+      "frames": 3,
+      "loop": true,
+      "path": "res://assets/art/enemies/walker-{color}.png",
+      "pivot": [
+        48,
+        88
+      ],
+      "row": 2
+    },
+    "wall/appear": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 20,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/terrain/wall-blue.png",
+      "pivot": [
+        0,
+        0
+      ],
+      "row": 1
+    },
+    "wall/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 12,
+      "frames": 4,
+      "loop": true,
+      "path": "res://assets/art/terrain/wall-blue.png",
+      "pivot": [
+        0,
+        0
+      ],
+      "row": 0
+    },
+    "wall/vanish": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 20,
+      "frames": 4,
+      "loop": false,
+      "path": "res://assets/art/terrain/wall-blue.png",
+      "pivot": [
+        0,
+        0
+      ],
+      "row": 2
+    },
+    "weapon/idle": {
+      "cell": [
+        32,
+        32
+      ],
+      "fps": 8,
+      "frames": 1,
+      "loop": true,
+      "path": "res://assets/art/ui/weapon.png",
+      "pivot": [
+        16,
+        16
+      ],
+      "row": 0
+    }
+  },
+  "version": 3
+}

@@ -370,6 +370,7 @@ func run() -> void:
 	game = Main.new()
 	game.controls_path = "res://builds/qa/ui_map/test_controls.cfg"
 	root.add_child(game)
+	preload("res://tests/polish_art_checks.gd").hud(check,game.ui)
 	game.key_bindings.reset_defaults()
 	game.start_run(37)
 	game.set_physics_process(false)

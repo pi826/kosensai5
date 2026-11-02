@@ -1,6 +1,7 @@
 extends Node2D
 ## One warning owns the fixed target/color; flight survives source death and region changes.
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 var game: Node2D
 var source: CharacterBody2D
 var polarity := 0
@@ -61,6 +62,12 @@ func _draw() -> void:
 	draw_arc(mark, T.BOMB_RADIUS, 0, TAU, 32, Color(tint, 0.5), 2, true)
 	draw_line(mark - Vector2(12, 0), mark + Vector2(12, 0), tint, 2)
 	draw_line(mark - Vector2(0, 12), mark + Vector2(0, 12), tint, 2)
+	var sprite_at := Vector2.ZERO if phase == "flight" else mark
+	var pulse := 1.0 + sin(elapsed*14)*0.1
+	draw_set_transform(sprite_at,0,Vector2.ONE*pulse)
+	var drawn := Art.draw_frame(self,"bomb","flight",polarity,elapsed,Vector2.ZERO,1)
+	draw_set_transform(Vector2.ZERO)
+	if drawn: return
 	if phase == "flight":
 		draw_circle(Vector2.ZERO, 9, tint.darkened(0.6))
 		draw_arc(Vector2.ZERO, 9, 0, TAU, 20, tint, 2, true)

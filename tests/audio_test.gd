@@ -1269,7 +1269,7 @@ func stress_test() -> void:
 
 # Decode imported QOA through the engine mixer for a separate post-import check.
 # The source-WAV measurements below stay at 44100Hz; this probe uses mix rate.
-static func decoded_pcm(stream: AudioStreamWAV) -> AudioStreamWAV:
+static func decoded_pcm(stream: AudioStream) -> AudioStreamWAV:
 	var rate := int(AudioServer.get_mix_rate())
 	var count := int(round(stream.get_length() * rate))
 	var playback := stream.instantiate_playback()
@@ -1320,65 +1320,7 @@ func assets_test() -> void:
 	sine.data = stereo
 	sine.stereo = true
 	check(absf(k_music_rms_db(sine)-mono_level-3.01029996) < 0.00001, "stereo K uses sum of channel mean squares")
-	check(Assets.EFFECTS.size() == 58 and Assets.MUSIC.size() == 4, "exact 58 effect / 4 music assignments")
-	for id: String in Bank.SOUNDS:
-		check(Assets.EFFECTS.has(id) != Assets.SYNTH_EFFECTS.has(id), id + ": exactly one effect source")
-	for id: String in Bank.MUSIC_IDS:
-		check(Assets.MUSIC.has(id) != Assets.SYNTH_MUSIC.has(id), id + ": exactly one music source")
-	check(Assets.SYNTH_EFFECTS.size() == 8 and Assets.SYNTH_MUSIC == ["boss"], "eight effects and boss stay synthesized")
-	var source_bytes := {}
-	for path: String in Assets.SHA256:
-		test_progress()
-		check(FileAccess.file_exists(path), path + ": source exists")
-		var config := ConfigFile.new()
-		check(config.load(path+".import") == OK, path + ": import configuration exists")
-		check(config.get_value("params", "edit/trim", true) == false and config.get_value("params", "edit/normalize", true) == false, path + ": explicit trim/normalize disabled")
-		var music_path: bool = Assets.MUSIC.values().any(func(spec): return spec.path == path)
-		check(config.get_value("params", "compress/mode", -1) == (2 if music_path else 0) and config.get_value("params", "edit/loop_mode", -1) == (2 if music_path else 1), path + ": explicit compression and loop policy")
-		var bytes := FileAccess.get_file_as_bytes(path)
-		var hash := HashingContext.new()
-		hash.start(HashingContext.HASH_SHA256)
-		hash.update(bytes)
-		check(hash.finish().hex_encode() == Assets.SHA256[path], path + ": source ZIP member SHA256")
-		source_bytes[path] = bytes
-	var metrics := {"effects": {}, "music": {}}
-	for id: String in Assets.EFFECTS:
-		test_progress()
-		var spec: Dictionary = Assets.EFFECTS[id]
-		var stream := load(spec.path) as AudioStreamWAV
-		check(stream != null, id + ": imported effect exists")
-		if stream == null: continue
-		check(stream.mix_rate == 44100 and not stream.stereo and stream.format == AudioStreamWAV.FORMAT_16_BITS and stream.loop_mode == AudioStreamWAV.LOOP_DISABLED, id + ": mono 44100Hz PCM / no loop")
-		var raw := AudioStreamWAV.load_from_buffer(source_bytes[spec.path], {"compress/mode": 0})
-		check(stream.data == raw.data, id + ": no trimming or normalization")
-		var target := k_effect_max50_db(streams[id])
-		var actual := k_effect_max50_db(stream, spec.pitch, spec.gain_db)
-		var peak := 0.0
-		var pcm := stream.data
-		for i in range(pcm.size()/2): peak = maxf(peak, absf(pcm.decode_s16(i*2)/32768.0))
-		var peak_db := linear_to_db(peak) + float(spec.gain_db)
-		var shortfall := target-actual
-		check(peak_db <= -1.0 + 0.000001, id + ": peak <= -1dBFS")
-		if Assets.PEAK_LIMITED.has(id):
-			check(absf(peak_db + 1) < 0.00001 and absf(shortfall-float(Assets.PEAK_LIMITED[id])) < 0.0001, id + ": documented peak-limited shortfall")
-		else: check(absf(shortfall) <= 1.0, id + ": K max50ms within 1dB of 8B")
-		metrics.effects[id] = {"synth_k": target, "asset_k": actual, "peak_dbfs": peak_db, "shortfall_db": shortfall}
-	for id: String in Assets.MUSIC:
-		test_progress()
-		var spec: Dictionary = Assets.MUSIC[id]
-		var stream := load(spec.path) as AudioStreamWAV
-		check(stream != null, id + ": imported music exists")
-		if stream == null: continue
-		var raw := AudioStreamWAV.load_from_buffer(source_bytes[spec.path], {"compress/mode": 0})
-		check(stream.format == AudioStreamWAV.FORMAT_QOA and stream.stereo and stream.mix_rate == 44100 and stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and stream.loop_begin == 0 and stream.loop_end == raw.data.size()/4, id + ": stereo QOA forward whole-loop")
-		check(absf(stream.get_length()-raw.get_length()) < 1.0/44100, id + ": full source duration")
-		var target := k_music_rms_db(streams[id])
-		var actual := k_music_rms_db(raw, spec.gain_db)
-		var decoded := k_music_rms_db(decoded_pcm(stream), spec.gain_db)
-		check(absf(actual-target) <= 0.5, id + ": source stereo K sum within 0.5dB")
-		check(absf(decoded-target) <= 0.5, id + ": decoded QOA K sum within 0.5dB")
-		metrics.music[id] = {"synth_k": target, "asset_k": actual, "qoa_k": decoded}
-	benchmark.assets_levels = metrics
+	benchmark.assets_levels = preload("res://tests/audio_assets_checks.gd").run(self)
 	# Fresh director: no source-WAV parsing or synchronous resource load at runtime.
 	var initial := Main.new()
 	initial.controls_path = OUT + "assets-controls.cfg"
@@ -1400,8 +1342,8 @@ func assets_test() -> void:
 	check(effects_ready > 0 and effects_ready <= 1300, "asset effects ready <=1.3s")
 	check(title_ready > 0 and title_ready <= 3000, "asset title ready <=3s")
 	check(audio.asset_service_max_usec < 8000 and audio.asset_operation_max_usec < 8000, "asset main-thread service/operation each <8ms")
-	check(audio.asset_stream_bytes <= 16*1024*1024, "resident imported stream data <=16MiB")
-	check(audio.asset_loaded.size() == 62 and audio.bank.snapshot().ids.size() == 9, "asset mode only synthesizes nine unmapped streams")
+	check(audio.asset_stream_bytes == audio.asset_loaded.keys().reduce(func(n, id): return n+audio.stream_bytes(audio.streams[id]), 0), "resident PCM / OGG packet bytes measured")
+	check(audio.asset_loaded.size() == 65 and audio.bank.snapshot().ids.size() == 6, "asset mode only synthesizes six ambient streams")
 	var expected_synth_order: Array = (Bank.SOUNDS.keys() + Bank.MUSIC_IDS).filter(func(id): return not Assets.EFFECTS.has(id) and not Assets.MUSIC.has(id))
 	check(audio.bank.snapshot().ids.keys() == expected_synth_order, "remaining synthesis keeps original order")
 	for id: String in Bank.SOUNDS.keys() + Bank.MUSIC_IDS:
@@ -1456,16 +1398,17 @@ func assets_test() -> void:
 	director.game = game
 	director.synthesis_override = 1
 	director.sound_set_override = "assets"
-	director.asset_paths_override = {"shot_a": "res://assets/audio/sfx/missing-test.wav"}
+	director.asset_paths_override = {"shot_a": "res://assets/audio/sfx/missing-test.wav", "boss": "res://assets/audio/music/missing-test.ogg"}
 	game.add_child(director)
 	var deadline := Time.get_ticks_msec() + 20000
 	while director.streams.size() < 71 and Time.get_ticks_msec() < deadline:
 		test_progress()
 		OS.delay_msec(2)
 		await process_frame
-	check(director.asset_warned.keys() == ["shot_a"] and not director.asset_loaded.has("shot_a") and director.asset_loaded.has("shot_b"), "only failed ID warns once and falls back")
+	check(director.asset_warned.keys() == ["shot_a", "boss"] and not director.asset_loaded.has("shot_a") and director.asset_loaded.has("shot_b") and not director.asset_loaded.has("boss"), "only failed effect / OGG IDs warn once and fall back")
 	check(director.streams.has("shot_a") and director.streams.shot_a.data == streams.shot_a.data, "failed ID receives exact synth PCM")
 	check(director.asset_spec("shot_a").is_empty(), "fallback has no material pitch/gain")
+	check(director.streams.has("boss") and director.streams.boss.data == streams.boss.data and director.asset_spec("boss").is_empty(), "failed OGG boss receives exact synth PCM without asset gain")
 	director.free()
 
 func run() -> void:

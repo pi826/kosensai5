@@ -33,7 +33,10 @@ var game: Node2D
 var initial_exploration: Dictionary
 
 func _initialize() -> void:
-	call_deferred("run")
+	call_deferred("run_polish_art_qa" if OS.get_cmdline_user_args().has("--polish-art-qa") else "run")
+
+func run_polish_art_qa() -> void:
+	await preload("res://tests/polish_art_visual.gd").new().run(self)
 
 func check(condition: bool, message: String) -> void:
 	checks += 1
@@ -61,6 +64,7 @@ func tap(action_name: String) -> void:
 	Input.parse_input_event(event)
 
 func run() -> void:
+	preload("res://tests/sprite_art_checks.gd").run(check)
 	var begun := Time.get_ticks_msec()
 	for side in [0, 1]:
 		for color in [0, 1]:

@@ -32,6 +32,9 @@ func _draw() -> void:
 	if not neutral:
 		super._draw()
 		return
+	if preload("res://scripts/sprite_art.gd").draw_frame(self,"target","idle",0,art_time,Vector2(0,body_size.y/2),1):
+		if required_aim >= 0 and hit_flash > 0: draw_arc(Vector2.ZERO,26,0,TAU,32,Color("b9f4ff"),3,true)
+		return
 	draw_rect(Rect2(-body_size / 2, body_size), Color("203b48"))
 	draw_circle(Vector2.ZERO, 18, Color("eefaff"))
 	draw_circle(Vector2.ZERO, 11, Color("355d6e"))

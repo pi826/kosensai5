@@ -5,9 +5,17 @@ var game: Node2D
 var spawn: Dictionary
 var opened := false
 var collected := false
+var art_age := 0.0
+var art_open_age := 0.0
+
+func _process(delta: float) -> void:
+	art_age += delta
+	if opened: art_open_age += delta
+	queue_redraw()
 
 func _ready() -> void:
 	opened = spawn.kind == "chest" and game.loot_taken.has(spawn.id)
+	if opened: art_open_age = 0.5
 	add_to_group("loot")
 
 func _physics_process(_delta: float) -> void:
@@ -41,12 +49,20 @@ func try_open() -> bool:
 	game.loot_taken[spawn.id] = true
 	game.discovered_loot.erase(spawn.id)
 	opened = true
+	art_open_age = 0.0
 	# Tagged contents leave room for equipment/potions in 6B.
 	for content: Dictionary in spawn.contents: game.grant_loot(content)
 	queue_redraw()
 	return true
 
 func _draw() -> void:
+	var art := preload("res://scripts/sprite_art.gd")
+	var state := "idle"
+	if spawn.kind == "chest": state = ("opening" if art_open_age<0.5 else "open") if opened else "locked"
+	if art.draw_frame(self,spawn.kind,state,0,art_open_age if opened else art_age,Vector2.ZERO,1):
+		if spawn.kind == "chest" and not opened and spawn.contents.any(func(c): return c.kind=="ability"):
+			art.draw_frame(self,"crystal","idle",0,art_age,Vector2(0,-29),1)
+		return
 	if spawn.kind == "key":
 		draw_circle(Vector2(-6, -4), 7, Color("ffdf80"), false, 3, true)
 		draw_line(Vector2(-1, 1), Vector2(12, 14), Color("ffdf80"), 3, true)

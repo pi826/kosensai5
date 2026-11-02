@@ -1,5 +1,6 @@
 extends CharacterBody2D
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 
 var game: Node2D
 var faction := 0 # 0: player, 1: enemy. Bodies collide with terrain only.
@@ -20,8 +21,17 @@ var next_polarity := 0
 var visual_scale := Vector2.ONE
 var lock_marked := false
 var body_shape: RectangleShape2D
+# Visual clocks never participate in movement, damage or saved world state.
+var art_time := 0.0
+var art_state := ""
+var art_fire_remaining := 0.0
+var art_special_fire := false
+var art_switch_remaining := 0.0
+var art_land_remaining := 0.0
+var art_sprite_drawn := false
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	collision_layer = 2 if faction == 0 else 4
 	collision_mask = 1 | T.WALL_LAYER | T.PLATFORM_LAYER
 	var shape := RectangleShape2D.new()
@@ -35,6 +45,10 @@ func _ready() -> void:
 	floor_snap_length = 12.0
 
 func tick_visuals(delta: float, redraw: bool = true) -> void:
+	art_time += delta
+	art_fire_remaining = maxf(0, art_fire_remaining - delta)
+	art_switch_remaining = maxf(0, art_switch_remaining - delta)
+	art_land_remaining = maxf(0, art_land_remaining - delta)
 	invulnerability = maxf(0.0, invulnerability - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
 	absorb_flash = maxf(0.0, absorb_flash - delta)
@@ -62,12 +76,13 @@ func receive_hit(attack_color: int, damage: int) -> String:
 	if faction == 0:
 		invulnerability = hurt_invulnerability()
 	if is_instance_valid(game):
-		game.effect(global_position, Color("f8f8ef"), "hit")
+		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else Color("f8f8ef"), "hit")
 		if previous_hp > hp: game.play_sound("hurt" if faction == 0 else ("boss_hit" if kind == "boss" else "enemy_hit"), position)
 		if faction == 1 and previous_hp > hp:
 			game.show_damage(global_position + Vector2(body_size.x / 2 + 22, -body_size.y / 2 - 12), previous_hp - hp)
 	if hp == 0:
 		dead = true
+		Art.spawn_death(self)
 		if is_instance_valid(game):
 			game.actor_defeated(self)
 		queue_free()
@@ -109,7 +124,13 @@ func _draw() -> void:
 	if hit_flash > 0:
 		tint = Color.WHITE
 	var rect := Rect2(-body_size * 0.5, body_size)
-	if kind == "player":
+	var sprite_drawn := Art.draw_actor(self)
+	art_sprite_drawn = sprite_drawn
+	var art_headroom := 32.0
+	if sprite_drawn and kind == "boss": art_headroom = {"guardian":55.0,"final":62.0,"secret":70.0}[get("boss_role")]
+	if sprite_drawn:
+		pass
+	elif kind == "player":
 		draw_set_transform(Vector2(0, body_size.y * 0.5 * (1.0 - visual_scale.y)), 0, visual_scale)
 		draw_rect(Rect2(-18, 19, 36, 5), Color(0, 0, 0, 0.25))
 		draw_style_box(_body_style(tint), rect)
@@ -173,12 +194,10 @@ func _draw() -> void:
 		if kind == "walker":
 			draw_circle(Vector2(-11, 22), 5, tint)
 			draw_circle(Vector2(11, 22), 5, tint)
-	var mark := "A" if polarity == 0 else "B"
-	draw_string(ThemeDB.fallback_font, Vector2(-6, 9), mark, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, tint if faction == 1 else Color("102533"))
 	draw_set_transform(Vector2.ZERO)
 	if lock_marked:
 		# White corner brackets with dark outlines differ from both bullet colors.
-		var center := Vector2(0, -body_size.y / 2 - 56)
+		var center := Vector2(0, -body_size.y / 2 - (76 if sprite_drawn else 56))
 		for x in [-1, 1]:
 			for y in [-1, 1]:
 				var corner := center + Vector2(x, y) * T.LOCK_MARK_SIZE
@@ -192,17 +211,17 @@ func _draw() -> void:
 		var hp_text := str(hp)
 		var font := ThemeDB.fallback_font
 		var hp_width := font.get_string_size(hp_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		var hp_position := Vector2(-hp_width / 2, -body_size.y / 2 - 12)
+		var hp_position := Vector2(-hp_width / 2, -body_size.y / 2 - (art_headroom if sprite_drawn else 12))
 		draw_string_outline(font, hp_position, hp_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 4, Color("07111d"))
 		draw_string(font, hp_position, hp_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("f3f7fb"))
 		for i in range(gauge):
-			draw_rect(Rect2(-width / 2 + i * width / T.GAUGE_CAPACITY, -body_size.y / 2 - 40, width / T.GAUGE_CAPACITY - 1, 3), tint)
+			draw_rect(Rect2(-width / 2 + i * width / T.GAUGE_CAPACITY, -body_size.y / 2 - (60 if sprite_drawn else 40), width / T.GAUGE_CAPACITY - 1, 3), tint)
 	if action.begins_with("windup"):
 		var warning_color: Color = T.COLORS[next_polarity] if action == "windup_switch" else tint
 		var radius := body_size.x * 0.7 + 5 + sin(Time.get_ticks_msec() * 0.025) * 3
 		draw_arc(Vector2.ZERO, radius, 0, TAU, 40, warning_color, 2, true)
-		var message := "切替 → " + ("A" if next_polarity == 0 else "B") if action == "windup_switch" else ("誘導弾 !" if action == "windup_special" else "!")
-		draw_string(ThemeDB.fallback_font, Vector2(-30, -body_size.y / 2 - 54), message, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, warning_color)
+		var message := "切替 → " + ("青" if next_polarity == 0 else "橙") if action == "windup_switch" else ("誘導弾 !" if action == "windup_special" else "!")
+		draw_string(ThemeDB.fallback_font, Vector2(-30, -body_size.y / 2 - (104 if sprite_drawn else 54)), message, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, warning_color)
 
 func _body_style(tint: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

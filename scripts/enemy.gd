@@ -236,11 +236,13 @@ func _begin(next_action: String, duration: float) -> void:
 func _complete_action() -> void:
 	match action:
 		"windup_bomb":
+			art_fire_remaining = 3.0 / 16.0
 			if is_instance_valid(bomb):
 				bomb.fire()
 			bomb = null
 			shot_clock = T.BOMB_INTERVAL
 		"windup_build":
+			art_fire_remaining = 3.0 / 16.0
 			if is_instance_valid(game.terrain) and game.terrain.confirm_wall_plan(wall_plan, self, game.player):
 				game.terrain.place_wall(wall_plan, get_instance_id())
 			wall_plan = Rect2()
@@ -253,15 +255,20 @@ func _complete_action() -> void:
 		"firing_laser":
 			shot_clock = T.LASER_INTERVAL
 		"windup_switch":
+			art_switch_remaining = 4.0 / 12.0
 			polarity = next_polarity
 			game.play_sound("enemy_switch", position)
 			switch_clock = T.SWITCH_INTERVAL
 			pattern = 1 - pattern
 			game.effect(global_position, T.COLORS[polarity], "switch")
 		"windup_special":
+			art_special_fire = true
+			art_fire_remaining = (4.0 if kind == "boss" else 3.0) / 16.0
 			game.fire_special(self, take_gauge())
 			shot_clock = T.BOMB_INTERVAL if kind == "breaker" else (T.LASER_INTERVAL if kind == "laser" else T.ENEMY_SHOT_INTERVAL)
 		"windup_shot":
+			art_special_fire = false
+			art_fire_remaining = 3.0 / 16.0
 			if kind == "boss": game.play_sound("boss_shot", position)
 			var direction: Vector2 = (game.player.global_position - global_position).normalized()
 			if kind == "boss" and boss_role != "guardian":

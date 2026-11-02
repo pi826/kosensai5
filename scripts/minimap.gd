@@ -4,6 +4,7 @@ extends Control
 const Terrain := preload("res://scripts/world_terrain.gd")
 const CELL_SIZE := 128
 const T := preload("res://scripts/tuning.gd")
+const Art := preload("res://scripts/sprite_art.gd")
 var game
 var _cached_seed := -9223372036854775807
 var _cell_geometry: Dictionary = {}
@@ -97,7 +98,7 @@ func guardian_marks() -> Array:
 	return out
 
 func _draw() -> void:
-	draw_style_box(_panel_style(), Rect2(Vector2.ZERO, size))
+	draw_style_box(preload("res://scripts/art_skin.gd").style("panel",_panel_style()), Rect2(Vector2.ZERO, size))
 	if game == null or not game.stage.has("bounds"):
 		return
 	var bounds := world_area()
@@ -113,10 +114,15 @@ func _draw() -> void:
 	for boss: Dictionary in guardian_marks():
 		var at: Vector2 = boss.position
 		var tint := Color("f0d8b2") if boss.role == "guardian" else (Color("ffdc79") if boss.role == "final" else Color("e4a8ff"))
+		if not boss.defeated and not boss.offscreen and draw_mark("map_boss",at,12,tint): continue
 		if boss.defeated:
 			draw_polyline(PackedVector2Array([at + Vector2(-3, 0), at + Vector2(-0.5, 2), at + Vector2(4, -3)]), Color("d9f4d9"), 1.5)
 		elif boss.offscreen:
 			var direction: Vector2 = boss.direction
+			draw_set_transform(at,direction.angle())
+			var arrow_drawn := draw_mark("cursor",Vector2.ZERO,12,tint)
+			draw_set_transform(Vector2.ZERO)
+			if arrow_drawn: continue
 			draw_colored_polygon(PackedVector2Array([at + direction * 4, at - direction * 3 + direction.orthogonal() * 3, at - direction * 3 - direction.orthogonal() * 3]), tint)
 		else:
 			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -3.5), at + Vector2(3.5, 0), at + Vector2(0, 3.5), at + Vector2(-3.5, 0)]), tint)
@@ -125,6 +131,7 @@ func _draw() -> void:
 		var at: Vector2 = origin + mark.position * scale_factor
 		if not map_area.has_point(at): continue
 		var tint := T.CRYSTAL_COLOR if mark.ability else Color("ffdf80")
+		if draw_mark("map_key" if mark.kind=="key" else "map_chest",at,12,tint): continue
 		if mark.kind == "key":
 			draw_circle(at, 2.5, tint, false, 1.5, true)
 			draw_line(at + Vector2(2, 2), at + Vector2(5, 5), tint, 1.5)
@@ -134,12 +141,23 @@ func _draw() -> void:
 	for mark: Dictionary in merchant_marks():
 		var at: Vector2 = origin + mark.position * scale_factor
 		if not map_area.grow(-5).has_point(at): continue
+		if draw_mark("map_merchant",at,14): continue
 		draw_rect(Rect2(at - Vector2(4, 1), Vector2(8, 6)), T.MERCHANT_COLOR, false, 1.5)
 		draw_colored_polygon(PackedVector2Array([at+Vector2(-5,-1),at+Vector2(0,-5),at+Vector2(5,-1)]), T.MERCHANT_COLOR)
 	if is_instance_valid(game.player):
 		var at: Vector2 = origin + game.player.position * scale_factor
-		draw_circle(at, 3.0, Color("0d1721"))
-		draw_circle(at, 2.0, Color.WHITE)
+		if not draw_mark("map_player",at,12):
+			draw_circle(at, 3.0, Color("0d1721"))
+			draw_circle(at, 2.0, Color.WHITE)
+
+func draw_mark(id: String, at: Vector2, extent: float, tint: Color = Color.WHITE) -> bool:
+	var desc := Art.description(id,"idle")
+	if desc.is_empty(): return false
+	var texture := Art.texture(desc.path,desc.path)
+	if texture==null: return false
+	var cell := Vector2(desc.cell[0],desc.cell[1])
+	draw_texture_rect_region(texture,Rect2(at-Vector2.ONE*extent/2,Vector2.ONE*extent),Rect2(0,desc.row*cell.y,cell.x,cell.y),tint)
+	return true
 
 func loot_marks() -> Array:
 	var out: Array = []

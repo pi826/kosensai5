@@ -132,6 +132,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# A short tap can occur entirely between physics ticks. Keep discrete actions.
 	if event.is_action_pressed("switch_color"):
 		polarity = 1 - polarity
+		art_switch_remaining = 0.25
 		game.effect(global_position, T.COLORS[polarity], "switch")
 		game.play_sound("switch", position, 0, 1, polarity)
 	elif event.is_action_pressed("aim_cycle"):
@@ -185,14 +186,14 @@ func _physics_process(delta: float) -> void:
 		coyote = 0.0
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
-		game.effect(global_position + Vector2(0, 22), Color("537083"), "jump")
+		game.effect(global_position + Vector2(0, 22), T.COLORS[polarity] if Art.enabled() else Color("537083"), "jump")
 		game.play_sound("jump", position)
 	elif jump_buffer > 0 and not grounded and dash_remaining <= 0 and not air_jump_used and has_ability(T.ABILITY_DOUBLE):
 		air_jump_used = true
 		velocity.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
-		game.effect(global_position, T.CRYSTAL_COLOR, "jump")
+		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else T.CRYSTAL_COLOR, "jump")
 		game.play_sound("air_jump", position)
 	if jump_cut_requested:
 		if velocity.y < 0:
@@ -209,7 +210,7 @@ func _physics_process(delta: float) -> void:
 		air_dash_used = true
 		dash_remaining = T.AIR_DASH_TIME
 		dash_direction = facing
-		game.effect(global_position, T.CRYSTAL_COLOR, "dash")
+		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else T.CRYSTAL_COLOR, "dash")
 		game.play_sound("dash", position)
 	pending_dash = false
 	var dashing := dash_remaining > 0.0
@@ -230,8 +231,9 @@ func _physics_process(delta: float) -> void:
 	if is_on_ceiling() and before_slide_y < 0:
 		_try_correct_ceiling(before_slide_y)
 	if not grounded and is_on_floor() and before_slide_y > 180:
+		art_land_remaining = 2.0 / 12.0
 		visual_scale = Vector2(1.18, 0.84)
-		game.effect(global_position + Vector2(0, 22), Color("8aa4ac"), "land")
+		game.effect(global_position + Vector2(0, 22), T.COLORS[polarity] if Art.enabled() else Color("8aa4ac"), "land")
 		game.play_sound("land", position, linear_to_db(clampf(before_slide_y / 900.0, 0.25, 1.0)))
 	visual_scale = visual_scale.lerp(Vector2.ONE, 1.0 - exp(-18.0 * delta))
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
@@ -242,6 +244,7 @@ func _physics_process(delta: float) -> void:
 	pending_special = false
 
 func fire_normal() -> void:
+	art_fire_remaining = 0.125
 	game.play_sound("shot", position, 0, 1, polarity)
 	var direction := shot_direction()
 	for spread: float in ([-T.TRIPLE_SPREAD, 0.0, T.TRIPLE_SPREAD] if wears("triple") else [0.0]):
@@ -271,9 +274,9 @@ func _try_drop_through() -> bool:
 
 func _draw() -> void:
 	super._draw()
-	if gliding:
+	if gliding and not art_sprite_drawn:
 		draw_polyline(PackedVector2Array([Vector2(-32,-18), Vector2(-18,-30), Vector2(0,-34), Vector2(18,-30), Vector2(32,-18)]), T.CRYSTAL_COLOR, 3, true)
-	if dash_remaining > 0:
+	if dash_remaining > 0 and not art_sprite_drawn:
 		for i in range(3):
 			draw_line(Vector2(-facing*(22+i*12), -8+i*8), Vector2(-facing*(44+i*12), -8+i*8), Color(T.CRYSTAL_COLOR,0.7-i*0.15), 3, true)
 

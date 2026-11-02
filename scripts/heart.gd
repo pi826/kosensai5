@@ -19,6 +19,7 @@ func try_collect() -> bool:
 	return true
 
 func _draw() -> void:
+	if preload("res://scripts/sprite_art.gd").draw_frame(self,"heart","idle",0,age,Vector2.ZERO,1): return
 	draw_set_transform(Vector2(0, sin(age * TAU / T.HEART_BOB_PERIOD) * T.HEART_BOB_HEIGHT))
 	draw_circle(Vector2.ZERO, 23, Color(T.HEART_COLOR, 0.12))
 	var points := PackedVector2Array([Vector2(0, 12), Vector2(-13, -1), Vector2(-13, -7), Vector2(-8, -12), Vector2(-3, -12), Vector2(0, -8), Vector2(3, -12), Vector2(8, -12), Vector2(13, -7), Vector2(13, -1)])
