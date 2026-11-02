@@ -162,6 +162,7 @@ var explored_geometry: Dictionary = {}
 var explored_images: Dictionary = {}
 var map_sector_revisions: Dictionary = {}
 var _map_record_revision := -1
+var _lock_marked: Array = []
 var stream: RefCounted
 var streaming_enabled := true
 var streaming_wait := false
@@ -332,6 +333,7 @@ func start_run(stage_seed: int) -> void:
 	explored_cells.clear()
 	explored_by_sector.clear()
 	explored_geometry.clear()
+	_lock_marked.clear()
 	explored_images.clear()
 	map_sector_revisions.clear()
 	ui.large_map.clear_cache()
@@ -551,6 +553,7 @@ func _update_exploration() -> void:
 	var revision: int = terrain.revision if is_instance_valid(terrain) else -1
 	var refresh_geometry := revision != _map_record_revision
 	_map_record_revision = revision
+	var view := view_rect()
 	var radius := T.EXPLORATION_RADIUS
 	var from_cell := Vector2i(((player.position - Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
 	var to_cell := Vector2i(((player.position + Vector2.ONE * radius) / T.MAP_CELL_SIZE).floor())
@@ -560,6 +563,7 @@ func _update_exploration() -> void:
 			var center := (Vector2(cell) + Vector2.ONE * 0.5) * T.MAP_CELL_SIZE
 			if center.distance_to(player.position) <= radius:
 				var stable_cell := cell + map_origin()
+				if not refresh_geometry and explored_cells.has(stable_cell) and explored_geometry.has(stable_cell): continue
 				explored_cells[stable_cell] = true
 				var at := origin_sector + SectorStream.coord_at(center)
 				if not explored_by_sector.has(at): explored_by_sector[at] = {}
@@ -568,21 +572,22 @@ func _update_exploration() -> void:
 	visited_sectors[origin_sector + SectorStream.coord_at(player.position)] = true
 	for merchant in get_tree().get_nodes_in_group("merchants"):
 		if merchant.get_parent() != world: continue
-		if view_rect().intersects(Rect2(merchant.position - T.MERCHANT_SIZE / 2, T.MERCHANT_SIZE)):
+		if view.intersects(Rect2(merchant.position - T.MERCHANT_SIZE / 2, T.MERCHANT_SIZE)):
 			discovered_merchants[merchant.spawn.id] = stable_point(merchant.position)
 	for item in get_tree().get_nodes_in_group("loot"):
 		if item.get_parent() != world or item.spawn.kind == "crystal" or loot_taken.has(item.spawn.id): continue
-		if view_rect().intersects(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE)):
+		if view.intersects(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE)):
 			var mark := stable_point(item.position)
 			mark.kind = item.spawn.kind
 			mark.ability = item.spawn.get("contents", []).any(func(c): return c.kind == "ability")
 			discovered_loot[item.spawn.id] = mark
 	boss = null
 	var distance := INF
-	for actor in get_tree().get_nodes_in_group("enemies"):
+	var boss_view := view.grow(-20)
+	for actor in get_tree().get_nodes_in_group("bosses"):
 		if actor.get_parent() != world or actor.kind != "boss" or actor.dead or actor.is_queued_for_deletion():
 			continue
-		if is_on_screen(actor.position, 20):
+		if boss_view.has_point(actor.position):
 			discovered_bosses[actor.boss_id] = stable_point(actor.position)
 			var separation := player.position.distance_squared_to(actor.position)
 			if separation < distance:
@@ -593,7 +598,10 @@ func view_rect() -> Rect2:
 	return Rect2(camera.position - T.VIEW_SIZE / 2, T.VIEW_SIZE)
 
 func is_on_screen(point: Vector2, inset: float = 0.0) -> bool:
-	return view_rect().grow(-inset).has_point(point)
+	var view := view_rect()
+	var left := view.position.x + inset
+	var top := view.position.y + inset
+	return point.x >= left and point.y >= top and point.x < left + (view.size.x - 2.0 * inset) and point.y < top + (view.size.y - 2.0 * inset)
 
 func boss_arrow_progress() -> String:
 	if is_tutorial() or boss_arrow_unlocked: return ""
@@ -613,8 +621,9 @@ func boss_arrow_state() -> Dictionary:
 func targets_for(side: int, color: int, origin: Vector2) -> Array:
 	var candidates: Array = []
 	var group := "enemies" if side == 0 else "players"
+	var view := view_rect().grow(-12)
 	for actor in get_tree().get_nodes_in_group(group):
-		if not actor.dead and not actor.is_queued_for_deletion() and actor.get_parent() == world and is_on_screen(actor.global_position, 12):
+		if view.has_point(actor.global_position) and not actor.dead and not actor.is_queued_for_deletion() and actor.get_parent() == world:
 			candidates.append(actor)
 	candidates.sort_custom(func(a, b):
 		if (a.polarity != color) != (b.polarity != color):
@@ -650,9 +659,10 @@ func lock_on_targets() -> Array:
 	var marked: Array = []
 	if not is_instance_valid(player) or player.dead:
 		return marked
-	var candidates := targets_for(0, player.polarity, player.global_position)
-	for index in range(mini(player.volley_size() if player.homing_charges > 0 else 0, candidates.size())):
-		marked.append(candidates[index])
+	if player.homing_charges > 0:
+		var candidates := targets_for(0, player.polarity, player.global_position)
+		for index in range(mini(player.volley_size(), candidates.size())):
+			marked.append(candidates[index])
 	for missile in projectiles.get_children():
 		if not missile is Bullet or not missile.homing or missile.faction != 0 or missile.is_queued_for_deletion(): continue
 		var target = missile.target
@@ -662,12 +672,16 @@ func lock_on_targets() -> Array:
 
 func _update_lock_marks() -> void:
 	var marked := lock_on_targets()
-	for actor in get_tree().get_nodes_in_group("enemies"):
-		if actor.get_parent() == world:
-			var next_mark := marked.has(actor)
-			if actor.lock_marked != next_mark:
-				actor.lock_marked = next_mark
-				actor.queue_redraw()
+	for actor in _lock_marked:
+		if not is_instance_valid(actor): continue
+		if not marked.has(actor) and actor.lock_marked:
+			actor.lock_marked = false
+			actor.queue_redraw()
+	for actor in marked:
+		if not actor.lock_marked:
+			actor.lock_marked = true
+			actor.queue_redraw()
+	_lock_marked = marked
 
 func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
 	var bullet := Bullet.new()

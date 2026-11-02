@@ -9,6 +9,9 @@ var game
 var _cached_seed := -9223372036854775807
 var _cell_geometry: Dictionary = {}
 var _terrain_version: Array[int] = [-1, -1]
+var _map_key: Array = []
+var _last_redraw_frame := -1000000
+var _redraws := 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -23,7 +26,40 @@ func update_map() -> void:
 	if game != null and int(game.stage.get("seed", 0)) != _cached_seed:
 		_cached_seed = int(game.stage.get("seed", 0))
 		_cell_geometry.clear()
-	queue_redraw()
+	var key := _map_state_key()
+	var frame := Engine.get_process_frames()
+	if key != _map_key or frame - _last_redraw_frame >= T.MINIMAP_MAX_STALE_FRAMES:
+		_map_key = key
+		_last_redraw_frame = frame
+		_redraws += 1
+		queue_redraw()
+
+func _map_state_key() -> Array:
+	var key: Array = []
+	var map := map_area()
+	var scale_factor := map.size.x / (T.SECTOR_SIZE.x * T.MAP_SECTOR_WIDTH)
+	var player_node = game.get("player") if game != null else null
+	var at: Vector2 = player_node.position if is_instance_valid(player_node) else Vector2.ZERO
+	var view := Rect2()
+	if game != null and game.has_method("view_rect"): view = game.view_rect()
+	key.append(Vector2i(roundi(at.x * scale_factor), roundi(at.y * scale_factor)))
+	key.append(Vector2i(roundi(view.position.x * scale_factor), roundi(view.position.y * scale_factor)))
+	var terrain_node = game.get("terrain") if game != null else null
+	key.append(terrain_node.revision if is_instance_valid(terrain_node) else -1)
+	key.append(_count("explored_cells"))
+	key.append(_count("discovered_bosses"))
+	key.append(_count("defeated_bosses"))
+	key.append(_count("discovered_loot"))
+	key.append(_count("loot_taken"))
+	key.append(_count("discovered_merchants"))
+	key.append(game.get("origin_sector") if game != null and game.get("origin_sector") != null else Vector2i.ZERO)
+	key.append(size)
+	key.append(Art.upload_serial)
+	return key
+
+func _count(field: String) -> int:
+	var value = game.get(field) if game != null else null
+	return value.size() if value is Dictionary or value is Array else 0
 
 func get_explored_cells() -> Array:
 	var result: Array = []
@@ -188,11 +224,15 @@ func _panel_style() -> StyleBoxFlat:
 	return style
 
 func _draw_explored(bounds: Rect2, origin: Vector2, scale_factor: float) -> void:
+	var biomes := {}
 	for cell: Vector2i in displayed_cells():
 		var cell_box := Rect2(Vector2(cell) * CELL_SIZE, Vector2.ONE * CELL_SIZE).intersection(bounds)
 		if not cell_box.has_area():
 			continue
-		var biome: int = game.biome_at(cell_box.get_center())
+		var center := cell_box.get_center()
+		var sector := Vector2i(floori(center.x / T.SECTOR_SIZE.x), floori(center.y / T.SECTOR_SIZE.y))
+		if not biomes.has(sector): biomes[sector] = game.biome_at(center)
+		var biome: int = biomes[sector]
 		var theme: Dictionary = Terrain.THEMES[clampi(biome, 0, 2)]
 		var explored: Color = theme.back
 		explored.a = 0.85

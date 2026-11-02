@@ -5,6 +5,7 @@ const T := preload("res://scripts/tuning.gd")
 var ui: CanvasLayer
 var serial := -1
 var age := 0.0
+var _skinned_age := 0.0
 var cursor_at := Vector2.ZERO
 var focus_id := 0
 var was_enabled := false
@@ -87,8 +88,9 @@ func _process(delta: float) -> void:
 	if not Art.enabled(): return
 	age += delta
 	if ui.game.state=="title": ui.menu_title.modulate.a=0.0 if image("logo")!=null else 1.0
-	if serial != Art.upload_serial:
+	if serial != Art.upload_serial and (Art._pending.is_empty() or age - _skinned_age >= 0.25):
 		serial = Art.upload_serial
+		_skinned_age = age
 		_skin(ui.get_child(0))
 	var focus := get_viewport().gui_get_focus_owner()
 	if is_instance_valid(focus) and focus.is_visible_in_tree():

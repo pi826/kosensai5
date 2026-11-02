@@ -19,12 +19,25 @@ static func geometry(value, delta: Vector2):
 	if value is Vector2: return value + delta
 	if value is Array:
 		var out: Array = []
-		for item in value: out.append(geometry(item, delta))
+		for item in value:
+			match typeof(item):
+				TYPE_RECT2: out.append(Rect2(item.position + delta, item.size))
+				TYPE_VECTOR2: out.append(item + delta)
+				TYPE_ARRAY, TYPE_DICTIONARY: out.append(geometry(item, delta))
+				_: out.append(item)
 		return out
 	if value is Dictionary:
 		var out := {}
 		for key in value:
-			out[key] = value[key] + Vector2.ONE * delta.x if (key is String or key is StringName) and key == "patrol" else geometry(value[key], delta)
+			if (key is String or key is StringName) and key == "patrol":
+				out[key] = value[key] + Vector2.ONE * delta.x
+				continue
+			var item = value[key]
+			match typeof(item):
+				TYPE_RECT2: out[key] = Rect2(item.position + delta, item.size)
+				TYPE_VECTOR2: out[key] = item + delta
+				TYPE_ARRAY, TYPE_DICTIONARY: out[key] = geometry(item, delta)
+				_: out[key] = item
 		return out
 	return value
 

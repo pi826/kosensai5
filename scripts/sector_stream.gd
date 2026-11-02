@@ -90,7 +90,11 @@ func _service_population(until: int) -> void:
 		if not loaded.has(at) or game.defeated_enemies.has(id):
 			pending_population.erase(id)
 			continue
-		var index: int = loaded[at].spawns.find_custom(func(e): return e.id == id)
+		var index := -1
+		for slot in range(loaded[at].spawns.size()):
+			if loaded[at].spawns[slot].id == id:
+				index = slot
+				break
 		if index < 0:
 			pending_population.erase(id)
 			continue
@@ -143,6 +147,10 @@ static func distance(a: Vector2i, b: Vector2i) -> int:
 	return maxi(absi(a.x - b.x), absi(a.y - b.y))
 
 func shutdown() -> void:
+	if is_instance_valid(game) and is_instance_valid(game.terrain) and game.terrain.has_method("unload_step") and not game.terrain.unloading.is_empty():
+		var at: Vector2i = game.terrain.unloading.at
+		while not game.terrain.unload_step(): pass
+		_finish_unload(at)
 	for job: RefCounted in jobs.values(): WorkerThreadPool.wait_for_task_completion(job.task_id)
 	for job: RefCounted in population_jobs.values(): WorkerThreadPool.wait_for_task_completion(job.task_id)
 	population_jobs.clear()
@@ -202,7 +210,7 @@ func service() -> void:
 	var begin := Time.get_ticks_usec()
 	service_did_work = false
 	var until := begin + int(T.STREAM_BUDGET_MS * 1000)
-	if active_job == null:
+	if active_job == null and game.terrain.unloading.is_empty():
 		var candidates: Array = jobs.keys()
 		candidates.sort_custom(func(a, b): return priority_score(a) < priority_score(b))
 		for at: Vector2i in candidates:
@@ -235,16 +243,25 @@ func service() -> void:
 		for h: Dictionary in data.hearts: _spawn_heart(h)
 		install_loot(active_job.coord)
 		_add_backdrop(active_job.coord)
+		_append_stage(data, loaded.size() == 1)
+		_count_total_enemies()
 		active_job = null
-		_refresh_stage()
 		break
 	# At most one distant sector per frame; retain a one-sector hysteresis band.
 	if active_job == null:
-		for at: Vector2i in loaded.keys():
-			if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE:
-				service_did_work = true
-				_unload(at)
-				break
+		if game.terrain.unloading.is_empty():
+			for at: Vector2i in loaded.keys():
+				if distance(at, center) >= T.STREAM_UNLOAD_DISTANCE:
+					service_did_work = true
+					_begin_unload(at)
+					break
+		if not game.terrain.unloading.is_empty():
+			service_did_work = true
+			var first := true
+			while not game.terrain.unloading.is_empty() and (first or Time.get_ticks_usec() < until):
+				first = false
+				var at: Vector2i = game.terrain.unloading.at
+				if game.terrain.unload_step(): _finish_unload(at)
 	_service_population_jobs()
 	_service_population(until)
 	service_times.append((Time.get_ticks_usec() - begin) / 1000.0)
@@ -481,6 +498,16 @@ func _restore(record: Dictionary) -> void:
 			if loaded.has(at): _spawn_heart(descriptor)
 
 func _unload(at: Vector2i) -> void:
+	if not game.terrain.unloading.is_empty():
+		var pending: Vector2i = game.terrain.unloading.at
+		while not game.terrain.unload_step(): pass
+		_finish_unload(pending)
+		if pending == at: return
+	_begin_unload(at)
+	while not game.terrain.unload_step(): pass
+	_finish_unload(at)
+
+func _begin_unload(at: Vector2i) -> void:
 	population_sources.erase(at)
 	var saved: Dictionary = game.terrain.snapshot(at)
 	saved.actors = {}
@@ -503,14 +530,16 @@ func _unload(at: Vector2i) -> void:
 	for cell: Vector2i in game.explored_by_sector.get(at, {}):
 		game.record_map_cell(cell)
 	states[at] = O.snapshot(saved, -sector_offset(at))
-	game.terrain.unload(at)
+	for projectile in game.projectiles.get_children():
+		if sector_at(projectile.global_position) == at or projectile.get_meta("source_sector", Vector2i(2147483647,2147483647)) == at: projectile.queue_free()
+	loaded.erase(at)
+	game.terrain.begin_unload(at)
+
+func _finish_unload(at: Vector2i) -> void:
 	if backdrops.has(at):
 		backdrops[at].free()
 		backdrops.erase(at)
-	loaded.erase(at)
 	unload_count += 1
-	for projectile in game.projectiles.get_children():
-		if sector_at(projectile.global_position) == at or projectile.get_meta("source_sector", Vector2i(2147483647,2147483647)) == at: projectile.queue_free()
 	_refresh_stage()
 
 func _refresh_stage() -> void:
@@ -519,21 +548,30 @@ func _refresh_stage() -> void:
 	for key in ["solids", "spawns", "hearts", "loot", "merchants", "detours", "optional_surfaces", "breakables", "erodible_surfaces", "protected_rects", "chambers", "tunnels", "shafts", "landmarks", "biomes", "navigation_bounds"]: game.stage[key] = []
 	var first := true
 	for data: Dictionary in loaded.values():
-		game.stage.bounds = data.bounds if first else game.stage.bounds.merge(data.bounds)
+		_append_stage(data, first)
 		first = false
-		game.stage.navigation_bounds.append(data.bounds)
-		var base: int = game.stage.chambers.size()
-		for chamber: Dictionary in data.chambers:
-			var merged := chamber.duplicate(false)
-			merged.id += base
-			game.stage.chambers.append(merged)
-		for spawn: Dictionary in data.spawns:
-			var merged := spawn.duplicate(false)
-			merged.chamber_id += base
-			game.stage.spawns.append(merged)
-		for key in ["solids", "hearts", "breakables", "erodible_surfaces", "protected_rects", "tunnels", "shafts", "landmarks", "biomes"]: game.stage[key].append_array(data[key])
-		for key in ["loot", "merchants", "detours", "optional_surfaces"]: game.stage[key].append_array(data.get(key, []))
-	game.total_enemies = game.get_tree().get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and e.kind != "boss").size()
+	_count_total_enemies()
+
+func _append_stage(data: Dictionary, first: bool) -> void:
+	game.stage.bounds = data.bounds if first else game.stage.bounds.merge(data.bounds)
+	game.stage.navigation_bounds.append(data.bounds)
+	var base: int = game.stage.chambers.size()
+	for chamber: Dictionary in data.chambers:
+		var merged := chamber.duplicate(false)
+		merged.id += base
+		game.stage.chambers.append(merged)
+	for spawn: Dictionary in data.spawns:
+		var merged := spawn.duplicate(false)
+		merged.chamber_id += base
+		game.stage.spawns.append(merged)
+	for key in ["solids", "hearts", "breakables", "erodible_surfaces", "protected_rects", "tunnels", "shafts", "landmarks", "biomes"]: game.stage[key].append_array(data[key])
+	for key in ["loot", "merchants", "detours", "optional_surfaces"]: game.stage[key].append_array(data.get(key, []))
+
+func _count_total_enemies() -> void:
+	var count := 0
+	for actor in game.get_tree().get_nodes_in_group("enemies"):
+		if actor.get_parent() == game.world and actor.kind != "boss": count += 1
+	game.total_enemies = count
 
 func contains(point: Vector2) -> bool:
 	return loaded.has(sector_at(point))

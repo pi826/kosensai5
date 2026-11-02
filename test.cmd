@@ -73,7 +73,9 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 "tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/impact_effect_test.gd
 if errorlevel 1 goto failed
-echo All checks passed. (36 runs)
+"tools\godot\Godot_v4.7.2-stable_win64_console.exe" --headless --audio-driver Dummy --path . --fixed-fps 60 --script tests/perf_behavior_test.gd
+if errorlevel 1 goto failed
+echo All checks passed. (37 runs)
 pause
 exit /b 0
 :failed

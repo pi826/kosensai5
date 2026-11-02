@@ -46,6 +46,7 @@ func _ready() -> void:
 
 func tick_visuals(delta: float, redraw: bool = true) -> void:
 	art_time += delta
+	if not redraw and art_fire_remaining == 0 and art_switch_remaining == 0 and art_land_remaining == 0 and invulnerability == 0 and hit_flash == 0 and absorb_flash == 0: return
 	art_fire_remaining = maxf(0, art_fire_remaining - delta)
 	art_switch_remaining = maxf(0, art_switch_remaining - delta)
 	art_land_remaining = maxf(0, art_land_remaining - delta)

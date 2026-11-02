@@ -286,15 +286,17 @@ static func tile_visual_region(cell: Vector2i, seed_value: int) -> int:
 
 static func draw_tile(canvas: Node2D, terrain: Node2D, cell: Vector2i, mask: int, at: Vector2) -> bool:
 	if not enabled(): return false
-	var path := terrain_path(tile_visual_region(cell,int(terrain.stage.get("seed",0))),terrain.block_cells.has(cell))
+	var seed_value := int(terrain.stage.get("seed",0))
+	var blocked: bool = terrain.block_cells.has(cell)
+	var path := terrain_path(tile_visual_region(cell,seed_value),blocked)
 	var sheet := texture(path,path)
 	if sheet == null: return false
-	var src := Vector2(96,0) if terrain.block_cells.has(cell) else Vector2(mask*32, (cell_hash(cell,int(terrain.stage.get("seed",0))) % 4)*32)
-	canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var src := Vector2(96,0) if blocked else Vector2(mask*32, (cell_hash(cell,seed_value) % 4)*32)
+	if canvas.texture_filter != CanvasItem.TEXTURE_FILTER_NEAREST: canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var tint := Color.WHITE
 	# The 8-neighbor mask cannot distinguish deep rock from the first buried
 	# row. Inspect the tile above without changing collision/generation data.
-	if mask & 1 and not terrain.block_cells.has(cell):
+	if mask & 1 and not blocked:
 		var above: int = terrain.tile_masks.get(cell+Vector2i(0,-1),255)
 		if not above & 1: tint = Color(1.18,1.18,1.16)
 	canvas.draw_texture_rect_region(sheet,Rect2(at,Vector2(32,32)),Rect2(src,Vector2(32,32)),tint)

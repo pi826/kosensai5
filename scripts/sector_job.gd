@@ -52,6 +52,7 @@ func run() -> void:
 	var local := S.generate(seed_value, coord)
 	generation_ms = (Time.get_ticks_usec() - begin) / 1000.0
 	var data := world_data(local, origin)
+	for key in ["connection_candidates", "connection_nodes", "connections", "entrances", "cycles", "routes", "gates"]: data.erase(key)
 	saved = O.snapshot(saved, O.offset(coord, origin))
 	var occupied := {}
 	var surfaces := {}

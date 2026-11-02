@@ -14,6 +14,8 @@ var reserved_draw_ms := 0.0
 var idle_draw_deferred := false
 var origin_sector := Vector2i.ZERO
 var collision_sectors: Dictionary = {}
+var support_revisions: Dictionary = {}
+var unloading: Dictionary = {}
 
 func collision_body_count() -> int:
 	var count := 0
@@ -37,22 +39,36 @@ func sector_offset(at: Vector2i) -> Vector2:
 
 func shift_origin(delta: Vector2, new_origin: Vector2i) -> void:
 	origin_sector = new_origin
+	var interpolated: bool = get_tree().physics_interpolation
 	for block: Dictionary in breakables.values():
 		block.bounds.position += delta
 	# Move the existing bodies. Rebuilding would discard contacts and one-way state.
 	for parent: Node2D in collision_sectors.values():
 		parent.position += delta
 		parent.force_update_transform()
-		parent.reset_physics_interpolation()
+		if interpolated: parent.reset_physics_interpolation()
 		for body: StaticBody2D in parent.get_children():
 			body.force_update_transform()
-			body.reset_physics_interpolation()
+			if interpolated: body.reset_physics_interpolation()
 	for chunk: Node2D in draw_chunks.values():
 		chunk.position += delta
-		chunk.shelves.assign(O.geometry(chunk.shelves, delta))
+		if not chunk.shelves.is_empty(): chunk.shelves.assign(O.geometry(chunk.shelves, delta))
 		# Its drawing commands are chunk-local and remain identical. Redrawing
 		# every retained tile here would undo the stream's per-frame draw budget.
 	revision += 1
+
+func _support_changed(cells: Array[Vector2i]) -> void:
+	for cell: Vector2i in cells:
+		var at := Vector2i(floori(cell.x * TILE_SIZE / T.SECTOR_SIZE.x), floori(cell.y * TILE_SIZE / T.SECTOR_SIZE.y))
+		_touch_support(at)
+
+func _touch_support(at: Vector2i) -> void:
+	for y in range(-1, 2):
+		for x in range(-1, 2): support_revisions[at + Vector2i(x, y)] = support_serial
+
+func support_revision_at(point: Vector2) -> int:
+	var at := origin_sector + Vector2i((point / T.SECTOR_SIZE).floor())
+	return support_revisions.get(at, 0)
 
 func _ready() -> void:
 	z_index = -2
@@ -120,6 +136,8 @@ func build_step() -> bool:
 			sectors[at] = {"data": p.data, "cells": p.occupied, "bodies": building.bodies, "blocks": building.blocks, "surfaces": p.surfaces}
 			building = {}
 			revision += 1
+			support_serial += 1
+			_touch_support(at)
 			return true
 	building.index += 1
 	return false
@@ -136,8 +154,14 @@ func _refresh_border(at: Vector2i, redraw: bool = true) -> Array[Vector2i]:
 		for x in [origin.x - 1, origin.x, origin.x + size.x - 1, origin.x + size.x]: _refresh_cell(Vector2i(x, y))
 	for x in range(origin.x - 1, origin.x + size.x + 1):
 		for y in [origin.y - 1, origin.y, origin.y + size.y - 1, origin.y + size.y]: _refresh_cell(Vector2i(x, y))
-	for key: Vector2i in draw_chunks:
-		if Rect2(sector_offset(at), T.SECTOR_SIZE).grow(DRAW_CHUNK_SIZE).intersects(Rect2(pixel_of_chunk(key), Vector2.ONE * DRAW_CHUNK_SIZE)):
+	var span := Vector2i(T.SECTOR_SIZE / DRAW_CHUNK_SIZE)
+	var base := at * span
+	var area := Rect2(sector_offset(at), T.SECTOR_SIZE).grow(DRAW_CHUNK_SIZE)
+	for y in range(base.y - 1, base.y + span.y + 1):
+		for x in range(base.x - 1, base.x + span.x + 1):
+			var key := Vector2i(x, y)
+			if not draw_chunks.has(key): continue
+			if not area.intersects(Rect2(pixel_of_chunk(key), Vector2.ONE * DRAW_CHUNK_SIZE)): continue
 			keys.append(key)
 			if redraw: request_chunk_redraw(key)
 	return keys
@@ -171,46 +195,105 @@ func restore_block(at: Vector2i, rect: Rect2) -> void:
 	_changed(cells, 1)
 
 func unload(at: Vector2i) -> void:
+	begin_unload(at)
+	while not unload_step(): pass
+
+func begin_unload(at: Vector2i) -> void:
+	var span := Vector2i(T.SECTOR_SIZE / DRAW_CHUNK_SIZE)
+	unloading = {"at": at, "stage": 0, "index": 0, "rows": {}, "surfaces": sectors[at].surfaces.keys(), "chunk_y": at.y * span.y}
+
+func unload_step() -> bool:
+	if unloading.is_empty(): return true
+	var at: Vector2i = unloading.at
 	var sector: Dictionary = sectors[at]
-	var rows := {}
-	for cell: Vector2i in sector.cells:
-		occupied.erase(cell)
-		tile_masks.erase(cell)
-		block_cells.erase(cell)
-	for id: int in sector.blocks:
-		if not breakables.has(id): continue
-		for cell: Vector2i in breakables[id].cells:
-			_set_row_cell(cell,1,false)
-			rows[Vector2i(1,cell.y)] = true
-	for cell: Vector2i in sector.surfaces:
-		_set_row_cell(cell, 1, false)
-		surface_cells.erase(cell)
-		destroyed_cells.erase(cell)
-		rows[Vector2i(1, cell.y)] = true
-	for id: int in sector.blocks: breakables.erase(id)
-	for id: int in walls.keys():
-		if walls[id].cells.any(func(cell): return Rect2(sector_offset(at), T.SECTOR_SIZE).has_point(pixel_of_cell(cell))): remove_wall(id)
-	for body: Node2D in sector.bodies:
-		body.collision_layer = 0
-		body.free()
-	for key: Vector2i in rows:
-		_rebuild_row(key)
-		if row_cells[key].is_empty():
-			row_cells.erase(key)
-			row_bodies.erase(key)
-	for key: Vector2i in collision_sectors.keys():
-		if collision_sectors[key].get_child_count() == 0:
-			collision_sectors[key].free()
-			collision_sectors.erase(key)
-	var bounds := Rect2(sector_offset(at), T.SECTOR_SIZE)
-	for key: Vector2i in draw_chunks.keys():
-		if bounds.has_point(pixel_of_chunk(key)):
-			draw_chunks[key].free()
-			draw_chunks.erase(key)
-			_erase_pending(key)
-	sectors.erase(at)
-	_refresh_border(at)
-	revision += 1
+	var index: int = unloading.index
+	match int(unloading.stage):
+		0:
+			var stop := mini(index + 128, sector.cells.size())
+			for j in range(index, stop):
+				var cell: Vector2i = sector.cells[j]
+				occupied.erase(cell)
+				tile_masks.erase(cell)
+				block_cells.erase(cell)
+			unloading.index = stop
+			if stop >= sector.cells.size(): _next_unload_phase()
+		1:
+			if index < sector.blocks.size():
+				var id: int = sector.blocks[index]
+				if breakables.has(id):
+					for cell: Vector2i in breakables[id].cells:
+						_set_row_cell(cell, 1, false)
+						unloading.rows[Vector2i(1, cell.y)] = true
+				unloading.index += 1
+			else: _next_unload_phase()
+		2:
+			var surfaces: Array = unloading.surfaces
+			var stop := mini(index + 128, surfaces.size())
+			for j in range(index, stop):
+				var cell: Vector2i = surfaces[j]
+				_set_row_cell(cell, 1, false)
+				surface_cells.erase(cell)
+				destroyed_cells.erase(cell)
+				unloading.rows[Vector2i(1, cell.y)] = true
+			unloading.index = stop
+			if stop >= surfaces.size(): _next_unload_phase()
+		3:
+			for id: int in sector.blocks: breakables.erase(id)
+			var bounds := Rect2(sector_offset(at), T.SECTOR_SIZE)
+			for id: int in walls.keys():
+				if walls[id].cells.any(func(cell): return bounds.has_point(pixel_of_cell(cell))): remove_wall(id)
+			_next_unload_phase()
+		4:
+			var stop := mini(index + 16, sector.bodies.size())
+			for j in range(index, stop):
+				var body: Node2D = sector.bodies[j]
+				body.collision_layer = 0
+				body.free()
+			unloading.index = stop
+			if stop >= sector.bodies.size(): _next_unload_phase()
+		5:
+			if index < unloading.row_keys.size():
+				var key: Vector2i = unloading.row_keys[index]
+				_rebuild_row(key)
+				if row_cells[key].is_empty():
+					row_cells.erase(key)
+					row_bodies.erase(key)
+				unloading.index += 1
+			else: _next_unload_phase()
+		6:
+			for key: Vector2i in collision_sectors.keys():
+				if collision_sectors[key].get_child_count() == 0:
+					collision_sectors[key].free()
+					collision_sectors.erase(key)
+			_next_unload_phase()
+		7:
+			var span := Vector2i(T.SECTOR_SIZE / DRAW_CHUNK_SIZE)
+			var base := at * span
+			if int(unloading.chunk_y) < base.y + span.y:
+				var bounds := Rect2(sector_offset(at), T.SECTOR_SIZE)
+				for x in range(base.x, base.x + span.x):
+					var key := Vector2i(x, int(unloading.chunk_y))
+					if not draw_chunks.has(key): continue
+					if not bounds.has_point(pixel_of_chunk(key)): continue
+					draw_chunks[key].free()
+					draw_chunks.erase(key)
+					_erase_pending(key)
+				unloading.chunk_y += 1
+			else: _next_unload_phase()
+		8:
+			sectors.erase(at)
+			_refresh_border(at)
+			revision += 1
+			support_serial += 1
+			_touch_support(at)
+			unloading = {}
+			return true
+	return false
+
+func _next_unload_phase() -> void:
+	unloading.stage += 1
+	unloading.index = 0
+	if int(unloading.stage) == 5: unloading.row_keys = unloading.rows.keys()
 
 func configure_chunk(chunk: DrawChunk) -> void:
 	# CanvasItem schedules a first draw on tree entry, even outside the camera.

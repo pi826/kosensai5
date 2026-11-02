@@ -58,6 +58,7 @@ var wall_cells: Dictionary = {}
 var row_cells: Dictionary = {}
 var row_bodies: Dictionary = {}
 var revision := 0
+var support_serial := 0
 var next_wall_id := 0
 
 func _ready() -> void:
@@ -81,6 +82,7 @@ func rebuild() -> void:
 	row_bodies.clear()
 	next_wall_id = 0
 	revision += 1
+	support_serial += 1
 	collision_root = Node2D.new()
 	collision_root.name = "Collision"
 	add_child(collision_root)
@@ -201,6 +203,14 @@ func _changed(cells: Array[Vector2i], layer: int) -> void:
 		request_chunk_redraw(_chunk_key(cell))
 	if layer == 1:
 		revision += 1
+		support_serial += 1
+		_support_changed(cells)
+
+func _support_changed(_cells: Array[Vector2i]) -> void:
+	pass
+
+func support_revision_at(_point: Vector2) -> int:
+	return support_serial
 
 func explode(center: Vector2, radius: float = T.BOMB_RADIUS) -> Array[Vector2i]:
 	var removed: Array[Vector2i] = []

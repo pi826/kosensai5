@@ -16,12 +16,14 @@ var build_clock := T.BUILD_INTERVAL
 var wall_plan := Rect2()
 var resting_revision := -1
 var resting_position := Vector2.INF
+var support_seen := -1
 var boss_role := "guardian"
 var arena := Rect2()
 var roam := Rect2()
 var move_clock := 0.0
 var move_direction := Vector2(-1, -0.35)
 var loop_level := 0
+var ground_actor := true
 
 func apply_loop(level: int) -> void:
 	if kind == "boss" or game.is_tutorial(): return
@@ -67,6 +69,8 @@ func _ready() -> void:
 		max_hp = preload("res://scripts/boss_cycle.gd").hp_for(boss_role)
 	hp = max_hp
 	if kind == "enhancer": add_to_group("enhancers")
+	if kind == "boss": add_to_group("bosses")
+	ground_actor = kind not in ["flyer", "enhancer"]
 	apply_loop(game.enemy_loop_level())
 	facing = -1
 	flight_center_y = position.y
@@ -88,8 +92,15 @@ func _physics_process(delta: float) -> void:
 		was_visible = false
 		if action != "idle" or is_instance_valid(laser_beam) or is_instance_valid(bomb): cancel_attack()
 		velocity.x = 0
-		if kind not in ["flyer", "enhancer"] and not (kind == "boss" and roam.has_area()):
-			var revision: int = game.terrain.revision if is_instance_valid(game.terrain) else -1
+		if ground_actor and not (kind == "boss" and roam.has_area()):
+			var revision: int = resting_revision
+			if is_instance_valid(game.terrain):
+				var serial: int = game.terrain.support_serial
+				if serial != support_seen:
+					revision = game.terrain.support_revision_at(position)
+					support_seen = serial
+			else:
+				revision = -1
 			# A resting body only needs another physics query after terrain changes
 			# or external movement. Unsupported enemies still fall off screen.
 			if not is_on_floor() or revision != resting_revision or position != resting_position:
