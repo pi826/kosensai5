@@ -36,7 +36,11 @@ class Audit extends Node:
 		suite.check(suite.game.terrain.view_is_current(suite.game.stream_view_rect()), "late callbacks leave no dirty visible chunks")
 		suite.check(suite.game.stream.backdrop_view_is_current(suite.game.stream_view_rect()), "late callbacks prepare background including shifted origins")
 		if suite.sample_loop:
-			suite.loop_samples.append({"pending": suite.game.terrain.pending_redraw.size(), "scheduler_ms": suite.game.terrain.redraw_service_ms, "service_ms": suite.game.stream.service_times[-1], "idle": suite.game.stream.loaded.size() == 25 and suite.game.stream.active_job == null and suite.game.stream.jobs.is_empty()})
+			var prefetch: Rect2 = suite.game.stream_view_rect().grow(T.STREAM_DRAW_PREFETCH_MARGIN)
+			var prefetch_pending := 0
+			for key: Vector2i in suite.game.terrain._view_keys(prefetch):
+				if suite.game.terrain.pending_redraw.has(key): prefetch_pending += 1
+			suite.loop_samples.append({"pending": suite.game.terrain.pending_redraw.size(), "prefetch_pending": prefetch_pending, "scheduler_ms": suite.game.terrain.redraw_service_ms, "service_ms": suite.game.stream.service_times[-1], "idle": suite.game.stream.loaded.size() == 25 and suite.game.stream.active_job == null and suite.game.stream.jobs.is_empty()})
 
 func _initialize() -> void: call_deferred("run")
 func check(ok: bool, message: String) -> void:
@@ -59,6 +63,13 @@ func focus(point: Vector2) -> void:
 	game._update_camera(0, true)
 func queue_valid() -> bool:
 	return game.terrain.pending_redraw.keys().all(func(k): return game.terrain.draw_chunks.has(k))
+func prefetch_keys() -> Array[Vector2i]:
+	return game.terrain._view_keys(game.stream_view_rect().grow(T.STREAM_DRAW_PREFETCH_MARGIN))
+func pending_in_prefetch() -> int:
+	var count := 0
+	for key: Vector2i in prefetch_keys():
+		if game.terrain.pending_redraw.has(key): count += 1
+	return count
 
 func real_loop_queue(override_cost: Node) -> void:
 	# Keep main AND world physics running. Real-time pacing gives the workers
@@ -77,24 +88,37 @@ func real_loop_queue(override_cost: Node) -> void:
 		check(game.is_physics_processing() and game.world.can_process(), "real-loop queue audit keeps physics enabled")
 		check(game.stream.loaded.size() == 25 and game.stream.jobs.is_empty() and game.stream.active_job == null, "real-loop queue audit has all 25 sectors and no jobs/install")
 		check(game.terrain.pending_redraw.size() >= 800, "real-loop queue audit starts with at least 800 pending chunks")
+		var prefetch: Rect2 = game.stream_view_rect().grow(T.STREAM_DRAW_PREFETCH_MARGIN)
+		var prefetch_lookup := {}
+		for key: Vector2i in game.terrain._view_keys(prefetch):
+			prefetch_lookup[key] = true
+			if game.terrain.draw_chunks.has(key): game.terrain.request_chunk_redraw(key)
+		var outside: Array[Vector2i] = []
+		for key: Vector2i in game.terrain.pending_redraw:
+			if not prefetch_lookup.has(key): outside.append(key)
 		loop_samples.clear()
 		sample_loop = true
 		await frame(122)
 		sample_loop = false
 		var idle := 0
 		var progress := 0
+		var prefetch_idle := 0
 		var total_ms := 0.0
 		for i in range(1, loop_samples.size()):
 			if not loop_samples[i].idle or not loop_samples[i - 1].idle: continue
 			idle += 1
 			progress += loop_samples[i - 1].pending - loop_samples[i].pending
+			if loop_samples[i - 1].prefetch_pending > 0: prefetch_idle += 1
 			total_ms += loop_samples[i].scheduler_ms
 		var mean := total_ms / maxi(1, idle)
-		var report := {"forced_cost": forced, "frames": idle, "progress": progress, "pending_start": loop_samples[0].pending, "pending_end": loop_samples[-1].pending, "scheduler_mean_ms": mean}
+		var report := {"forced_cost": forced, "frames": idle, "prefetch_frames": prefetch_idle, "progress": progress, "pending_start": loop_samples[0].pending, "prefetch_start": loop_samples[0].prefetch_pending, "pending_end": loop_samples[-1].pending, "prefetch_end": loop_samples[-1].prefetch_pending, "scheduler_mean_ms": mean}
 		loop_reports.append(report)
 		print("REAL LOOP ", JSON.stringify(report))
 		check(idle >= 120, "real-loop audit observes at least 120 idle frames")
-		check(progress * 2 >= idle, "real-loop offscreen queue drains at least once per two idle frames")
+		check(prefetch_idle > 0, "real-loop audit observes idle frames with pending prefetch work")
+		check(progress * 2 >= prefetch_idle, "real-loop offscreen queue drains at least once per two idle frames")
+		check(loop_samples[-1].prefetch_pending == 0, "real-loop prefetch area fully drained")
+		check(outside.all(func(key): return game.terrain.pending_redraw.has(key)), "real-loop keeps chunks beyond prefetch pending")
 		check(mean < 0.5, "real-loop scheduler mean stays below 0.5ms")
 		check(loop_samples.all(func(s): return s.service_ms > 0), "real-loop service polling duration stays nonzero")
 	override_cost.forced = false
@@ -224,16 +248,37 @@ func run() -> void:
 		await frame()
 	check(not game.stream.loaded.has(Vector2i.ZERO), "distant sector actually unloaded")
 	check(queue_valid(), "unload removes stale queue keys")
-	# Stop producers and drain the bounded offscreen queue, including hidden chunks.
+	# Stop producers and drain only the prefetch area; farther chunks must stay hidden.
 	game.stream.shutdown()
 	game.terrain.draw_cost_ms = T.STREAM_DRAW_BUDGET_MS * 3.0
+	var prefetch_lookup := {}
+	for at: Vector2i in prefetch_keys(): prefetch_lookup[at] = true
+	var outside: Array[Vector2i] = []
+	for at: Vector2i in game.terrain.pending_redraw:
+		if not prefetch_lookup.has(at): outside.append(at)
 	var deadline := Time.get_ticks_msec() + 30000
-	while not game.terrain.pending_redraw.is_empty() and Time.get_ticks_msec() < deadline:
+	while pending_in_prefetch() > 0 and Time.get_ticks_msec() < deadline:
 		await frame()
-	print("DRAIN pending=", game.terrain.pending_redraw.size(), " draw_cost_ms=", game.terrain.draw_cost_ms, " scheduler_ms=", game.terrain.redraw_service_ms)
-	check(game.terrain.pending_redraw.is_empty(), "offscreen queue eventually empty")
-	check(game.terrain.draw_chunks.values().all(func(c): return c.visible and c.submitted_version == c.change_version), "no hidden or stale chunk remains after drain")
-	if windowed: check(game.terrain.draw_chunks.values().all(func(c): return c.drawn_version == c.change_version), "all deferred commands executed after drain")
+	print("DRAIN prefetch=", pending_in_prefetch(), " far=", outside.size(), " draw_cost_ms=", game.terrain.draw_cost_ms, " scheduler_ms=", game.terrain.redraw_service_ms)
+	check(pending_in_prefetch() == 0, "prefetch area eventually has no pending chunk")
+	check(prefetch_keys().all(func(key):
+		if not game.terrain.draw_chunks.has(key): return true
+		var chunk = game.terrain.draw_chunks[key]
+		return chunk.visible and chunk.submitted_version == chunk.change_version
+	), "prefetch area chunks are visible and current after drain")
+	if windowed: check(prefetch_keys().all(func(key):
+		if not game.terrain.draw_chunks.has(key): return true
+		var chunk = game.terrain.draw_chunks[key]
+		return chunk.visible and chunk.submitted_version == chunk.change_version and chunk.drawn_version == chunk.change_version
+	), "prefetch area deferred commands executed after drain")
+	check(outside.size() > 0 and outside.all(func(key): return game.terrain.pending_redraw.has(key)), "chunks beyond prefetch stay pending and hidden after drain")
+	var visible_targets := outside.filter(func(key): return game.terrain.draw_chunks.has(key))
+	check(visible_targets.size() > 0, "far pending chunks still have draw nodes")
+	if visible_targets.size() > 0:
+		focus(game.terrain.pixel_of_chunk(visible_targets[0]) + Vector2.ONE * 256)
+		await frame()
+		check(game.terrain.view_is_current(game.stream_view_rect()), "approaching a far chunk draws it on demand")
+		if windowed: check(game.terrain.view_is_current(game.stream_view_rect(), true), "approaching a far chunk executes its draw commands")
 	check(queue_valid(), "drained queue contains no freed keys")
 	game.free()
 	var report := {"checks": checks, "failures": failures, "windowed": windowed, "real_loop": loop_reports}

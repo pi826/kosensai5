@@ -6,7 +6,6 @@ var sectors: Dictionary = {}
 var building: Dictionary = {}
 var next_block_id := 0
 var pending_redraw: Dictionary = {} # Stable integer chunk keys, including across origin shifts.
-var redraw_buckets: Dictionary = {} # bucket -> dictionary of pending integer chunk keys.
 var draw_cost_ms := T.STREAM_DRAW_INITIAL_COST_MS
 var redraw_service_ms := 0.0
 var redraw_estimated_ms := 0.0
@@ -307,37 +306,25 @@ func request_chunk_redraw(key: Vector2i) -> void:
 	chunk.change_version += 1
 	_queue_pending(key)
 
-func _redraw_bucket(key: Vector2i) -> Vector2i:
-	return Vector2i(floori(float(key.x) / T.STREAM_DRAW_BUCKET_SIZE.x), floori(float(key.y) / T.STREAM_DRAW_BUCKET_SIZE.y))
-
 func _queue_pending(key: Vector2i) -> void:
-	if pending_redraw.has(key): return
 	pending_redraw[key] = true
-	var bucket := _redraw_bucket(key)
-	if not redraw_buckets.has(bucket): redraw_buckets[bucket] = {}
-	redraw_buckets[bucket][key] = true
 
 func _erase_pending(key: Vector2i) -> void:
 	pending_redraw.erase(key)
-	var bucket := _redraw_bucket(key)
-	if not redraw_buckets.has(bucket): return
-	redraw_buckets[bucket].erase(key)
-	if redraw_buckets[bucket].is_empty(): redraw_buckets.erase(bucket)
 
-func _nearest_pending(priority: Vector2) -> Vector2i:
-	# Approximate order: nearest nonempty bucket center, then nearest chunk.
-	# At 25 loaded sectors inspect <=25 buckets + <=48 keys, never all 1,200.
+func _prefetch_pending(area: Rect2) -> Array[Vector2i]:
+	var keys: Array[Vector2i] = []
+	for key: Vector2i in _view_keys(area):
+		if pending_redraw.has(key): keys.append(key)
+	return keys
+
+func _nearest_pending_in(keys: Array[Vector2i], priority: Vector2) -> Vector2i:
+	# Same coordinate frame as the old bucket selector. Only the view-sized
+	# candidate list is inspected, never the whole pending queue.
 	var point := priority / DRAW_CHUNK_SIZE + Vector2(chunk_origin())
-	var nearest_bucket := Vector2i.ZERO
-	var distance := INF
-	for bucket: Vector2i in redraw_buckets:
-		var score := (Vector2(bucket * T.STREAM_DRAW_BUCKET_SIZE) + Vector2(T.STREAM_DRAW_BUCKET_SIZE) / 2).distance_squared_to(point)
-		if score < distance:
-			distance = score
-			nearest_bucket = bucket
 	var nearest := Vector2i.ZERO
-	distance = INF
-	for key: Vector2i in redraw_buckets[nearest_bucket]:
+	var distance := INF
+	for key: Vector2i in keys:
 		var score := (Vector2(key) + Vector2.ONE / 2).distance_squared_to(point)
 		if score < distance:
 			distance = score
@@ -379,15 +366,18 @@ func view_is_current(area: Rect2, rendered: bool = false) -> bool:
 func service_redraw(area: Rect2, priority: Vector2, budget_ms: float = T.STREAM_DRAW_BUDGET_MS, service_did_work: bool = false) -> void:
 	var began := Time.get_ticks_usec()
 	prepare_view(area)
+	var prefetch_area := area.grow(T.STREAM_DRAW_PREFETCH_MARGIN)
 	var estimated_ms := reserved_draw_ms
 	var count := 0
 	# Polling service() costs time even with no work. Use the explicit work
 	# flag, never budget equality, to grant an indivisible idle draw.
 	var idle_allowance := not service_did_work and estimated_ms == 0.0
-	while not pending_redraw.is_empty() and count < T.STREAM_DRAW_CHUNKS_PER_FRAME:
+	while count < T.STREAM_DRAW_CHUNKS_PER_FRAME:
+		var candidates := _prefetch_pending(prefetch_area)
+		if candidates.is_empty(): break
 		var cost := maxf(T.STREAM_DRAW_MIN_COST_MS, draw_cost_ms)
 		if not (idle_allowance and count == 0) and estimated_ms + cost > budget_ms: break
-		_submit_chunk(_nearest_pending(priority))
+		_submit_chunk(_nearest_pending_in(candidates, priority))
 		estimated_ms += cost
 		count += 1
 	# Queue management is measured, but cannot veto an admitted draw.

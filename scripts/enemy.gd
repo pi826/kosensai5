@@ -44,9 +44,9 @@ func field_active() -> bool:
 	return kind == "enhancer" and not dead and not is_queued_for_deletion() and game.is_on_screen(global_position, 20.0)
 
 func enhanced() -> bool:
-	if kind in ["boss", "enhancer"] or game.is_tutorial(): return false
+	if kind == "boss" or kind == "enhancer" or game.is_tutorial(): return false
 	for source in get_tree().get_nodes_in_group("enhancers"):
-		if source.get_parent() == game.world and source.field_active() and global_position.distance_squared_to(source.global_position) <= T.ENHANCER_RADIUS * T.ENHANCER_RADIUS: return true
+		if global_position.distance_squared_to(source.global_position) <= T.ENHANCER_RADIUS * T.ENHANCER_RADIUS and source.get_parent() == game.world and source.field_active(): return true
 	return false
 
 func hit_damage(amount: int) -> int:
@@ -118,13 +118,14 @@ func _physics_process(delta: float) -> void:
 	wake_delay = maxf(0.0, wake_delay - delta)
 	if wake_delay > 0:
 		return
-	build_clock -= delta * attack_rate()
+	var rate := attack_rate()
+	build_clock -= delta * rate
 	if action != "idle":
 		action_remaining -= delta
 		if action_remaining <= 0:
 			_complete_action()
 		return
-	_choose_attack(delta)
+	_choose_attack(delta, rate)
 
 func _move_kind(delta: float) -> void:
 	if kind == "boss" and roam.has_area():
@@ -189,9 +190,10 @@ func _move_enhancer(delta: float) -> void:
 	velocity = (target - position) / maxf(delta, 0.00001)
 	move_and_collide(target - position)
 
-func _choose_attack(delta: float) -> void:
-	shot_clock -= delta * attack_rate()
-	switch_clock -= delta * attack_rate()
+func _choose_attack(delta: float, rate: float = -1.0) -> void:
+	if rate < 0.0: rate = attack_rate()
+	shot_clock -= delta * rate
+	switch_clock -= delta * rate
 	if (kind == "shifter" or kind == "boss") and switch_clock <= 0:
 		next_polarity = 1 - polarity
 		_begin("windup_switch", T.SWITCH_WARNING)

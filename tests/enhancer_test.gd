@@ -97,6 +97,17 @@ func physical():
 	buddy.shot_clock=1
 	buddy._choose_attack(0.3)
 	check(is_equal_approx(buddy.shot_clock,0.5),"actual attack timer advances faster inside field")
+	var timed_one := fixture("turret",source.position+Vector2(180,0))
+	var timed_rate := fixture("turret",source.position+Vector2(200,0))
+	timed_one.shot_clock=1.0
+	timed_one.switch_clock=0.8
+	timed_rate.shot_clock=1.0
+	timed_rate.switch_clock=0.8
+	timed_one._choose_attack(0.3)
+	timed_rate._choose_attack(0.3,timed_rate.attack_rate())
+	check(is_equal_approx(timed_one.shot_clock,timed_rate.shot_clock) and is_equal_approx(timed_one.switch_clock,timed_rate.switch_clock),"explicit attack rate matches one-argument timing")
+	timed_one.free()
+	timed_rate.free()
 	check(buddy.hit_damage(4)==2 and buddy.hit_damage(3)==2 and buddy.hit_damage(1)==1,"half damage rounded upward, minimum one")
 	buddy.hp=10
 	buddy.receive_hit(1-buddy.polarity,4)
