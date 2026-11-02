@@ -119,7 +119,7 @@
 6. 弾の軌跡: `scripts/trail_layer.gd` を追加し、`main.gd` で `projectiles` より先に `world` へ入れる。`_process` は弾がある間と直前のフレームに弾があった間に再描画し、`_draw` は `Bullet` の隣り合う `trail` を `Art.enabled()` の暗い線と `Color(tint, 0.4)` の2層で描く。弾ごとのAA付き `draw_polyline` は削除した。原点移動は従来どおり弾と `trail` を同じ量だけ動かし、層の位置は0のまま。
 7. 敵の再描画: `T.ENEMY_REDRAW_INTERVAL` を3にし、`enemy.gd` の `tick_visuals` の第2引数を `on_screen and (Engine.get_physics_frames() + get_instance_id()) % T.ENEMY_REDRAW_INTERVAL == 0` にした。被弾・吸収・撃破・攻撃中断・ロックオンなどの状態変化の `queue_redraw()` は残し、タイマーは毎フレーム更新する。
 8. 背景シェーダー: `assets/art/backdrop.gdshader` は `weights` の各成分が0より大きいときだけ、その地域の2枚を `textureLod(..., 0.0)` で読む。0の成分は加算しないため結果の色は同じ。
-9. 実機計測: `tests/perf_return_bench.gd` を追加し、`bench.cmd` から実行する。開始時にCPU・GPU・描画ドライバ・ウィンドウサイズを表示し、最後に段階ごとの平均・p95・最大・描画コール・三角形・区画・敵をタブ区切りで表示する。`play-angle.cmd` は `--rendering-driver opengl3_angle` を付けてDirect3D 11経由の描画を試す。
+9. 実機計測: `tests/perf_return_bench.gd` を追加し、`bench.cmd` から実行する。開始時にCPU・GPU・描画ドライバ・ウィンドウサイズ・リフレッシュレート・画面サイズ・スレッド数を表示し、最後に段階ごとの平均・p95・最大・GPU時間・CPU速度の目安（固定計算の時間、増えればクロック低下）・経過秒・描画コール・三角形・区画・敵・画面内の敵をタブ区切りで表示する。`play-angle.cmd` は `--rendering-driver opengl3_angle` を付けてDirect3D 11経由の描画を試す。
 
 検査は `tests/perf_behavior_test.gd` に、ミニマップの画像キャッシュと矩形フォールバック・`start_run` のキャッシュ消去、`_should_unload` の距離と余白、実移動後の保持数、境界往復の解放回数、解放後の状態復元、非表示の当たり判定での着地と弾の衝突、軌跡層の順序と原点移動、敵の再描画間隔とタイマー更新を追加した。既存の閾値は緩めていない。
 
@@ -160,3 +160,22 @@ Ryzen 7 5825U の内蔵GPUでの値、`bench.cmd` と `play-angle.cmd` の実行
 `test.cmd` の全37実行を、時間に関する検査は単独で、generation_test・playthrough・sector_test は並行で直接実行した。37/37が終了コード0、SCRIPT ERRORなし、計287,432項目。
 
 Ryzen 7 5825U の実機での値、`play-angle.cmd` の効果、人が遊んだときの体感は未確認。
+
+## ノートPCでの1回目の実機計測（2026-11-02）
+
+ユーザーのノートPC（Ryzen 7 5825U、内蔵GPU）で、第3弾の後の `bench.cmd` を1回実行した。BENCH_ENV の行は共有されていない。単位はms。
+
+| 段階 | 平均 | p95 | 最大 | 描画コール | 三角形 | 区画 | 敵 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A_just_started | 6.97 | 9.24 | 10.21 | 82 | 4,062 | 12 | 176 |
+| B_start_sector_settling | 8.02 | 10.15 | 14.06 | 82 | 4,062 | 25 | 367 |
+| C_start_sector_settled | 7.58 | 9.47 | 12.42 | 81 | 3,334 | 25 | 367 |
+| C2_fight_12_at_start | 8.50 | 10.54 | 12.31 | 138 | 4,102 | 25 | 367 |
+| D_two_sectors_away | 6.28 | 8.61 | 11.98 | 116 | 4,306 | 25 | 368 |
+| E_further_away | 8.06 | 10.35 | 12.46 | 104 | 4,038 | 30 | 439 |
+| F_back_at_start | 12.32 | 14.51 | 17.90 | 117 | 4,546 | 25 | 367 |
+| G_back_after_10s | 9.44 | 11.01 | 12.03 | 113 | 4,402 | 25 | 367 |
+| H_fight_12_after_travel | 11.40 | 14.07 | 18.90 | 143 | 4,892 | 25 | 367 |
+| I_fight_24_after_travel | 14.02 | 17.24 | 29.84 | 205 | 5,014 | 25 | 367 |
+
+戻った後の区画・敵の数は開始時と同じで、描画コールと三角形も開始時に近い。一方、同じ敵12体の戦闘が C2 8.50ms から H 11.40ms に増えた。開発機では C2 4.45ms、H 3.53ms で差がない。この版のベンチは C2 で集めた敵を戻さないため、F・G には敵12体が画面内にいて C とは比べられない。時間経過によるクロック低下とゲーム状態のどちらが原因かを区別するため、ベンチに戦闘後の敵の復元、開始地点での再測定（C3、J）、GPU時間、CPU速度の目安、経過秒を追加した。
