@@ -146,6 +146,76 @@ func point_solid(point: Vector2, mask: int = 1) -> bool:
 	query.position = point
 	query.collision_mask = mask
 	return not game.get_world_2d().direct_space_state.intersect_point(query).is_empty()
+func dig(center: Vector2, direction: Vector2i) -> Array[Vector2i]:
+	return game.terrain.dynamite_dig(game.terrain.dynamite_shaft(center, direction))
+func cell_point(cell: Vector2i) -> Vector2:
+	return game.terrain.pixel_of_cell(cell)+Vector2(16,16)
+func probe_body() -> CharacterBody2D:
+	var probe := CharacterBody2D.new()
+	probe.collision_layer = 0
+	probe.collision_mask = 1
+	var shape := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(8,8)
+	shape.shape = rect
+	probe.add_child(shape)
+	game.world.add_child(probe)
+	return probe
+
+func shaft_shape_tests() -> void:
+	var terrain: Node2D = game.terrain
+	var at := Vector2(2048+5,768+9)
+	var cell: Vector2i = terrain.cell_at(at)
+	var expected := {Vector2i.RIGHT: Rect2i(cell+Vector2i(0,-1),Vector2i(11,3)), Vector2i.LEFT: Rect2i(cell+Vector2i(-10,-1),Vector2i(11,3)),
+		Vector2i.DOWN: Rect2i(cell+Vector2i(-1,0),Vector2i(3,11)), Vector2i.UP: Rect2i(cell+Vector2i(-1,-10),Vector2i(3,11))}
+	for direction: Vector2i in expected:
+		var shaft: Rect2i = terrain.dynamite_shaft(at,direction)
+		check(shaft == expected[direction], "shaft is 11x3 cells from the stick's cell toward %s: %s" % [direction,shaft])
+		check(terrain.cell_rect_pixels(shaft).size == Vector2(shaft.size)*32, "shaft pixel rect matches its cells %s" % direction)
+	# Direction: away from the player along the dominant axis, in screen space.
+	var player: Node2D = game.player
+	var stick := Dynamite.new()
+	stick.game = game
+	stick.position = Vector2(1700,300)
+	game.projectiles.add_child(stick)
+	stick.set_physics_process(false)
+	stick.throw_facing = -1
+	var cases := [[Vector2(-100,0),Vector2i.RIGHT,"player left digs right"],[Vector2(100,0),Vector2i.LEFT,"player right digs left"],
+		[Vector2(0,-100),Vector2i.DOWN,"player above digs down"],[Vector2(0,100),Vector2i.UP,"player below digs up"],
+		[Vector2(-30,-90),Vector2i.DOWN,"vertical dominant digs down"],[Vector2(90,30),Vector2i.LEFT,"horizontal dominant digs left"],
+		[Vector2(-50,-50),Vector2i.RIGHT,"diagonal tie digs sideways away"],[Vector2(0,0),Vector2i.LEFT,"same position uses throw facing"],
+		[Vector2(0,-50),Vector2i.DOWN,"exact vertical offset digs vertically"]]
+	for item: Array in cases:
+		player.position = stick.position + item[0]
+		check(stick.aim_direction() == item[1], item[2])
+	player.gravity_sign = -1
+	player.position = stick.position + Vector2(0,-100)
+	check(stick.aim_direction() == Vector2i.DOWN, "flipped gravity keeps screen-space direction")
+	player.gravity_sign = 1
+	player.dead = true
+	player.position = stick.position + Vector2(100,0)
+	check(stick.aim_direction() == Vector2i(-1,0), "dead player falls back to throw facing")
+	player.dead = false
+	stick.free()
+	# End to end: a stick on the rock face with the player above digs straight down.
+	var floor_stick := Dynamite.new()
+	floor_stick.game = game
+	floor_stick.position = Vector2(2700,508)
+	game.projectiles.add_child(floor_stick)
+	floor_stick.set_physics_process(false)
+	player.position = Vector2(2660,308)
+	player.hp = 100
+	player.invulnerability = 0
+	floor_stick.detonate()
+	await frames(2)
+	var hole := Rect2i(Vector2i(83,16),Vector2i(3,10))
+	for y in range(14,28):
+		for x in range(81,88):
+			var c := Vector2i(x,y)
+			var expected_open := hole.has_point(c) or y < 16
+			check(terrain.occupied.has(c) != expected_open and point_solid(cell_point(c)) != expected_open, "detonated downward shaft is exact at %s" % c)
+	check(floor_stick.blast_direction == Vector2i.DOWN and player.hp == 100, "player above is outside the downward blast")
+	floor_stick.free()
 
 func terrain_tests() -> void:
 	# Replace only the fixture's terrain, using the real incremental streaming API.
@@ -165,40 +235,46 @@ func terrain_tests() -> void:
 	check(point_solid(center), "deep rock starts physically solid")
 	var revision: int = terrain.support_revision_at(center)
 	var start := Time.get_ticks_usec()
-	var removed: Array[Vector2i] = terrain.dynamite_explode(center)
+	var removed: Array[Vector2i] = dig(center, Vector2i.RIGHT)
 	blast_ms = (Time.get_ticks_usec()-start)/1000.0
 	check(blast_ms <= 8.0, "large-rock blast <= 8ms: %.3f" % blast_ms)
-	check(removed.size() > 10, "deep protected rock is removed")
+	var shaft: Rect2i = terrain.dynamite_shaft(center, Vector2i.RIGHT)
+	check(removed.size() == 33 and removed.all(func(c): return shaft.has_point(c)), "deep protected rock: exactly the 11x3 shaft is removed")
 	check(terrain.support_revision_at(center) > revision, "blast invalidates resting enemy support")
 	await frames(2)
 	for cell: Vector2i in removed:
 		var point: Vector2 = terrain.pixel_of_cell(cell)+Vector2(16,16)
 		check(not terrain.occupied.has(cell) and not terrain.tile_masks.has(cell) and not point_solid(point), "removed deep cell matches physics and drawing %s" % cell)
-	var outside := Vector2(2160,784)
-	check(terrain.occupied.has(terrain.cell_at(outside)) and point_solid(outside), "adjacent cell outside circle retains collision")
-	# Every cell in and next to the carve square must match physical point queries.
+	var outside := Vector2(2032,784)
+	for point: Vector2 in [outside, Vector2(2048,720), Vector2(2048,848), Vector2(2416,784)]:
+		check(terrain.occupied.has(terrain.cell_at(point)) and point_solid(point), "cell beside, behind or past the shaft retains collision %s" % point)
+	# Every cell in and next to the carved shaft must match physical point queries.
 	for y in range(20,28):
-		for x in range(60,68):
+		for x in range(60,78):
 			var point := Vector2(x*32+16,y*32+16)
 			check(point_solid(point) == terrain.occupied.has(Vector2i(x,y)), "split rectangle/row exactness %d,%d" % [x,y])
-	var probe := CharacterBody2D.new()
-	probe.collision_layer = 0
-	probe.collision_mask = 1
-	var shape := CollisionShape2D.new()
-	var rect := RectangleShape2D.new()
-	rect.size = Vector2(8,8)
-	shape.shape = rect
-	probe.add_child(shape)
-	game.world.add_child(probe)
-	probe.position = center+Vector2(0,-40)
-	for i in range(16):
-		probe.velocity = Vector2(0,120)
+	var probe := probe_body()
+	probe.position = center+Vector2(12,0)
+	for i in range(60):
+		probe.velocity = Vector2(240,0)
 		probe.move_and_slide()
 		await frames()
-	check(probe.position.y > center.y-12, "small real CharacterBody falls through excavated rock")
+	check(probe.position.x > center.x+200, "small real CharacterBody travels along the horizontal shaft")
+	# A downward shaft from a stick resting on the rock face opens a fall.
+	var top := Vector2(1600,508)
+	var down: Array[Vector2i] = dig(top, Vector2i.DOWN)
+	check(down.size() == 30, "downward shaft removes 10 rock rows of 3 cells below an air cell")
+	await frames(2)
+	probe.position = Vector2(1600,480)
+	for i in range(40):
+		probe.velocity = Vector2(0,600)
+		probe.move_and_slide()
+		await frames()
+	check(probe.position.y > 800 and probe.position.y < 832, "small real CharacterBody falls to the bottom of the shaft")
 	probe.free()
+	removed.append_array(down)
 	var boundary := Vector2(4096,768)
-	var border_removed: Array[Vector2i] = terrain.dynamite_explode(boundary)
+	var border_removed: Array[Vector2i] = dig(boundary, Vector2i.LEFT)
 	check(border_removed.any(func(c): return c.x < 128) and border_removed.any(func(c): return c.x >= 128), "blast spans two ready sectors")
 	await frames(2)
 	for cell: Vector2i in border_removed:
@@ -217,23 +293,24 @@ func terrain_tests() -> void:
 		check(not terrain.occupied.has(cell) and not point_solid(terrain.pixel_of_cell(cell)+Vector2(16,16)), "reload preserves deep hole and physical collision")
 	check(point_solid(outside), "reload preserves neighbouring rock collision")
 	# Repeated intersecting carves and a full origin move use the same integer keys.
-	terrain.dynamite_explode(center+Vector2(64,32))
+	var crossing: Array[Vector2i] = dig(center+Vector2(64,32), Vector2i.UP)
+	check(crossing.size() == 30-9, "crossing shaft removes only the cells still standing")
 	terrain.shift_origin(-T.SECTOR_SIZE,Vector2i.ONE)
 	game.stage.origin_sector = Vector2i.ONE
 	await frames(2)
 	check(not point_solid(center-T.SECTOR_SIZE), "origin shift preserves existing physical hole")
 	var shifted := Vector2(3008,768)-T.SECTOR_SIZE
-	var shifted_removed: Array[Vector2i] = terrain.dynamite_explode(shifted)
+	var shifted_removed: Array[Vector2i] = dig(shifted, Vector2i.RIGHT)
 	await frames(2)
-	check(shifted_removed.size()>10 and not point_solid(shifted), "blast after origin shift uses world cell keys")
-	check(point_solid(Vector2(3216,768)-T.SECTOR_SIZE), "remaining shifted rock blocks physics")
+	check(shifted_removed.size()==33 and not point_solid(shifted), "blast after origin shift uses world cell keys")
+	check(point_solid(Vector2(3216,880)-T.SECTOR_SIZE) and point_solid(Vector2(2976,784)-T.SECTOR_SIZE), "remaining shifted rock blocks physics")
 	terrain.shift_origin(T.SECTOR_SIZE,Vector2i.ZERO)
 	game.stage.origin_sector = Vector2i.ZERO
-	terrain.dynamite_explode(Vector2(1104,256))
+	dig(Vector2(1104,248), Vector2i.DOWN)
 	await frames(2)
 	check(point_solid(Vector2(1104,264),T.PLATFORM_LAYER), "thin shelf survives dynamite")
-	var not_ready: Array[Vector2i] = terrain.dynamite_explode(Vector2(-16,768))
-	check(not_ready.size()>0 and not_ready.all(func(c): return c.x >= 0), "only the ready side of a loaded boundary is touched")
+	var not_ready: Array[Vector2i] = dig(Vector2(-16,768), Vector2i.RIGHT)
+	check(not_ready.size()==30 and not_ready.all(func(c): return c.x >= 0), "only the ready side of a loaded boundary is touched")
 
 func throwing_and_damage() -> void:
 	var player: Node2D = game.player
@@ -269,7 +346,7 @@ func throwing_and_damage() -> void:
 	for i in range(28):
 		stick._physics_process(1.0/60)
 		await frames()
-	check(stick.is_on_floor() and absf(stick.position.y-252)<1 and stick.velocity == Vector2.ZERO, "dynamite rests on one-way shelf")
+	check(stick.stuck and stick.stick_normal == Vector2.UP and absf(stick.position.y-252)<1 and stick.velocity == Vector2.ZERO, "dynamite sticks on one-way shelf")
 	stick.free()
 	stick = Dynamite.new()
 	stick.game = game
@@ -279,36 +356,42 @@ func throwing_and_damage() -> void:
 	for i in range(28):
 		stick._physics_process(1.0/60)
 		await frames()
-	check(stick.is_on_floor() and stick.velocity == Vector2.ZERO, "dynamite rests on rock")
+	check(stick.stuck and stick.stick_normal == Vector2.UP and stick.velocity == Vector2.ZERO, "dynamite sticks on rock")
 	var floor_y: float = stick.position.y
-	game.terrain.dynamite_explode(stick.position+Vector2(0,32))
+	dig(stick.position, Vector2i.DOWN)
 	await frames(2)
 	for i in range(10):
 		stick._physics_process(1.0/60)
 		await frames()
-	check(stick.position.y > floor_y+5, "dynamite falls again when supporting floor is destroyed")
+	check(stick.position.y > floor_y+5 and not stick.stuck, "dynamite falls again when supporting floor is destroyed")
 	stick.free()
-	# Blast overlaps the edge of bodies, rather than requiring actor centers.
+	# Damage covers the shaft and a small core; body edges count, not centers.
 	var center := Vector2(1800,300)
-	player.position = center+Vector2(T.DYNAMITE_RADIUS+T.PLAYER_SIZE.x/2-2,0)
+	player.gravity_sign = 1
+	player.position = center-Vector2(T.DYNAMITE_CORE_RADIUS+T.PLAYER_SIZE.x/2-2,0)
 	player.hp = 100
 	player.invulnerability = 0
 	var gauge: int = player.gauge
 	var blue := extra_enemy("dynamite_blue",910)
 	var orange := extra_enemy("dynamite_orange",911)
 	var distant := extra_enemy("dynamite_outside",912)
-	for e in [blue,orange,distant]: e.hp=30; e.max_hp=30
+	var beside := extra_enemy("dynamite_beside",913)
+	for e in [blue,orange,distant,beside]: e.hp=30; e.max_hp=30
 	blue.polarity=0; orange.polarity=1
 	blue.position=center+Vector2(0,-40)
-	orange.position=center+Vector2(-100,0)
-	distant.position=center+Vector2(200,0)
+	orange.position=center+Vector2(300,0)
+	distant.position=center+Vector2(-200,0)
+	beside.position=center+Vector2(150,110) # Below the shaft and out of later shots' path.
 	var blast := Dynamite.new()
 	blast.game=game; blast.position=center
 	game.projectiles.add_child(blast)
 	blast.set_physics_process(false)
 	blast.detonate()
-	check(player.hp == 100-T.DYNAMITE_SELF_DAMAGE and player.gauge == gauge, "body edge receives colorless self damage without absorption")
-	check(blue.hp == 30-T.DYNAMITE_DAMAGE and orange.hp == 30-T.DYNAMITE_DAMAGE and distant.hp == 30, "both colors damaged at body edge; outside enemy unchanged")
+	var reach: Rect2 = game.terrain.cell_rect_pixels(game.terrain.dynamite_shaft(center, Vector2i.RIGHT))
+	check(blast.blast_direction == Vector2i.RIGHT and blast.blast == Rect2(reach.position-center, reach.size), "blast digs away from the player on the left")
+	check(player.hp == 100-T.DYNAMITE_SELF_DAMAGE and player.gauge == gauge, "core edge gives colorless self damage without absorption")
+	check(blue.hp == 30-T.DYNAMITE_DAMAGE and orange.hp == 30-T.DYNAMITE_DAMAGE, "both colors damaged: core and far end of the shaft")
+	check(distant.hp == 30 and beside.hp == 30, "enemies behind the stick or beside the shaft are unchanged")
 	player.receive_neutral_hit(20)
 	check(player.hp == 80, "self invulnerability is preserved")
 	check(blue.gauge == 0 and orange.gauge == 0, "enemies cannot absorb neutral damage")
@@ -338,7 +421,7 @@ func additional_tests() -> void:
 	terrain.block_removed.connect(game._block_removed)
 	var block := Rect2(2400,320,64,64)
 	terrain.restore_block(Vector2i.ZERO, block)
-	terrain.dynamite_explode(block.get_center())
+	dig(block.get_center(), Vector2i.RIGHT)
 	check(player.hp==50+T.BLOCK_HEAL and not terrain.block_cells.has(terrain.cell_at(block.position)), "dynamite breaks blocks as player attack and heals")
 	# Builder wall stands on unchanged deep rock away from the generated actors.
 	terrain.sectors[Vector2i.ZERO].data.protected_rects=[]
@@ -346,7 +429,7 @@ func additional_tests() -> void:
 	var wall := Rect2(3520,448,32,64)
 	var wall_id: int=terrain.place_wall(wall,98765)
 	check(wall_id>=0, "builder wall fixture is legal")
-	terrain.dynamite_explode(wall.get_center())
+	dig(wall.get_center(), Vector2i.RIGHT)
 	await frames(2)
 	check(not terrain.walls.has(wall_id) and not point_solid(wall.get_center(),T.WALL_LAYER), "dynamite removes wall and collision")
 	var intact := Vector2(3408,784)
@@ -354,15 +437,33 @@ func additional_tests() -> void:
 	terrain.explode(intact,96)
 	await frames(2)
 	check(terrain.occupied.has(cell) and point_solid(intact), "enemy bomb still cannot destroy deep rock")
-	# A side impact stops horizontal travel, and the fuse continues while resting.
+	# The stick holds on to a wall or a ceiling, and the fuse continues there.
 	var side := Dynamite.new()
 	side.game=game;side.position=Vector2(-20,960);side.velocity=Vector2(300,-260)
 	game.projectiles.add_child(side);side.set_physics_process(false)
 	for i in range(5):
 		side._physics_process(1.0/60)
 		await frames()
-	check(side.velocity.x==0 and side.velocity.y>=0 and not side.exploded, "side collision stops horizontal speed and falls screen-down")
+	var held := side.position
+	check(side.stuck and side.stick_normal==Vector2.LEFT and side.velocity==Vector2.ZERO and not side.exploded, "side impact sticks to the wall")
+	for i in range(10):
+		side._physics_process(1.0/60)
+		await frames()
+	check(side.position==held and side.stuck, "stick stays on the wall instead of sliding down")
 	side.free()
+	var ceiling := Dynamite.new()
+	ceiling.game=game;ceiling.position=Vector2(600,1100);ceiling.velocity=Vector2(0,-400)
+	game.projectiles.add_child(ceiling);ceiling.set_physics_process(false)
+	for i in range(20):
+		ceiling._physics_process(1.0/60)
+		await frames()
+	held = ceiling.position
+	check(ceiling.stuck and ceiling.stick_normal==Vector2.DOWN and absf(held.y-1028)<1, "upward impact sticks to the ceiling")
+	for i in range(10):
+		ceiling._physics_process(1.0/60)
+		await frames()
+	check(ceiling.position==held, "stick stays on the ceiling despite screen-down gravity")
+	ceiling.free()
 	var timed := Dynamite.new()
 	timed.game=game;timed.position=Vector2(500,400)
 	game.projectiles.add_child(timed);timed.set_physics_process(false)
@@ -469,7 +570,7 @@ func map_tests() -> void:
 	var geometry: String = str(game.explored_geometry)
 	for map in [mini,large]:
 		check(map._textures.has(at) and map._versions.get(at) == revision, "map draw primes sector texture cache")
-	var removed: Array[Vector2i] = game.terrain.dynamite_explode(Vector2(6000,784))
+	var removed: Array[Vector2i] = dig(Vector2(6000,784), Vector2i.RIGHT)
 	game.refresh_dynamite_map(removed)
 	mini.update_map()
 	large.queue_redraw()
@@ -481,7 +582,7 @@ func map_tests() -> void:
 	for cell: Vector2i in removed:
 		var key := Vector2i(floori(float(cell.x)*T.TILE_SIZE/T.MAP_CELL_SIZE), floori(float(cell.y)*T.TILE_SIZE/T.MAP_CELL_SIZE))
 		var pixel := cell-at*Vector2i(T.SECTOR_SIZE/T.TILE_SIZE)
-		if key == unknown:
+		if not game.explored_cells.has(key):
 			unknown_removed += 1
 			check(image.get_pixelv(pixel).a == 0, "unexplored blast pixel stays hidden")
 		else:
@@ -517,7 +618,7 @@ func origin_shift_tests() -> void:
 	var center := base+Vector2(2048,768)
 	await frames(2)
 	check(point_solid(center), "origin fixture begins with deep physical rock")
-	var removed: Array[Vector2i] = game.terrain.dynamite_explode(center)
+	var removed: Array[Vector2i] = dig(center, Vector2i.RIGHT)
 	await frames(2)
 	var stick := Dynamite.new()
 	stick.game = game
@@ -540,7 +641,7 @@ func origin_shift_tests() -> void:
 	check(stick.velocity == velocity and stick.elapsed == elapsed and not stick.exploded, "recenter preserves flying dynamite velocity and fuse")
 	for cell: Vector2i in removed:
 		check(not game.terrain.occupied.has(cell) and not point_solid(game.terrain.pixel_of_cell(cell)+Vector2(16,16)), "game origin shift preserves every excavated cell and collision")
-	check(point_solid(Vector2(2160,784)), "game origin shift retains adjacent rock collision")
+	check(point_solid(Vector2(2032,784)) and point_solid(Vector2(2160,880)), "game origin shift retains adjacent rock collision")
 	stick._physics_process(1.0/60)
 	await frames()
 	check(stick.position.is_equal_approx(position-base+(velocity+Vector2(0,T.DYNAMITE_GRAVITY/60))*1.0/60), "flying dynamite continues correct trajectory after recenter")
@@ -548,12 +649,12 @@ func origin_shift_tests() -> void:
 	stick.free()
 	probe.free()
 	var again := Vector2(2560,768)
-	var shifted_removed: Array[Vector2i] = game.terrain.dynamite_explode(again)
+	var shifted_removed: Array[Vector2i] = dig(again, Vector2i.RIGHT)
 	await frames(2)
-	check(shifted_removed.size()>10, "game recentered blast removes deep rock")
+	check(shifted_removed.size()==33, "game recentered blast removes deep rock")
 	for cell: Vector2i in shifted_removed:
 		check(not game.terrain.occupied.has(cell) and not point_solid(game.terrain.pixel_of_cell(cell)+Vector2(16,16)), "post-recenter blast matches removed cells and physical holes")
-	for point in [Vector2(2160,784),Vector2(2672,784),Vector2(2400,784)]:
+	for point in [Vector2(2400,784),Vector2(2528,784),Vector2(2560,880),Vector2(2944,784)]:
 		check(game.terrain.occupied.has(game.terrain.cell_at(point)) and point_solid(point), "post-recenter explosions retain surrounding rock collision")
 
 func run() -> void:
@@ -566,6 +667,7 @@ func run() -> void:
 	freeze()
 	await acquisition()
 	await terrain_tests()
+	await shaft_shape_tests()
 	await throwing_and_damage()
 	await additional_tests()
 	await map_tests()

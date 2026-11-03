@@ -72,6 +72,10 @@ func unlocking() -> void:
 	check(game.kills == 20 and game.boss_arrow_state().is_empty(), "twenty real ordinary defeats remain locked")
 	game.ui.update_hud()
 	check(game.ui.boss_arrow_label.text == T.ENHANCER_NAME + "を倒すとボスの方角が分かる", "hint unchanged by ordinary defeats")
+	check(game.announcement_remaining == 0 or game.announcement.begins_with("ダイナマイト"), "ordinary defeats announce only dynamite (Task 9C)")
+	# Clearing rooms on the way awards dynamite (Task 9C); start the boss check without that notice.
+	game.announcement = ""
+	game.announcement_remaining = 0
 	var boss := fixture_boss(0, game.player.position + Vector2(2000, 0))
 	boss.receive_hit(1 - boss.polarity, 999)
 	await frames(2)

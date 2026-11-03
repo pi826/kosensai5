@@ -31,7 +31,9 @@ func freeze() -> void:
 
 func restored(label: String, original: Array) -> void:
 	check([Engine.time_scale, AudioServer.playback_speed_scale, Engine.physics_ticks_per_second] == original, label+": exact global restore")
-	check(not game.boss_impact.active and not game.boss_impact.visible and game.camera.offset == Vector2.ZERO, label+": layer / camera reset")
+	# Task 9D: a dash shake still running (frozen fixtures never decay it) may
+	# keep its own offset; the impact's share must be gone.
+	check(not game.boss_impact.active and not game.boss_impact.visible and game.impact_shake == Vector2.ZERO and (game.shake_remaining > 0 or game.camera.offset == Vector2.ZERO), label+": layer / camera reset")
 
 func retained(label: String, scales: Array) -> void:
 	game.boss_impact.advance(0.0)

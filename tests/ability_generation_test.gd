@@ -88,7 +88,7 @@ func physical_branches() -> void:
 			var dx: float = branch.position.x-fixture.player.position.x
 			Input.action_release("move_left")
 			Input.action_release("move_right")
-			if absf(dx)>2: Input.action_press("move_right" if dx>0 else "move_left")
+			if absf(dx)>2 and not G.ability_steer_paused(profile, frame): Input.action_press("move_right" if dx>0 else "move_left")
 			await frames()
 			if frame > 2 and fixture.player.is_on_floor():
 				landed = absf(fixture.player.position.y-branch.position.y)<2 and absf(dx)<T.DETOUR_WIDTH/2-16

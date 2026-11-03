@@ -15,8 +15,14 @@ const KeyBindings := preload("res://scripts/key_bindings.gd")
 const BossCycle := preload("res://scripts/boss_cycle.gd")
 const O := preload("res://scripts/origin_shift.gd")
 const AudioDirector := preload("res://scripts/audio_director.gd")
+const DashAfterimages := preload("res://scripts/dash_afterimages.gd")
 var audio: Node
 var boss_impact: CanvasLayer
+var impact_shake := Vector2.ZERO # Written by boss_impact; summed with the dash shake.
+var shake_strength := 0.0
+var shake_time := 0.0
+var shake_remaining := 0.0
+var dash_afterimages: Node2D
 var impact_effect_override := -1
 var audio_settings_path := "user://audio.cfg"
 var audio_synthesis_override := -1
@@ -293,6 +299,8 @@ func _random_seed() -> int:
 
 func start_run(stage_seed: int) -> void:
 	if is_instance_valid(boss_impact): boss_impact.cancel()
+	impact_shake = Vector2.ZERO
+	shake_remaining = 0.0
 	var started := Time.get_ticks_usec()
 	if is_instance_valid(audio): audio.reset_run()
 	stream_install_ms = 0.0
@@ -381,6 +389,7 @@ func start_run(stage_seed: int) -> void:
 	player.position = stage.start_position
 	player.z_index = 2
 	world.add_child(player)
+	effects.player = player
 	state = "playing"
 	ui.menu.hide()
 	ui.settings_overlay.hide()
@@ -541,6 +550,31 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	camera.position = camera_target(delta, snap)
 	if snap:
 		camera.reset_smoothing()
+	shake_remaining = maxf(0.0, shake_remaining - delta)
+	apply_camera_offset()
+
+func shake_camera(pixels: float, seconds: float) -> void:
+	shake_strength = pixels
+	shake_time = seconds
+	shake_remaining = seconds
+	apply_camera_offset()
+
+func apply_camera_offset() -> void:
+	# Offset only: camera.position, view_rect() and streaming never see the shake.
+	if not is_instance_valid(camera): return
+	var offset := impact_shake
+	if shake_remaining > 0.0:
+		var age := shake_time - shake_remaining
+		offset += Vector2(sin(age * 90.0), cos(age * 117.0)) * shake_strength * shake_remaining / shake_time
+	camera.offset = offset
+
+func dash_afterimage(actor: CharacterBody2D) -> void:
+	if not is_instance_valid(effects): return
+	if not is_instance_valid(dash_afterimages) or dash_afterimages.get_parent() != effects:
+		dash_afterimages = DashAfterimages.new()
+		dash_afterimages.name = "DashAfterimages"
+		effects.add_child(dash_afterimages)
+	dash_afterimages.record(actor)
 
 func camera_target(delta: float, snap: bool = false) -> Vector2:
 	var look := clampf(player.velocity.x / T.MOVE_SPEED, -1.0, 1.0) * T.CAMERA_LOOK_AHEAD
@@ -875,6 +909,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.faction == 0:
 		dynamite_stock = 0
 		dynamite_claimed.clear()
+		if is_instance_valid(dash_afterimages): dash_afterimages.clear()
 		play_sound("death", actor.position)
 		if not ending:
 			ending = true
@@ -995,7 +1030,7 @@ func grant_loot(content: Dictionary) -> void:
 func ability_help(ability: int) -> String:
 	var jump: String = key_bindings.get_binding_text("jump")
 	match ability:
-		T.ABILITY_DASH: return "空中ダッシュを覚えた！ 空中で 方向（上 %s・下 %s・左 %s・右 %s）＋ %s でその方向へ（着地まで1回）" % [key_bindings.get_binding_text("move_up"), key_bindings.get_binding_text("move_down"), key_bindings.get_binding_text("move_left"), key_bindings.get_binding_text("move_right"), key_bindings.get_binding_text("dash")]
+		T.ABILITY_DASH: return "空中ダッシュを覚えた！ 空中で 方向（上 %s・下 %s・左 %s・右 %s、斜めも可）＋ %s。ダッシュ中も方向で向きを変えられる（着地まで1回）" % [key_bindings.get_binding_text("move_up"), key_bindings.get_binding_text("move_down"), key_bindings.get_binding_text("move_left"), key_bindings.get_binding_text("move_right"), key_bindings.get_binding_text("dash")]
 		T.ABILITY_GLIDE: return "滑空を覚えた！ 落下中に %s を押し続ける" % jump
 	return ""
 

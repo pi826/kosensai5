@@ -580,6 +580,11 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false, previous:
 # Discrete 60 Hz schedules use the same impulses, acceleration, fall cap and
 # dash duration as player.gd. Rectangular sweeps reject rock and early landings.
 # Real CharacterBody2D measurements verify these schedules in abilities_test.
+static func ability_steer_paused(profile: Dictionary, frame: int) -> bool:
+	# An up-dash is planned straight up with the side key back on its last frame
+	# (for the exit speed). Holding the side key earlier would steer the dash.
+	return profile.dash_up and frame >= profile.dash and frame < profile.dash + ceili(T.AIR_DASH_TIME * 60) - 1
+
 static func flight_profiles(abilities: int) -> Array:
 	var out: Array = []
 	for profile: Dictionary in T.ABILITY_FLIGHT_SCHEDULES:

@@ -15,7 +15,9 @@ var abilities := 0
 var air_dash_used := false
 var dash_remaining := 0.0
 var dash_vector := Vector2.RIGHT
+var dash_frames := 0
 var pending_dash := false
+var aim_indicator_remaining := 0.0
 var gravity_sign := 1
 var flip_ready := true
 var pending_flip := false
@@ -93,6 +95,7 @@ func throw_dynamite() -> bool:
 	stick.game = game
 	stick.position = position
 	stick.velocity = Vector2(facing * T.DYNAMITE_THROW_SPEED.x, -T.DYNAMITE_THROW_SPEED.y)
+	stick.throw_facing = facing
 	game.projectiles.add_child(stick)
 	game.dynamite_stock -= 1
 	return true
@@ -104,6 +107,16 @@ func _ready() -> void:
 
 func aim_name() -> String:
 	return T.AIM_NAMES[aim_index]
+
+func dash_steering() -> Vector2:
+	# Eight screen directions; independent of the gravity sign.
+	var h := signf(Input.get_axis("move_left", "move_right"))
+	var v := int(Input.is_action_pressed("move_down")) - int(Input.is_action_pressed("move_up"))
+	return Vector2(h, v).normalized()
+
+func aim_indicator_alpha() -> float:
+	var fade := T.AIM_INDICATOR_TIME - T.AIM_INDICATOR_SOLID
+	return clampf(aim_indicator_remaining / fade, 0.0, 1.0)
 
 func heal(amount: int) -> int:
 	if dead or amount <= 0:
@@ -150,6 +163,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		game.play_sound("switch", position, 0, 1, polarity)
 	elif event.is_action_pressed("aim_cycle"):
 		aim_index = (aim_index + 1) % T.AIM_ANGLES.size()
+		aim_indicator_remaining = T.AIM_INDICATOR_TIME
 		game.play_sound("aim", position, 0, [1.0, 1.25, 0.8][aim_index])
 		queue_redraw()
 	elif event.is_action_pressed("jump"):
@@ -178,6 +192,7 @@ func _physics_process(delta: float) -> void:
 		throw_dynamite()
 		pending_dynamite = false
 	tick_visuals(delta)
+	aim_indicator_remaining = maxf(0.0, aim_indicator_remaining - delta)
 	shot_cooldown = maxf(0.0, shot_cooldown - delta)
 	var horizontal := Input.get_axis("move_left", "move_right")
 	var dropping := drop_remaining > 0.0
@@ -241,31 +256,41 @@ func _physics_process(delta: float) -> void:
 	gliding = not flipped and not grounded and has_ability(T.ABILITY_GLIDE) and vy > 0 and Input.is_action_pressed("jump")
 	if gliding: vy = minf(vy, T.GLIDE_FALL_SPEED)
 	velocity.y = vy * gravity_sign
+	var steer := dash_steering()
 	if pending_dash and not grounded and not air_dash_used and dash_remaining <= 0 and has_ability(T.ABILITY_DASH):
 		air_dash_used = true
 		dash_remaining = T.AIR_DASH_TIME
-		var v := int(Input.is_action_pressed("move_down")) - int(Input.is_action_pressed("move_up"))
-		var h := signf(horizontal)
-		dash_vector = Vector2(0, v) if v != 0 else Vector2(h if h != 0 else facing, 0)
-		if v == 0 and h != 0: facing = int(h)
+		dash_frames = 0
+		dash_vector = steer if steer != Vector2.ZERO else Vector2(facing, 0)
 		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else T.CRYSTAL_COLOR, "dash")
 		game.play_sound("dash", position)
+		game.shake_camera(T.DASH_SHAKE_PIXELS, T.DASH_SHAKE_TIME)
+	elif dash_remaining > delta and steer != Vector2.ZERO:
+		# Steering keeps the speed and the remaining time. The last dash frame
+		# keeps its direction: keys held then only set the exit speed, which the
+		# planner's up-dash schedules rely on (stage_generator.ability_steer_paused).
+		dash_vector = steer
 	pending_dash = false
 	var dashing := dash_remaining > 0.0
 	if dashing:
+		if dash_vector.x != 0: facing = int(signf(dash_vector.x))
+		if dash_frames % T.DASH_AFTERIMAGE_INTERVAL == 0: game.dash_afterimage(self)
+		dash_frames += 1
 		velocity = dash_vector * T.AIR_DASH_SPEED
 		dash_remaining = maxf(0.0, dash_remaining - delta)
 		gliding = false
 	var before_slide_y := velocity.y
+	var before_slide := global_position
 	move_and_slide()
 	if is_on_floor(): gliding = false
 	if gliding and not was_gliding: game.play_sound("glide", position)
 	if dashing:
-		if (dash_vector.x != 0 and is_on_wall()) or (dash_vector.y != 0 and (is_on_ceiling() or is_on_floor())):
+		# A diagonal dash slides along a surface; it ends only once fully blocked.
+		if (global_position - before_slide).dot(dash_vector) < T.AIR_DASH_SPEED * delta * T.AIR_DASH_BLOCKED_RATIO:
 			dash_remaining = 0.0
 		if dash_remaining <= 0:
 			velocity.x = horizontal * move_speed()
-			velocity.y = T.MAX_FALL_SPEED * gravity_sign if dash_vector.y != 0 and signf(dash_vector.y) == gravity_sign else 0.0
+			velocity.y = T.MAX_FALL_SPEED * dash_vector.y if dash_vector.y != 0 and signf(dash_vector.y) == gravity_sign else 0.0
 	_check_enemy_contact()
 	if dead:
 		return

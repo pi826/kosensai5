@@ -61,6 +61,7 @@ func _ready() -> void:
 	player.game = self
 	player.position = T.TUTORIAL_START
 	world.add_child(player)
+	effects.player = player
 	marker = Marker.new()
 	marker.session = self
 	world.add_child(marker)

@@ -101,7 +101,8 @@ func update_visual() -> void:
 	if rect == null: return
 	var size := get_viewport().get_visible_rect().size
 	rect.size = size
-	game.camera.offset = Vector2(sin(ring_age*85.0), cos(ring_age*103.0))*5.0*maxf(0.0, 1.0-ring_age/0.3)
+	game.impact_shake = Vector2(sin(ring_age*85.0), cos(ring_age*103.0))*5.0*maxf(0.0, 1.0-ring_age/0.3)
+	game.apply_camera_offset()
 	game.camera.force_update_scroll()
 	material_fx.set_shader_parameter("center_px", screen_center())
 	material_fx.set_shader_parameter("viewport_px", size)
@@ -117,7 +118,8 @@ func cancel() -> void:
 		Engine.physics_ticks_per_second = saved_ticks
 		AudioServer.playback_speed_scale = saved_speed
 	active = false
-	if is_instance_valid(game.camera): game.camera.offset = Vector2.ZERO
+	game.impact_shake = Vector2.ZERO
+	if is_instance_valid(game.camera): game.apply_camera_offset()
 	hide()
 	set_process(false)
 

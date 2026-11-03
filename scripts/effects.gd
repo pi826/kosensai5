@@ -10,6 +10,7 @@ var health_display: Node2D
 var player_hp_numbers: Array = []
 var charge_numbers: Array = []
 var crystal_numbers: Array = []
+var player: CharacterBody2D
 const DAMAGE_LIFETIME := 0.8
 
 func show_crystals(at: Vector2, amount: int) -> void:
@@ -49,6 +50,30 @@ func show_player_health(actor: CharacterBody2D, before: int, after: int) -> void
 	if player_hp_numbers.size() > 32:
 		player_hp_numbers.pop_front()
 
+func aim_indicator_visible() -> bool:
+	return is_instance_valid(player) and not player.dead and player.aim_indicator_remaining > 0
+
+func aim_indicator_point() -> Vector2:
+	return player.global_position + player.shot_direction() * T.AIM_INDICATOR_DISTANCE
+
+func _draw_aim_indicator() -> void:
+	# A chevron in the player's color, unlike the sprite of the boss arrow that
+	# also circles the player.
+	if not aim_indicator_visible(): return
+	var direction: Vector2 = player.shot_direction()
+	var side := direction.orthogonal()
+	var at := aim_indicator_point()
+	var alpha: float = player.aim_indicator_alpha()
+	var fill := Color(T.COLORS[player.polarity].lightened(0.3), alpha)
+	var outline := Color(0.03, 0.07, 0.11, alpha)
+	var head := PackedVector2Array([at + direction * 20, at + direction * 4 + side * 12, at + direction * 4 - side * 12])
+	draw_line(at - direction * 16, at + direction * 6, outline, 10)
+	draw_line(at - direction * 14, at + direction * 6, fill, 5)
+	var ring := head.duplicate()
+	ring.append(head[0])
+	draw_colored_polygon(head, fill)
+	draw_polyline(ring, outline, 2.5, true)
+
 func _process(delta: float) -> void:
 	for number: Dictionary in crystal_numbers: number.age += delta
 	crystal_numbers = crystal_numbers.filter(func(n): return n.age < T.PLAYER_HP_NUMBER_TIME)
@@ -87,6 +112,7 @@ func _draw() -> void:
 			for i in range(8):
 				var direction := Vector2.from_angle(i * TAU / 8)
 				draw_line(burst.at + direction * radius * 0.55, burst.at + direction * radius, tint, 3, false)
+	_draw_aim_indicator()
 	var font := ThemeDB.fallback_font
 	for number: Dictionary in crystal_numbers:
 		var at: Vector2 = number.at + Vector2(0, -number.age * 36)

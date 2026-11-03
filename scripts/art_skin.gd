@@ -146,10 +146,6 @@ func _draw() -> void:
 					var fill := style("button-selected")
 					if fill != null: draw_style_box(fill,Rect2(at+Vector2(2,2),Vector2(49,8)))
 					else: draw_rect(Rect2(at+Vector2(2,2),Vector2(49,8)),T.COLORS[player.polarity])
-			var aim: Vector2 = Vector2.RIGHT.rotated(-[0.0,PI/3,-PI/3][player.aim_index])
-			draw_set_transform(Vector2(493,72),aim.angle())
-			Art.draw_frame(self,"boss_arrow","idle",0,age,Vector2.ZERO,1)
-			draw_set_transform(Vector2.ZERO)
 			if not game.is_tutorial():
 				object_icon("crystal",Vector2(844,80),22)
 				object_icon("key",Vector2(984,80),22)

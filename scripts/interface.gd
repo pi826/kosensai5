@@ -11,8 +11,6 @@ var game: Node2D
 var menu: Control
 var health_label: Label
 var health_bar: ProgressBar
-var color_label: Label
-var color_icon: TextureRect
 var boss_color_icon: TextureRect
 var score_label: Label
 var progress_label: Label
@@ -37,7 +35,6 @@ var settings_panel: PanelContainer
 var minimap: Control
 var location_label: Label
 var objective_label: Label
-var angle_label: Label
 var gravity_label: Label
 var announcement_label: Label
 var tutorial_button: Button
@@ -108,17 +105,6 @@ func _ready() -> void:
 	health_bar.add_theme_stylebox_override("fill", health_fill)
 	place(health_bar, Vector2(44, 62), Vector2(275, 7))
 	hud.add_child(health_bar)
-	color_label = hud_label("", 22)
-	place(color_label, Vector2(362, 27), Vector2(135, 32))
-	hud.add_child(color_label)
-	color_icon = TextureRect.new()
-	color_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	color_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	place(color_icon, Vector2(362, 27), Vector2(32, 32))
-	hud.add_child(color_icon)
-	angle_label = hud_label("", 16)
-	place(angle_label, Vector2(362, 61), Vector2(155, 24))
-	hud.add_child(angle_label)
 	gauge_label = hud_label("", 17)
 	place(gauge_label, Vector2(522, 26), Vector2(320, 28))
 	hud.add_child(gauge_label)
@@ -391,12 +377,7 @@ func update_hud() -> void:
 	health_bar.value = health
 	health_bar.modulate = Color("ffac82") if health <= maximum * 0.3 else Color.WHITE
 	var color_index: int = game.player.polarity if live else 0
-	color_icon.texture = Art.icon(color_index)
-	color_icon.visible = color_icon.texture != null
-	color_label.text = "" if color_icon.visible else T.COLOR_NAMES[color_index]
-	color_label.modulate = T.COLORS[color_index]
 	boss_color_icon.hide()
-	angle_label.text = "射撃方向 " + (game.player.aim_name() if live else T.AIM_NAMES[0])
 	var charge: int = game.player.gauge if live else 0
 	var required: int = game.player.absorptions_per_charge() if live else T.ABSORPTIONS_PER_CHARGE
 	gauge_bar.max_value = required

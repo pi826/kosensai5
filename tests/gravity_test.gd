@@ -117,7 +117,9 @@ func dash_tests() -> void:
 		{"actions":["move_left"],"vector":Vector2.LEFT},
 		{"actions":["move_right"],"vector":Vector2.RIGHT},
 		{"actions":[],"vector":Vector2.LEFT},
-		{"actions":["move_up","move_right"],"vector":Vector2.UP},
+		# Task 9D: diagonals replace the old vertical priority.
+		{"actions":["move_up","move_right"],"vector":Vector2(1,-1).normalized()},
+		{"actions":["move_down","move_left"],"vector":Vector2(-1,1).normalized()},
 	]
 	for sample: Dictionary in cases:
 		await reset(T.ABILITY_DASH | T.ABILITY_GLIDE,false)
@@ -128,14 +130,14 @@ func dash_tests() -> void:
 		var start: Vector2=game.player.position
 		tap("dash")
 		await frames()
-		check(game.player.dash_vector==sample.vector and game.player.velocity==sample.vector*T.AIR_DASH_SPEED,"screen direction and vertical priority: %s" % [sample.actions])
+		check(game.player.dash_vector.is_equal_approx(sample.vector) and game.player.velocity.is_equal_approx(sample.vector*T.AIR_DASH_SPEED),"eight screen directions: %s" % [sample.actions])
 		check(not game.player.gliding and game.player.air_dash_used,"dash suppresses glide and consumes aerial use: %s" % [sample.actions])
 		var count:=1
 		while game.player.dash_remaining>0 and count<20:
 			await frames()
 			count+=1
 		check(count==ceili(T.AIR_DASH_TIME*60) and (game.player.position-start).distance_to(sample.vector*176)<0.2,"dash time and displacement: %s" % [sample.actions])
-		var expected_y: float=T.MAX_FALL_SPEED if sample.vector==Vector2.DOWN else 0.0
+		var expected_y: float=T.MAX_FALL_SPEED*sample.vector.y if sample.vector.y>0 else 0.0
 		check(is_equal_approx(game.player.velocity.y,expected_y),"dash exit screen-y velocity: %s" % [sample.actions])
 		var expected_x: float=Input.get_axis("move_left","move_right")*game.player.move_speed()
 		check(is_equal_approx(game.player.velocity.x,expected_x),"dash exit horizontal input speed: %s" % [sample.actions])

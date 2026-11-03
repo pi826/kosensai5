@@ -84,6 +84,7 @@ func flight(profile: Dictionary, steer: bool = true) -> Dictionary:
 		if i == profile.dash + 1:
 			input("dash", false)
 			input("move_up", false)
+		if steer: input("move_right", not G.ability_steer_paused(profile, i))
 		await frames()
 		minimum = minf(minimum, game.player.position.y)
 		count = i + 1

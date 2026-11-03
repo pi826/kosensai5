@@ -345,8 +345,9 @@ func verify_aim_controls() -> void:
 	for angle in [60.0, -60.0, 0.0]:
 		action_tap("aim_cycle")
 		check(game.player.aim_angle() == angle, "aim cycle advances to %d degrees" % angle)
-		game.ui.update_hud()
-		check(game.ui.angle_label.text == "射撃方向 " + T.AIM_NAMES[T.AIM_ANGLES.find(angle)], "HUD shows the current direction")
+		# The direction now appears in the air ahead of the player, only on change.
+		check(game.player.aim_indicator_remaining == T.AIM_INDICATOR_TIME and game.effects.aim_indicator_visible(), "aim change shows the in-air direction arrow")
+		check(game.effects.aim_indicator_point() == game.player.position + game.player.shot_direction() * T.AIM_INDICATOR_DISTANCE, "arrow sits ahead of the player along the shot")
 	game.player.set_physics_process(false)
 	for index in range(3):
 		var angle: float = [0.0, 60.0, -60.0][index]
@@ -758,10 +759,9 @@ func verify_ui_language() -> void:
 	check(game.key_bindings.ACTIONS.aim_cycle == "射撃方向（前→上→下）", "key settings name describes the direction sequence")
 	game.close_key_settings()
 	game.resume_run()
-	for index in range(3):
-		game.player.aim_index = index
-		game.ui.update_hud()
-		check(game.ui.angle_label.text == "射撃方向 " + ["前", "上", "下"][index], "HUD names the selected direction")
+	game.ui.update_hud()
+	var readouts: Array = game.ui.find_children("*", "Label", true, false).filter(func(label): return label.text.begins_with("射撃方向 "))
+	check(readouts.is_empty() and game.ui.get("angle_label") == null and game.ui.get("color_icon") == null, "HUD no longer shows the shot direction or the color")
 	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.hint_label.text.contains("前→上→下"), "help and start hint describe the direction sequence")
 
 func verify_boss_warning() -> void:

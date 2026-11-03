@@ -596,20 +596,32 @@ func _dynamite_cell_allowed(_cell: Vector2i) -> bool:
 func _dynamite_saved(_cut: Rect2i, _removed: Array[Vector2i]) -> void:
 	pass
 
-func dynamite_explode(center: Vector2, radius: float = T.DYNAMITE_RADIUS) -> Array[Vector2i]:
-	var area := Rect2(center-Vector2.ONE*radius, Vector2.ONE*radius*2)
-	var first := cell_at(area.position)
-	var last := cell_at(area.end)+Vector2i.ONE
-	var cut := Rect2i(first, last-first)
+func dynamite_shaft(center: Vector2, direction: Vector2i) -> Rect2i:
+	# DYNAMITE_SHAFT_LENGTH cells from the stick's own cell along direction,
+	# DYNAMITE_SHAFT_WIDTH cells across, centered on that cell.
+	var cell := cell_at(center)
+	var far := cell + direction * (T.DYNAMITE_SHAFT_LENGTH - 1)
+	@warning_ignore("integer_division")
+	var across := Vector2i(absi(direction.y), absi(direction.x)) * (T.DYNAMITE_SHAFT_WIDTH / 2)
+	var first := Vector2i(mini(cell.x, far.x), mini(cell.y, far.y)) - across
+	var last := Vector2i(maxi(cell.x, far.x), maxi(cell.y, far.y)) + across
+	return Rect2i(first, last - first + Vector2i.ONE)
+
+func cell_rect_pixels(cut: Rect2i) -> Rect2:
+	return Rect2(pixel_of_cell(cut.position), Vector2(cut.size) * TILE_SIZE)
+
+func dynamite_dig(cut: Rect2i) -> Array[Vector2i]:
+	var area := cell_rect_pixels(cut)
 	var removed: Array[Vector2i] = []
 	var block_ids := {}
 	var wall_ids := {}
-	for cell: Vector2i in _cells_in(area):
-		if not _dynamite_cell_allowed(cell): continue
-		if (pixel_of_cell(cell)+Vector2.ONE*TILE_SIZE/2).distance_squared_to(center) > radius*radius: continue
-		if block_cells.has(cell): block_ids[block_cells[cell]] = true
-		elif occupied.has(cell): removed.append(cell)
-		if wall_cells.has(cell): wall_ids[wall_cells[cell]] = true
+	for y in range(cut.position.y, cut.end.y):
+		for x in range(cut.position.x, cut.end.x):
+			var cell := Vector2i(x, y)
+			if not _dynamite_cell_allowed(cell): continue
+			if block_cells.has(cell): block_ids[block_cells[cell]] = true
+			elif occupied.has(cell): removed.append(cell)
+			if wall_cells.has(cell): wall_ids[wall_cells[cell]] = true
 	if not removed.is_empty(): _carve_static(cut)
 	for cell: Vector2i in removed:
 		occupied.erase(cell)
@@ -618,7 +630,7 @@ func dynamite_explode(center: Vector2, radius: float = T.DYNAMITE_RADIUS) -> Arr
 		_set_row_cell(cell, 1, false)
 	_dynamite_saved(cut, removed)
 	for id: int in block_ids: _remove_block(id, removed, true)
-	# Include the square's surviving row-owned cells when rebuilding collision.
+	# Include the shaft's surviving row-owned cells when rebuilding collision.
 	var changed: Array[Vector2i] = removed.duplicate()
 	for cell: Vector2i in _cells_in(area.grow(TILE_SIZE)):
 		if dynamic_rock_cells.has(cell): changed.append(cell)
@@ -626,12 +638,12 @@ func dynamite_explode(center: Vector2, radius: float = T.DYNAMITE_RADIUS) -> Arr
 	var removed_walls: Array[Vector2i] = []
 	for id: int in wall_ids:
 		for cell: Vector2i in walls[id].cells.duplicate():
-			if (pixel_of_cell(cell)+Vector2.ONE*TILE_SIZE/2).distance_squared_to(center) <= radius*radius:
+			if cut.has_point(cell):
 				walls[id].cells.erase(cell)
 				_erase_wall_cell(cell)
 				removed_walls.append(cell)
 		if walls[id].cells.is_empty():
 			walls.erase(id)
-			sound_requested.emit("wall_vanish", center)
+			sound_requested.emit("wall_vanish", area.get_center())
 	_changed(removed_walls, T.WALL_LAYER)
 	return removed

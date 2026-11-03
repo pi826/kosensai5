@@ -1,4 +1,5 @@
 extends "res://tests/stream_driver.gd"
+const G := preload("res://scripts/stage_generator.gd")
 
 func release():
 	super.release()
@@ -27,7 +28,10 @@ func step(command: Dictionary) -> bool:
 		if frame == profile.dash + 1:
 			input("dash", false)
 			input("move_up", false)
-		steer(command.target.x)
+		if G.ability_steer_paused(profile, frame):
+			Input.action_release("move_left")
+			Input.action_release("move_right")
+		else: steer(command.target.x)
 		await tick()
 		if not game.player.is_on_floor(): airborne = true
 		elif airborne: break
