@@ -271,17 +271,24 @@ func run_abilities() -> void:
 	await show(start)
 	game.loot_message_remaining = 0
 	game.streaming_enabled = false
-	game.player.abilities = 7
+	game.player.abilities = T.ABILITY_DASH | T.ABILITY_GLIDE
 	game.player.set_physics_process(true)
 	game.set_physics_process(true)
 	await frames(3)
 	action_input("jump",true)
-	await frames(T.ABILITY_SECOND_JUMP_FRAME)
+	await frames(T.ABILITY_DASH_UP_FRAME)
+	action_input("move_up",true)
+	action_input("dash",true)
+	await frames(8)
+	if not game.player.air_dash_used: failures += 1
+	await capture("dash_up")
+	action_input("move_up",false)
+	action_input("dash",false)
+	action_input("jump",false)
+	await frames(100)
 	action_input("jump",false)
 	action_input("jump",true)
-	await frames(8)
-	if not game.player.air_jump_used: failures += 1
-	await capture("double_jump")
+	await frames(12)
 	game.player.facing = 1
 	action_input("dash",true)
 	await frames(3)
@@ -290,12 +297,11 @@ func run_abilities() -> void:
 	action_input("dash",false)
 	action_input("jump",false)
 	await frames(35)
-	# Rendering fixture for held-jump glide, with an already spent air jump.
+	# Rendering fixture for held-jump glide, after the upward dash.
 	game.player.position = start - Vector2(-180,250)
 	game.player.velocity = Vector2(0,180)
 	await frames(1)
 	game.player.coyote = 0
-	game.player.air_jump_used = true
 	action_input("jump",true)
 	await frames(5)
 	if not game.player.gliding: failures += 1

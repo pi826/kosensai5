@@ -11,17 +11,22 @@ const FIXTURE_ORIGIN := Vector2(5800, 1600)
 
 class ObservedMain extends "res://scripts/main.gd":
 	var result_menu_count := 0
-	var guardian_fixtures: Array = []
+	var guardian_fixtures: Dictionary = {}
 	func start_run(seed_value: int) -> void:
 		super.start_run(seed_value)
 		# Combat fixtures exercise all victory orders independently of streaming travel.
 		# Actual guardian loading/unloading is covered by streaming/playthrough tests.
 		streaming_enabled = false
-		if guardian_fixtures.is_empty():
+		if not guardian_fixtures.has(seed_value):
+			guardian_fixtures[seed_value] = []
 			for at in preload("res://scripts/sector_generator.gd").guardian_sectors(seed_value):
 				var data := preload("res://scripts/sector_job.gd").world_data(preload("res://scripts/sector_generator.gd").generate(seed_value, at))
-				guardian_fixtures.append_array(data.spawns.filter(func(s): return s.kind == "boss"))
-		for spawn: Dictionary in guardian_fixtures: stream._spawn(spawn)
+				for spawn: Dictionary in data.spawns.filter(func(s): return s.kind == "boss"):
+					guardian_fixtures[seed_value].append({"spawn": spawn, "data": data})
+		for fixture: Dictionary in guardian_fixtures[seed_value]:
+			# The matching arena data is required even when its sector is not loaded.
+			boss_cycle.initial_spawn(fixture.spawn, fixture.data)
+			stream._spawn(fixture.spawn)
 	func show_menu(next_state: String) -> void:
 		if next_state in ["won", "lost"]:
 			result_menu_count += 1
@@ -384,7 +389,7 @@ func verify_aim_controls() -> void:
 	await frames(3)
 	game.primary_action()
 	check(game.player.aim_angle() == 0, "death retry resets elevation")
-	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.controls_label.text.contains("S / ↓ 薄い足場を降りる") and game.ui.gauge_label.text.begins_with("誘導弾"), "HUD help and stock use the new controls")
+	check(game.ui.controls_label.text.contains("L 射撃方向（前→上→下）") and game.ui.controls_label.text.contains("S / ↓ 下／足場を降りる") and game.ui.controls_label.text.contains("W / ↑ 上") and game.ui.controls_label.text.contains("方向＋Shift 空中ダッシュ（解禁後）") and game.ui.controls_label.text.contains("F 重力反転") and game.ui.gauge_label.text.begins_with("誘導弾"), "HUD help and stock use the new controls")
 
 func verify_platform_attacks() -> void:
 	for use_world in [false, true]:

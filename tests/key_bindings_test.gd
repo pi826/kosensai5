@@ -36,6 +36,16 @@ func _snapshot(keys: RefCounted) -> Dictionary:
 		result[action] = [keys.get_key(action, 0), keys.get_key(action, 1)]
 	return result
 
+func _check_migration(keys: RefCounted, config: ConfigFile, expected: Dictionary, message: String) -> void:
+	var path := _new_path()
+	check(config.save(path) == OK, message + ": fixture saves")
+	var original := FileAccess.get_file_as_bytes(path)
+	keys.load_settings(path)
+	for action: String in KeyBindings.ACTIONS:
+		check([keys.get_key(action, 0), keys.get_key(action, 1)] == expected[action], message + ": " + action)
+	check(keys._has_unique_keys(), message + ": no duplicate keys")
+	check(FileAccess.get_file_as_bytes(path) == original, message + ": load leaves file untouched")
+
 func _tap(key: int) -> void:
 	var event := InputEventKey.new()
 	event.keycode = key
@@ -61,7 +71,7 @@ func run() -> void:
 	check(_snapshot(keys) == KeyBindings.DEFAULTS, "new settings hold default keys")
 	var expected := {
 		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
-		"jump": [KEY_SPACE, KEY_W], "move_down": [KEY_S, KEY_DOWN],
+		"jump": [KEY_SPACE, KEY_NONE], "move_up": [KEY_W, KEY_UP], "gravity_flip": [KEY_F, KEY_NONE], "move_down": [KEY_S, KEY_DOWN],
 		"dash": [KEY_SHIFT, KEY_NONE],
 		"shoot": [KEY_J, KEY_NONE], "switch_color": [KEY_K, KEY_NONE],
 		"aim_cycle": [KEY_L, KEY_NONE], "special": [KEY_SEMICOLON, KEY_NONE],
@@ -69,7 +79,7 @@ func run() -> void:
 	}
 	for action: String in expected:
 		check([keys.get_key(action, 0), keys.get_key(action, 1)] == expected[action], "two-hand default keys: " + action)
-	check(KeyBindings.ACTIONS.move_down == "下へ降りる" and KeyBindings.ACTIONS.aim_cycle == "射撃方向（前→上→下）", "new actions have Japanese names")
+	check(KeyBindings.ACTIONS.move_down == "下へ降りる／下へダッシュ" and KeyBindings.ACTIONS.aim_cycle == "射撃方向（前→上→下）", "new actions have Japanese names")
 	check(KeyBindings.key_text(KEY_SEMICOLON) == ";", "semicolon is displayed literally")
 	check(KeyBindings.ACTIONS.interact == "調べる", "interaction action has no room-travel description")
 	var ui_actions := {}
@@ -80,6 +90,8 @@ func run() -> void:
 				events.append(event.as_text())
 			ui_actions[action] = events
 	keys.apply()
+	check(keys._has_unique_keys(), "v4 defaults have no duplicate keys")
+	check(KeyBindings.ACTIONS.keys().find("move_up") == KeyBindings.ACTIONS.keys().find("move_right") + 1 and KeyBindings.ACTIONS.keys().find("gravity_flip") == KeyBindings.ACTIONS.keys().find("dash") + 1,"new actions follow direction and dash rows")
 	for action in ui_actions:
 		var events: Array[String] = []
 		for event in InputMap.action_get_events(action):
@@ -114,7 +126,7 @@ func run() -> void:
 	check(keys.save_settings(path) == OK, "settings save succeeds")
 	var config := ConfigFile.new()
 	config.load(path)
-	check(config.get_value("controls", "version") == 3, "saved controls version is three")
+	check(config.get_value("controls", "version") == 4, "saved controls version is four")
 	var reloaded := KeyBindings.new()
 	reloaded.load_settings(path)
 	check(_snapshot(reloaded) == saved, "saved settings round-trip")
@@ -147,9 +159,77 @@ func run() -> void:
 		check(reloaded.save_settings(path) == OK, "legacy defaults save explicitly")
 		var upgraded := ConfigFile.new()
 		upgraded.load(path)
-		check(upgraded.get_value("controls", "version") == 3, "explicit save upgrades version to three")
+		check(upgraded.get_value("controls", "version") == 4, "explicit save upgrades version to four")
 		reloaded.load_settings(path)
 		check(_snapshot(reloaded) == KeyBindings.DEFAULTS, "upgraded defaults round-trip")
+	# v3 migration frees the old W jump key before adding upward dash.
+	var v3 := ConfigFile.new()
+	v3.set_value("controls", "version", 3)
+	for action: String in KeyBindings.DEFAULTS:
+		if action not in ["move_up", "gravity_flip"]: v3.set_value("bindings", action, KeyBindings.DEFAULTS[action])
+	v3.set_value("bindings", "jump", [KEY_SPACE, KEY_W])
+	path = _new_path()
+	v3.save(path)
+	var original_v3 := FileAccess.get_file_as_bytes(path)
+	reloaded.load_settings(path)
+	check(_snapshot(reloaded) == KeyBindings.DEFAULTS, "v3 old default jump becomes Space and adds W/up plus F")
+	check(FileAccess.get_file_as_bytes(path) == original_v3, "migration leaves file untouched until explicit save")
+	v3.set_value("bindings", "jump", [KEY_U, KEY_W])
+	v3.save(path)
+	reloaded.load_settings(path)
+	check(reloaded.get_key("jump",1)==KEY_W and reloaded.get_key("move_up",0)==KEY_NONE and reloaded.get_key("move_up",1)==KEY_UP and reloaded._has_unique_keys(),"custom W jump is retained and only free up key is filled")
+	v3.set_value("bindings", "shoot", [KEY_F, KEY_NONE])
+	v3.set_value("bindings", "jump", [KEY_SPACE, KEY_W])
+	var migrated := KeyBindings.DEFAULTS.duplicate(true)
+	migrated.shoot = [KEY_F, KEY_NONE]
+	migrated.gravity_flip = [KEY_R, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 shoot F is retained and gravity gets spare R")
+	check(reloaded.get_binding_text("gravity_flip") == "R", "gravity binding text shows migrated spare key")
+	v3.set_value("bindings", "interact", [KEY_R, KEY_NONE])
+	migrated.interact = [KEY_R, KEY_NONE]
+	migrated.gravity_flip = [KEY_G, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 occupied R makes gravity use next spare G")
+	v3.set_value("bindings", "shoot", [KEY_J, KEY_NONE])
+	v3.set_value("bindings", "interact", [KEY_E, KEY_NONE])
+	v3.set_value("bindings", "aim_cycle", [KEY_UP, KEY_NONE])
+	migrated = KeyBindings.DEFAULTS.duplicate(true)
+	migrated.aim_cycle = [KEY_UP, KEY_NONE]
+	migrated.move_up = [KEY_W, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 old default jump frees W even when up arrow is assigned")
+	v3.set_value("bindings", "jump", [KEY_U, KEY_W])
+	migrated.jump = [KEY_U, KEY_W]
+	migrated.move_up = [KEY_R, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 custom jump keeps W and occupied up arrow makes move_up use R")
+	check(reloaded.get_binding_text("move_up") == "R", "upward direction binding text shows migrated spare key")
+	v3.set_value("bindings", "interact", [KEY_R, KEY_NONE])
+	migrated.interact = [KEY_R, KEY_NONE]
+	migrated.move_up = [KEY_G, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 occupied R makes move_up use next spare G")
+	v3.set_value("bindings", "interact", [KEY_E, KEY_NONE])
+	v3.set_value("bindings", "shoot", [KEY_F, KEY_NONE])
+	migrated.interact = [KEY_E, KEY_NONE]
+	migrated.shoot = [KEY_F, KEY_NONE]
+	migrated.move_up = [KEY_R, KEY_NONE]
+	migrated.gravity_flip = [KEY_G, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 gravity spare skips R already filled for move_up")
+	# A valid old file can occupy every spare and every default of both new actions.
+	var exhausted := ConfigFile.new()
+	exhausted.set_value("controls", "version", 3)
+	var occupied := KeyBindings.MIGRATION_SPARE_KEYS.duplicate()
+	occupied.append_array([KEY_F, KEY_W, KEY_UP])
+	var claimed := {}
+	for action: String in KeyBindings.ACTIONS:
+		if action in ["move_up", "gravity_flip"]: continue
+		var pair: Array = KeyBindings.DEFAULTS[action].duplicate()
+		if not occupied.is_empty(): pair = [occupied.pop_front(), occupied.pop_front()]
+		check(reloaded._valid_pair(action, pair), "exhausted spare fixture has valid row: " + action)
+		for key: int in pair:
+			if key == KEY_NONE: continue
+			check(not claimed.has(key), "exhausted spare fixture has unique key: %s" % key)
+			claimed[key] = true
+		exhausted.set_value("bindings", action, pair)
+	check(occupied.is_empty(), "exhausted spare fixture claims every migration candidate")
+	_check_migration(reloaded, exhausted, KeyBindings.DEFAULTS, "only exhausted spare keys reset all defaults")
 	var partial := ConfigFile.new()
 	partial.set_value("controls", "version", 3)
 	partial.set_value("bindings", "jump", [KEY_U, KEY_NONE])
@@ -165,6 +245,7 @@ func run() -> void:
 	check(reloaded.get_key("switch_color", 0) == KEY_K, "unsafe key falls back to default")
 	check(reloaded.get_key("move_left", 0) == KEY_A, "missing row falls back to default")
 	partial.set_value("bindings", "move_right", [KEY_A, KEY_NONE])
+	partial.set_value("bindings", "move_left", [KEY_A, KEY_LEFT])
 	partial.save(path)
 	reloaded.load_settings(path)
 	check(_snapshot(reloaded) == KeyBindings.DEFAULTS, "conflicting file recovers to safe defaults")
@@ -189,7 +270,7 @@ func run() -> void:
 	await process_frame
 	check(panel.visible and panel.get_rect().end.x <= 1280 and panel.get_rect().end.y <= 720, "settings panel fits 1280 by 720")
 	check(panel._buttons.has("interact"), "settings panel includes interaction action")
-	for action in ["move_down", "aim_cycle", "use_item"]:
+	for action in ["move_down", "aim_cycle", "use_item", "move_up", "gravity_flip"]:
 		check(panel._buttons.has(action), "panel includes new action: " + action)
 		panel._begin_wait(action, 1)
 		_tap(KEY_U)

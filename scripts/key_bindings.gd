@@ -4,9 +4,11 @@ extends RefCounted
 const ACTIONS := {
 	"move_left": "左へ移動",
 	"move_right": "右へ移動",
+	"move_up": "上（空中ダッシュの方向）",
 	"jump": "ジャンプ",
-	"dash": "空中ダッシュ",
-	"move_down": "下へ降りる",
+	"dash": "空中ダッシュ（方向と同時に押す）",
+	"gravity_flip": "重力を反転",
+	"move_down": "下へ降りる／下へダッシュ",
 	"shoot": "通常射撃",
 	"switch_color": "色を切り替え",
 	"aim_cycle": "射撃方向（前→上→下）",
@@ -19,8 +21,10 @@ const ACTIONS := {
 const DEFAULTS := {
 	"move_left": [KEY_A, KEY_LEFT],
 	"move_right": [KEY_D, KEY_RIGHT],
-	"jump": [KEY_SPACE, KEY_W],
+	"move_up": [KEY_W, KEY_UP],
+	"jump": [KEY_SPACE, KEY_NONE],
 	"dash": [KEY_SHIFT, KEY_NONE],
+	"gravity_flip": [KEY_F, KEY_NONE],
 	"move_down": [KEY_S, KEY_DOWN],
 	"shoot": [KEY_J, KEY_NONE],
 	"switch_color": [KEY_K, KEY_NONE],
@@ -32,19 +36,40 @@ const DEFAULTS := {
 	"world_map": [KEY_M, KEY_NONE],
 }
 
+const MIGRATION_SPARE_KEYS := [KEY_R, KEY_G, KEY_C, KEY_X, KEY_Z, KEY_V, KEY_B, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O, KEY_P, KEY_H, KEY_N]
+
 var _bindings: Dictionary = DEFAULTS.duplicate(true)
 
 func load_settings(path: String = "user://controls.cfg") -> void:
 	var config := ConfigFile.new()
 	_bindings = DEFAULTS.duplicate(true)
-	if config.load(path) == OK and config.get_value("controls", "version", 0) == 3:
+	if config.load(path) == OK and config.get_value("controls", "version", 0) in [3, 4]:
+		var missing: Array[String] = []
 		for action: String in ACTIONS:
 			if not config.has_section_key("bindings", action):
+				missing.append(action)
 				continue
 			var stored: Variant = config.get_value("bindings", action)
 			# Recover a damaged or missing action without discarding other valid rows.
 			if _valid_pair(action, stored):
 				_bindings[action] = [int(stored[0]), int(stored[1])]
+		if config.get_value("controls", "version") == 3 and _bindings.jump == [KEY_SPACE, KEY_W]:
+			_bindings.jump = [KEY_SPACE, KEY_NONE]
+		# Missing actions prefer defaults, then spare keys not claimed by other rows.
+		for action: String in missing: _bindings[action] = [KEY_NONE, KEY_NONE]
+		for action: String in missing:
+			for slot in range(2):
+				var key: int = DEFAULTS[action][slot]
+				if key != KEY_NONE and _key_error(action, key).is_empty() and not _bindings.values().any(func(pair): return pair.has(key)):
+					_bindings[action][slot] = key
+			if _bindings[action] == [KEY_NONE, KEY_NONE]:
+				for key: int in MIGRATION_SPARE_KEYS:
+					if _key_error(action, key).is_empty() and not _bindings.values().any(func(pair): return pair.has(key)):
+						_bindings[action][0] = key
+						break
+			if _bindings[action] == [KEY_NONE, KEY_NONE]:
+				_bindings = DEFAULTS.duplicate(true)
+				break
 		# A damaged row can restore a default key already used by another row.
 		# In that case the complete default set is the safe, conflict-free recovery.
 		if not _has_unique_keys():
@@ -123,7 +148,7 @@ func reset_defaults() -> void:
 
 func save_settings(path: String = "user://controls.cfg") -> Error:
 	var config := ConfigFile.new()
-	config.set_value("controls", "version", 3)
+	config.set_value("controls", "version", 4)
 	for action: String in ACTIONS:
 		config.set_value("bindings", action, _bindings[action].duplicate())
 	return config.save(path)

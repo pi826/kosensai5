@@ -37,6 +37,7 @@ var minimap: Control
 var location_label: Label
 var objective_label: Label
 var angle_label: Label
+var gravity_label: Label
 var announcement_label: Label
 var tutorial_button: Button
 var title_button: Button
@@ -158,6 +159,10 @@ func _ready() -> void:
 	boss_arrow_label = hud_label("", 14, Color("a3b4bd"))
 	place(boss_arrow_label, Vector2(44, 182), Vector2(365, 24))
 	hud.add_child(boss_arrow_label)
+	gravity_label = hud_label("重力反転中", 18, Color("ffdf80"))
+	place(gravity_label, Vector2(44, 212), Vector2(240, 28))
+	gravity_label.hide()
+	hud.add_child(gravity_label)
 	minimap = Minimap.new()
 	minimap.game = game
 	place(minimap, Vector2(936, 122), Vector2(320, 104))
@@ -199,13 +204,13 @@ func _ready() -> void:
 	announcement_label.add_theme_color_override("font_shadow_color", Color("07111d"))
 	announcement_label.add_theme_constant_override("shadow_outline_size", 6)
 	hud.add_child(announcement_label)
-	controls_label = hud_label("", 14, Color("97b3c5"))
+	controls_label = hud_label("", 12, Color("97b3c5"))
 	var controls_shade := ColorRect.new()
 	controls_shade.color = Color("040c16c8")
 	controls_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	place(controls_shade,Vector2(12,662),Vector2(1256,58))
 	root.add_child(controls_shade)
-	place(controls_label, Vector2(24, 670), Vector2(1232, 45))
+	place(controls_label, Vector2(24, 664), Vector2(1232, 54))
 	controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(controls_label)
@@ -340,9 +345,10 @@ func refresh_bindings() -> void:
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
 	if not game.is_tutorial():
-		controls_label.text = controls_label.text.replace("ジャンプ", "ジャンプ / %s 空中ダッシュ（解禁後）" % keys.get_binding_text("dash"))
-		controls_label.text += " / %s 回復薬" % keys.get_binding_text("use_item")
-		controls_label.text += " / %s 地図" % keys.get_binding_text("world_map")
+		controls_label.text = "左 %s   右 %s   %s 上   %s 下／足場を降りる   %s ジャンプ\n方向＋%s 空中ダッシュ（解禁後）   %s 重力反転   %s 射撃   %s 色切替   %s 射撃方向（前→上→下）\n%s 誘導弾（1回消費）   %s 調べる   %s 回復薬   %s 地図   %s 一時停止" % [
+			keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("move_up"), keys.get_binding_text("move_down"), keys.get_binding_text("jump"),
+			keys.get_binding_text("dash"), keys.get_binding_text("gravity_flip"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
+			keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("use_item"), keys.get_binding_text("world_map"), keys.get_binding_text("pause_game")]
 	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
@@ -373,6 +379,7 @@ func update_hud() -> void:
 	boss_arrow_label.text = game.boss_arrow_progress()
 	boss_arrow_label.visible = not game.is_tutorial() and game.state == "playing" and not boss_arrow_label.text.is_empty()
 	var live: bool = is_instance_valid(game.player) and not game.player.dead
+	gravity_label.visible = live and not game.is_tutorial() and game.state == "playing" and game.player.get("gravity_sign") == -1
 	var health: int = game.player.hp if live else 0
 	var maximum: int = game.player.max_hp if live else T.PLAYER_HP
 	health_label.text = "HP  %d / %d" % [health, maximum]
@@ -432,7 +439,7 @@ func update_hud() -> void:
 		boss_hp_label.text = str(game.boss.hp)
 		boss_color_icon.texture = Art.icon(game.boss.polarity)
 		boss_color_icon.visible = boss_color_icon.texture != null
-		var boss_name: String = preload("res://scripts/boss_cycle.gd").name_for(game.boss.boss_role)
+		var boss_name: String = preload("res://scripts/boss_cycle.gd").display_name(game.boss.boss_role, game.boss.boss_type)
 		boss_label.text = boss_name if boss_color_icon.visible else "%s  /  %s" % [boss_name, T.COLOR_NAMES[game.boss.polarity]]
 		boss_color_icon.position.x = 640 + boss_label.get_theme_font("font").get_string_size(boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x / 2 + 6
 	hint_label.visible = game.state == "playing" and game.elapsed < 8.0 and live and game.player.position.distance_to(game.stage.start_position) < 400.0

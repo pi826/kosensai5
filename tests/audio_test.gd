@@ -679,7 +679,7 @@ func event_test() -> void:
 	expect("chest_open",func():chest.try_open(),point)
 	check(game.audio.history().any(func(e):return e.id=="item_get"),"chest item acquisition")
 	event_ids.item_get=true
-	expect("ability_get",func():game.grant_loot({"kind":"ability","ability":T.ABILITY_DOUBLE}),point)
+	expect("ability_get",func():game.grant_loot({"kind":"ability","ability":T.ABILITY_DASH}),point)
 	var merchant: Node=game.nearest_merchant()
 	if merchant==null:
 		for candidate in get_nodes_in_group("merchants"):
@@ -728,9 +728,12 @@ func movement_events() -> void:
 	await frames()
 	p.jump_buffer=0.1
 	expect("jump",func():p._physics_process(1.0/60),p.position)
-	p.abilities=T.ABILITY_DOUBLE|T.ABILITY_DASH|T.ABILITY_GLIDE
-	p.jump_buffer=0.1
+	p.abilities=T.ABILITY_DASH|T.ABILITY_GLIDE
+	p.pending_flip=true
 	expect("air_jump",func():p._physics_process(1.0/60),p.position)
+	p.pending_flip=true
+	p.flip_ready=true
+	p._physics_process(1.0/60)
 	p.pending_dash=true
 	expect("dash",func():p._physics_process(1.0/60),p.position)
 	p.dash_remaining=0

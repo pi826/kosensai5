@@ -270,7 +270,7 @@ func persistence_checks() -> void:
 	game.equip("armor","shell")
 	game.equip("weapon","triple")
 	game.equip("charm","homing")
-	game.player.abilities = 7
+	game.player.abilities = T.ABILITY_DASH | T.ABILITY_GLIDE
 	game.player.hp = 89
 	game.potions = 2
 	var saved := {"owned":game.owned_equipment.duplicate(),"equipped":game.player.equipment.duplicate(),"sold":game.merchant_sold.duplicate(),"marks":game.discovered_merchants.duplicate(true),"crystals":game.crystals,"keys":game.keys}
@@ -289,7 +289,7 @@ func persistence_checks() -> void:
 	freeze()
 	npc = merchant(id)
 	check(npc!=null and npc.position==game.local_point(stable) and npc.spawn.stock==stock, "reload restores merchant identity, placement and stock")
-	check(game.owned_equipment==saved.owned and game.player.equipment==saved.equipped and game.crystals==saved.crystals and game.keys==saved.keys and game.potions==2 and game.player.abilities==7, "streaming preserves entire run inventory")
+	check(game.owned_equipment==saved.owned and game.player.equipment==saved.equipped and game.crystals==saved.crystals and game.keys==saved.keys and game.potions==2 and game.player.abilities==(T.ABILITY_DASH | T.ABILITY_GLIDE), "streaming preserves entire run inventory")
 	game.player.position = npc.position+Vector2(-40,0)
 	game.open_shop(npc)
 	check(game.purchase_reason("key")=="売り切れ", "reloaded merchant retains sold-out key")

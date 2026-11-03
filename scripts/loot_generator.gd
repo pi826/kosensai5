@@ -5,8 +5,8 @@ const G := preload("res://scripts/stage_generator.gd")
 const M := preload("res://scripts/merchant_generator.gd")
 
 static func ability_sectors(seed_value: int) -> Dictionary:
-	var out := {T.ABILITY_DOUBLE: Vector2i.ZERO}
-	for ability: int in [T.ABILITY_DASH, T.ABILITY_GLIDE]:
+	var out := {T.ABILITY_DASH: Vector2i.ZERO}
+	for ability: int in [T.ABILITY_GLIDE]:
 		var limits: Vector2i = T.ABILITY_SECTOR_DISTANCE[ability]
 		var candidates: Array[Vector2i] = []
 		for y in range(-limits.y, limits.y + 1):
@@ -85,7 +85,7 @@ static func decorate(s: Dictionary, graph: Dictionary = {}, damaged_graph: Dicti
 	var rng := RandomNumberGenerator.new()
 	rng.seed = ("%d:%d:%d:loot" % [s.seed, s.coord.x, s.coord.y]).hash()
 	G._shuffle(sites, rng)
-	# The first key and double-jump chest are on the safe starting-room route.
+	# The first key and four-direction dash chest share the safe starting route.
 	if s.coord == Vector2i.ZERO:
 		sites.sort_custom(func(a, b): return a.distance_squared_to(s.start_position) < b.distance_squared_to(s.start_position))
 	var sectors := ability_sectors(s.seed)
@@ -116,9 +116,9 @@ static func decorate(s: Dictionary, graph: Dictionary = {}, damaged_graph: Dicti
 	return s
 
 static func _add_detour(s: Dictionary, base: Dictionary, rng, damaged_base: Dictionary = {}) -> void:
-	var wanted: int = [1, 3, 7][rng.randi_range(0, 2)] if s.coord != Vector2i.ZERO else 1
+	var wanted: int = [T.ABILITY_DASH, T.ABILITY_DASH | T.ABILITY_GLIDE][rng.randi_range(0, 1)] if s.coord != Vector2i.ZERO else T.ABILITY_DASH
 	var wanted_profiles := G.flight_profiles(wanted)
-	var prior := 1 if wanted==3 else 3
+	var prior := T.ABILITY_DASH
 	var prior_profiles := G.flight_profiles(prior)
 	var blocked := _site_obstacles(s)
 	var candidates: Array = []
@@ -141,7 +141,7 @@ static func _add_detour(s: Dictionary, base: Dictionary, rng, damaged_base: Dict
 		var arcs := {}
 		# Test the cheaper preceding profiles before trying the longer flights.
 		var prior_reaches := false
-		if wanted != 1:
+		if wanted != T.ABILITY_DASH:
 			for n: Rect2 in base.nodes:
 				if not G._ability_edge(n, shelf, solids, prior, prior_profiles, spatial, arcs).is_empty():
 					prior_reaches = true
@@ -213,7 +213,7 @@ static func errors(s: Dictionary, graph: Dictionary = {}) -> Array[String]:
 		if sectors[id] == s.coord and not abilities.has(id): out.append("Missing ability chest")
 	if s.get("optional_surfaces", []).size() != s.get("detours", []).size(): out.append("Optional surface metadata")
 	for branch: Dictionary in s.get("detours", []):
-		if branch.required not in [1,3,7] or not s.solids.has(branch.shelf) or not s.optional_surfaces.has(branch.shelf):
+		if branch.required not in [T.ABILITY_DASH, T.ABILITY_DASH | T.ABILITY_GLIDE] or not s.solids.has(branch.shelf) or not s.optional_surfaces.has(branch.shelf):
 			out.append("Detour metadata")
 			continue
 		var node := G.node_at(graph,branch.position)

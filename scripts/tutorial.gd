@@ -224,8 +224,8 @@ func add_target(id: String, at: Vector2, neutral: bool = false) -> CharacterBody
 	targets[id] = target
 	return target
 
-func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
-	var bullet := super.spawn_bullet(actor, direction, guided, target)
+func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null, color: int = -1, origin: Vector2 = Vector2.INF) -> Node2D:
+	var bullet := super.spawn_bullet(actor, direction, guided, target, color, origin)
 	if actor == player and not guided: bullet.set_meta("tutorial_aim_index", player.aim_index)
 	if actor.faction == 1: bullet.damage = T.TUTORIAL_DAMAGE
 	return bullet

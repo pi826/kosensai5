@@ -93,12 +93,15 @@ func regular_actions() -> void:
 	action_event("switch_color")
 	check(p.polarity == 1-color, "color switch exercised")
 	retained("switch", scales)
-	p.abilities = T.ABILITY_DOUBLE | T.ABILITY_DASH | T.ABILITY_GLIDE
+	p.abilities = T.ABILITY_DASH | T.ABILITY_GLIDE
 	p.coyote = 0.0
-	action_event("jump")
+	action_event("gravity_flip")
 	p._physics_process(1.0/60.0)
-	check(p.air_jump_used, "air jump exercised")
-	retained("air jump", scales)
+	check(p.gravity_sign == -1, "gravity flip exercised")
+	retained("gravity flip", scales)
+	p.flip_ready = true
+	action_event("gravity_flip")
+	p._physics_process(1.0/60.0)
 	action_event("dash")
 	p._physics_process(1.0/60.0)
 	check(p.air_dash_used and p.dash_remaining > 0, "dash exercised")
@@ -346,6 +349,7 @@ func run() -> void:
 	Engine.time_scale = 1.0
 	AudioServer.playback_speed_scale = 1.0
 	Engine.physics_ticks_per_second = 60
+	DirAccess.make_dir_recursive_absolute("res://builds/qa/sound/task8d")
 	FileAccess.open("res://builds/qa/sound/task8d/impact-results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"timings":timings},"\t"))
 	print("IMPACT RESULT: ",checks," checks, ",failures.size()," failures ",timings)
 	quit(0 if failures.is_empty() else 1)

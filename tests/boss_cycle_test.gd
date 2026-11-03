@@ -78,8 +78,10 @@ func selection_checks():
 		for at: Vector2i in excluded:
 			var initial := Job.world_data(S.generate(seed_value,at))
 			var spawn: Dictionary = initial.spawns.filter(func(s): return s.kind == "boss")[0]
-			var lane := Cycle.roam_rect(initial,initial.chambers[spawn.chamber_id].rect,"guardian",spawn.position)
-			check(lane.has_area() and lane.get_center().distance_to(spawn.position) < 256, "initial guardian roaming range remains near the seeded approach point")
+			var room: Dictionary = initial.chambers[spawn.chamber_id]
+			var zone := G.arena_zone(room.rect,room.arena_tiers)
+			var lane := Cycle.roam_rect(initial,zone,"guardian",Vector2(zone.get_center().x,room.rect.end.y-T.ARENA_BOSS_CENTER_HEIGHT),true)
+			check(lane.has_area() and zone.encloses(lane.grow_individual(T.BOSS_SIZE.x/2,T.BOSS_SIZE.y/2,T.BOSS_SIZE.x/2,T.BOSS_SIZE.y/2)), "initial guardian whole roaming body stays in arena zone")
 		var center := Vector2i(-2, 3)
 		var roles: Array[String] = ["guardian", "guardian", "guardian"]
 		var sites := Cycle.select_sites(seed_value, center, 2, roles, excluded)
@@ -90,7 +92,7 @@ func selection_checks():
 			regions[site.region] = true
 			var data := Job.world_data(S.generate(seed_value, site.sector))
 			check(Stream.distance(center, site.sector) in range(2, 6) and not excluded.has(site.sector), "ring 2..5 and no old sector")
-			check(data.chambers[site.chamber_id].kind == "normal" and site.arena.size.x >= 768 and site.arena.size.y >= 448, "large ordinary chamber selected")
+			check(data.chambers[site.chamber_id].kind == "boss" and S.is_arena_sector(seed_value,site.sector), "dedicated arena selected")
 			check(site.arena.encloses(site.roam.grow_individual(T.BOSS_SIZE.x/2, T.BOSS_SIZE.y/2, T.BOSS_SIZE.x/2, T.BOSS_SIZE.y/2)), "whole roaming body stays inside chamber")
 		check(regions.size() == 3, "revivals occupy all three regions")
 		for role: String in ["final", "secret"]:
@@ -100,6 +102,7 @@ func selection_checks():
 
 func movement_and_attack(e: Node2D):
 	clear_bullets()
+	e.signature_clock = 10000
 	var role: String = e.boss_role
 	var data: Dictionary = game.stream.loaded[e.get_meta("sector")]
 	check(e.max_hp == Cycle.hp_for(role) and e.body_size == Cycle.size_for(role), role + " size and HP")
@@ -126,7 +129,7 @@ func movement_and_attack(e: Node2D):
 		await frames()
 		var body := Rect2(e.position - e.body_size/2, e.body_size).grow(-0.1)
 		inside = inside and e.arena.encloses(body)
-		clear = clear and not (data.solids + data.breakables).any(func(r): return r.intersects(body))
+		clear = clear and not (data.solids.filter(func(r): return r.size.y != 16) + data.breakables).any(func(r): return r.intersects(body))
 		if e.action.begins_with("windup"):
 			warnings += 1
 			if last.distance_to(e.position) > 0.1: warning_motion = true

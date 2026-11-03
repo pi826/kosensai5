@@ -62,6 +62,18 @@ static func _candidate(a: Dictionary, b: Dictionary, rooms: Array, rng) -> Dicti
 		if room.id != a.id and room.id != b.id and exclusion.intersects(room.rect): return {}
 	return {"a": a.id, "b": b.id, "rect": rect, "type": "shaft"}
 
+static func arena_shelves(rect: Rect2, tiers: int) -> Array[Rect2]:
+	var cx := rect.get_center().x
+	var floor_y := rect.end.y
+	var shelves: Array[Rect2] = [Rect2(cx-704, floor_y-160, 448, 16), Rect2(cx+256, floor_y-160, 448, 16), Rect2(cx-384, floor_y-320, 768, 16)]
+	if tiers >= 3:
+		shelves.append(Rect2(cx-640, floor_y-480, 384, 16))
+		shelves.append(Rect2(cx+256, floor_y-480, 384, 16))
+	return shelves
+
+static func arena_zone(rect: Rect2, _tiers: int) -> Rect2:
+	return Rect2(rect.position.x+32, rect.position.y+32, rect.size.x-64, rect.size.y-32-160)
+
 static func _decorate(stage: Dictionary, rng) -> void:
 	var passages: Array = []
 	for e: Dictionary in stage.shafts: passages.append(e.rect.grow(32))
@@ -69,17 +81,26 @@ static func _decorate(stage: Dictionary, rng) -> void:
 	for room: Dictionary in stage.chambers:
 		var r: Rect2 = room.rect
 		room.shelves = stage.solids.filter(func(s): return s.size.y == 16 and r.encloses(s))
-		var wanted := maxi(room.shelves.size(), _pick(rng, 1, T.CAVE_SHELF_MAX_COUNT))
-		for attempt in range(120):
-			if room.shelves.size() >= wanted: break
-			var width := _pick(rng, 4, 8) * 32
-			var x := _pick(rng, int(r.position.x + 32) / 32, int(r.end.x - width - 32) / 32) * 32
-			var y := r.end.y - (_pick(rng, 5, 5) if room.kind == "boss" else _pick(rng, 3, 4)) * 32
-			var shelf := Rect2(x, y, width, 16)
-			var clearance := Rect2(x - 16, y - 96, width + 32, 192)
-			if _any_intersects(stage.solids, clearance): continue
-			stage.solids.append(shelf)
-			room.shelves.append(shelf)
+		if room.has("arena_tiers"):
+			for shelf: Rect2 in arena_shelves(r, room.arena_tiers):
+				var clearance := Rect2(shelf.position-Vector2(16,96), Vector2(shelf.size.x+32,192))
+				if _any_intersects(stage.solids, clearance):
+					stage["_arena_failed"] = true
+					continue
+				stage.solids.append(shelf)
+				room.shelves.append(shelf)
+		else:
+			var wanted := maxi(room.shelves.size(), _pick(rng, 1, T.CAVE_SHELF_MAX_COUNT))
+			for attempt in range(120):
+				if room.shelves.size() >= wanted: break
+				var width := _pick(rng, 4, 8) * 32
+				var x := _pick(rng, int(r.position.x + 32) / 32, int(r.end.x - width - 32) / 32) * 32
+				var y := r.end.y - (_pick(rng, 5, 5) if room.kind == "boss" else _pick(rng, 3, 4)) * 32
+				var shelf := Rect2(x, y, width, 16)
+				var clearance := Rect2(x - 16, y - 96, width + 32, 192)
+				if _any_intersects(stage.solids, clearance): continue
+				stage.solids.append(shelf)
+				room.shelves.append(shelf)
 		if room.kind == "normal":
 			for i in range(_pick(rng, 1, T.CAVE_STEP_MAX_COUNT)):
 				for attempt in range(40):
@@ -561,11 +582,8 @@ static func navigation_graph(stage: Dictionary, damaged: bool = false, previous:
 # Real CharacterBody2D measurements verify these schedules in abilities_test.
 static func flight_profiles(abilities: int) -> Array:
 	var out: Array = []
-	for required in [T.ABILITY_DOUBLE, T.ABILITY_DASH, T.ABILITY_GLIDE, 3, 5, 6, 7]:
-		if (abilities & required) != required: continue
-		out.append({"required": required, "second": T.ABILITY_SECOND_JUMP_FRAME if required & T.ABILITY_DOUBLE else -1,
-			"dash": (T.ABILITY_SECOND_JUMP_FRAME + T.ABILITY_DASH_FRAME if required & T.ABILITY_DOUBLE else T.ABILITY_DASH_FRAME) if required & T.ABILITY_DASH else -1,
-			"glide": bool(required & T.ABILITY_GLIDE)})
+	for profile: Dictionary in T.ABILITY_FLIGHT_SCHEDULES:
+		if (abilities & profile.required) == profile.required: out.append(profile.duplicate())
 	return out
 
 static func ability_arc(from: Vector2, target: Rect2, solids: Array, profile: Dictionary) -> Dictionary:
@@ -574,7 +592,6 @@ static func ability_arc(from: Vector2, target: Rect2, solids: Array, profile: Di
 	var target_y := target.position.y
 	var landing_left := target.position.x + half.x + 2
 	var landing_right := target.end.x - half.x - 2
-	var second = profile.second
 	var dash = profile.dash
 	var glide = profile.glide
 	var point := from
@@ -585,20 +602,25 @@ static func ability_arc(from: Vector2, target: Rect2, solids: Array, profile: Di
 	var samples: Array = [point]
 	for frame in range(T.ABILITY_FLIGHT_FRAMES):
 		var axis := signf(target_x - point.x) if absf(target_x - point.x) > 2 else 0.0
-		speed.x = move_toward(speed.x, axis * T.MOVE_SPEED, (T.AIR_ACCELERATION if axis != 0 else T.AIR_DECELERATION) / 60.0)
-		if frame == second: speed.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
+		var acceleration: float = (T.GROUND_ACCELERATION if axis != 0 else T.GROUND_DECELERATION) if frame == 0 else (T.AIR_ACCELERATION if axis != 0 else T.AIR_DECELERATION)
+		speed.x = move_toward(speed.x, axis * T.MOVE_SPEED, acceleration / 60.0)
 		speed.y = minf(speed.y + (T.GRAVITY if speed.y < 0 else T.FALL_GRAVITY) / 60.0, T.MAX_FALL_SPEED)
 		if glide and speed.y > 0: speed.y = minf(speed.y, T.GLIDE_FALL_SPEED)
 		if frame == dash: dash_left = T.AIR_DASH_TIME
 		var was_dashing := dash_left > 0
 		if dash_left > 0:
-			speed = Vector2(dash_dir * T.AIR_DASH_SPEED, 0)
+			speed = Vector2(0, -T.AIR_DASH_SPEED) if profile.dash_up else Vector2(dash_dir * T.AIR_DASH_SPEED, 0)
 			dash_left = maxf(0, dash_left - 1.0 / 60)
 		var next := point + speed / 60.0
-		if was_dashing and dash_left <= 0: speed.x = axis * T.MOVE_SPEED
+		if was_dashing and dash_left <= 0:
+			speed.x = axis * T.MOVE_SPEED
+			speed.y = 0
 		var sweep := Rect2(point - half, T.PLAYER_SIZE).merge(Rect2(next - half, T.PLAYER_SIZE)).grow(-0.1)
 		for solid: Rect2 in solids:
 			if solid.size.y == 16:
+				# Conservative routes avoid fast upward overlap with one-way shapes;
+				# their engine recovery can add movement beyond the planned dash.
+				if was_dashing and profile.dash_up and solid.intersects(sweep): return {}
 				if speed.y <= 0 or point.y + half.y > solid.position.y + 0.1 or next.y + half.y < solid.position.y: continue
 				if next.x + half.x <= solid.position.x or next.x - half.x >= solid.end.x: continue
 				if solid.position.y == target_y and next.x >= landing_left and next.x <= landing_right:
@@ -622,29 +644,38 @@ static func _ability_edge(lower: Rect2, upper: Rect2, solids: Array, abilities: 
 	if lower.size.x < 48 or upper.size.x < 48: return {}
 	if lower.position.y - upper.position.y > 320 or upper.position.y - lower.position.y > 640: return {}
 	var tx := upper.get_center().x
-	var fx := clampf(tx, lower.position.x + 24, lower.end.x - 24)
-	if absf(fx - tx) > 1200: return {}
-	var near: Array = []
-	var filtered := false
+	var default_fx := clampf(tx, lower.position.x + 24, lower.end.x - 24)
+	if absf(default_fx - tx) > 1200: return {}
+	var nearby_by_x := {}
 	if profiles.is_empty(): profiles = flight_profiles(abilities)
 	for profile: Dictionary in profiles:
-		var measured: Array = T.ABILITY_HOP_PROFILES[profile.required]
+		var fx := default_fx
+		if profile.dash_up:
+			# Approach from the side when support permits: a fast vertical passage
+			# through a one-way shelf can trigger Godot's penetration recovery.
+			var left := clampf(tx - 192, lower.position.x + 24, lower.end.x - 24)
+			var right := clampf(tx + 192, lower.position.x + 24, lower.end.x - 24)
+			fx = left if absf(left - tx) >= absf(right - tx) else right
+		var near: Array = []
+		var measured: Array = T.ABILITY_HOP_PROFILES[profile.id]
 		if lower.position.y - upper.position.y > measured[0] - T.LANDING_MARGIN: continue
 		var extra: float = maxf(0, upper.position.y - lower.position.y) / T.GLIDE_FALL_SPEED * T.MOVE_SPEED if profile.glide else maxf(0, upper.position.y - lower.position.y)
 		if absf(fx - upper.get_center().x) > measured[1] + extra - T.HOP_REACH_MARGIN: continue
 		var from := Vector2(fx, lower.position.y - 22)
-		var key := Vector3(from.x, from.y, profile.required)
+		var key := Vector3(from.x, from.y, profile.key)
 		if cache_arcs and arcs.has(key) and (arcs[key] as Dictionary).is_empty(): continue
 		# Most surface pairs fail the measured bounds. Filter obstacles only
 		# once a profile can actually cover this height and distance.
-		if not filtered:
+		if not nearby_by_x.has(fx):
 			var candidates: Array = solids
 			if not spatial.is_empty():
 				candidates = _x_near(spatial.solids,spatial.buckets,minf(fx,tx)-96,maxf(fx,tx)+96,spatial.cache).duplicate()
 				candidates.append(upper)
 			for r: Rect2 in candidates:
 				if r.position.x < maxf(fx, tx) + 96 and r.end.x > minf(fx, tx) - 96 and r.position.y < lower.position.y + 700 and r.end.y > lower.position.y - 400: near.append(r)
-			filtered = true
+			nearby_by_x[fx] = near
+		else:
+			near = nearby_by_x[fx]
 		var arc: Dictionary
 		if cache_arcs and arcs.has(key): arc = arcs[key]
 		else:

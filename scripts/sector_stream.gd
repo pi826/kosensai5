@@ -330,6 +330,7 @@ func _spawn(spawn: Dictionary) -> void:
 	enemy.spawn_id = spawn.id
 	if not record.is_empty():
 		enemy.boss_role = record.role
+		enemy.boss_type = record.get("boss_type", "")
 		enemy.arena = record.arena
 		enemy.roam = record.roam
 		enemy.position = record.position
@@ -520,11 +521,19 @@ func _begin_unload(at: Vector2i) -> void:
 	population_sources.erase(at)
 	var saved: Dictionary = game.terrain.snapshot(at)
 	saved.actors = {}
+	# Snapshot counts before freeing any actor: group order is not ownership order.
+	var summon_survivors := {}
+	for enemy in game.get_tree().get_nodes_in_group("enemies"):
+		if enemy.get_parent() != game.world or enemy.dead or enemy.is_queued_for_deletion() or not enemy.has_meta("summoned_by"): continue
+		var owner_id: int = enemy.get_meta("summoned_by")
+		summon_survivors[owner_id] = int(summon_survivors.get(owner_id, 0)) + 1
 	for enemy in game.get_tree().get_nodes_in_group("enemies"):
 		if enemy.get_parent() != game.world or enemy.get_meta("sector", Vector2i(2147483647, 2147483647)) != at: continue
-		if not enemy.dead and not enemy.is_queued_for_deletion():
+		if not enemy.dead and not enemy.is_queued_for_deletion() and not enemy.has_meta("summoned_by"):
 			var actor := {}
-			for field in ["hp", "max_hp", "loop_level", "gauge", "polarity", "position", "velocity", "facing", "shot_clock", "switch_clock", "build_clock", "flight_clock", "flight_center_y", "pattern", "body_size", "move_clock", "move_direction"]: actor[field] = enemy.get(field)
+			for field in ["hp", "max_hp", "loop_level", "gauge", "polarity", "position", "velocity", "facing", "shot_clock", "switch_clock", "build_clock", "flight_clock", "flight_center_y", "pattern", "body_size", "move_clock", "move_direction", "signature_clock", "signature_index", "spin_direction", "summon_wave", "summons_to_restore"]: actor[field] = enemy.get(field)
+			if enemy.kind == "boss" and enemy.boss_role == "guardian" and enemy.boss_type == "summoner":
+				actor.summons_to_restore += int(summon_survivors.get(enemy.boss_id, 0))
 			saved.actors[enemy.spawn_id] = actor
 			if enemy.kind == "boss": game.boss_cycle.remember(enemy, actor)
 		enemy.cancel_attack()

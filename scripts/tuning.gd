@@ -78,22 +78,27 @@ const LOOT_SIZE := Vector2(32, 32)
 const LOOT_SPACING := 80.0
 const LOOT_MESSAGE_TIME := 4.0
 const KEY_NEEDED_TIME := 1.4
-const ABILITY_DOUBLE := 1
 const ABILITY_DASH := 2
 const ABILITY_GLIDE := 4
-const DOUBLE_JUMP_RATIO := 0.85
 const AIR_DASH_TIME := 0.18
 const AIR_DASH_SPEED := MOVE_SPEED * 3.0
 const GLIDE_FALL_SPEED := 120.0
-const ABILITY_NAMES := {1: "二段ジャンプ", 2: "空中ダッシュ", 4: "滑空"}
-const ABILITY_SECTOR_DISTANCE := {1: Vector2i(0, 1), 2: Vector2i(2, 3), 4: Vector2i(2, 4)}
+const ABILITY_NAMES := {2: "空中ダッシュ", 4: "滑空"}
+const ABILITY_SECTOR_DISTANCE := {2: Vector2i(0, 0), 4: Vector2i(2, 4)}
 # Input schedules shared by the planner and real-physics verification.
-const ABILITY_SECOND_JUMP_FRAME := 22
 const ABILITY_DASH_FRAME := 24
+const ABILITY_DASH_UP_FRAME := 22
+const ABILITY_FLIGHT_SCHEDULES := [
+	{"key": 0, "id": "dash_side", "required": 2, "dash": ABILITY_DASH_FRAME, "dash_up": false, "glide": false},
+	{"key": 1, "id": "dash_up", "required": 2, "dash": ABILITY_DASH_UP_FRAME, "dash_up": true, "glide": false},
+	{"key": 2, "id": "glide", "required": 4, "dash": -1, "dash_up": false, "glide": true},
+	{"key": 3, "id": "dash_side_glide", "required": 6, "dash": ABILITY_DASH_FRAME, "dash_up": false, "glide": true},
+	{"key": 4, "id": "dash_up_glide", "required": 6, "dash": ABILITY_DASH_UP_FRAME, "dash_up": true, "glide": true},
+]
 const ABILITY_FLIGHT_FRAMES := 240
 # [measured maximum rise, flat landing reach, flight frames], from rest at 60 Hz.
-const ABILITY_HOP_PROFILES := {1: [296.8885, 357.2266, 69], 2: [173.0190, 394.5601, 54], 4: [173.0190, 575.8934, 110],
-	3: [296.8885, 549.2265, 83], 5: [296.8885, 1007.8917, 191], 6: [173.0190, 757.2260, 122], 7: [296.8885, 1183.8925, 202]}
+const ABILITY_HOP_PROFILES := {"dash_side": [173.0190, 394.5601, 54], "dash_up": [349.0190, 271.8931, 64],
+	"glide": [173.0190, 575.8934, 110], "dash_side_glide": [173.0190, 757.2260, 122], "dash_up_glide": [349.0190, 1045.2251, 209]}
 const DETOUR_WIDTH := 128.0
 const DETOUR_REWARD := 40
 # Merchant / run inventory. Catalog order also defines the equipment screen.
@@ -163,7 +168,7 @@ const ENEMY_HP := 2
 const BOSS_HP := 80
 const ENEMY_SCORE := 100
 const BOSS_SCORE := 1000
-# Boss progression uses existing chambers; terrain generation is unchanged.
+# Boss progression selects dedicated seeded arena sectors in the persistent world.
 const FINAL_BOSS_SIZE := Vector2(140, 140)
 const SECRET_BOSS_SIZE := Vector2(164, 164)
 const FINAL_BOSS_HP := 160
@@ -175,8 +180,38 @@ const SECRET_BOSS_CHARGE_REWARD := 5
 const FINAL_BOSS_CLEARS := 3
 const BOSS_SPAWN_DISTANCE_MIN := 2
 const BOSS_SPAWN_DISTANCE_MAX := 5
-const BOSS_ROOM_MIN := Vector2(768, 448)
-const BOSS_ROAM_TRAVEL := {"guardian": Vector2(192, 48), "final": Vector2(320, 96), "secret": Vector2(352, 112)}
+const ARENA_BLOCK := 3
+const ARENA_START_EXCLUSION := 1
+const ARENA_WIDTH_MIN := 1664
+const ARENA_WIDTH_MAX := 1920
+const ARENA_HEIGHT := 1024
+const ARENA_BOSS_CENTER_HEIGHT := 360.0
+const ARENA_FLYER_HEIGHT := 400.0
+const ARENA_TIERS := 3
+const ARENA_TIER_STEP := 160
+const ARENA_FALLBACK_RECT := Rect2(1696, 928, 1920, 832)
+const ARENA_FALLBACK_TIERS := 2
+const BOSS_SPAWN_DISTANCE_FALLBACK_MAX := 8
+const BOSS_ROAM_TRAVEL := {"guardian": Vector2(480, 120), "final": Vector2(640, 160), "secret": Vector2(720, 176)}
+const BOSS_RETURN_SPEED := 320.0
+const GUARDIAN_TYPES := ["summoner", "spinner", "charger"]
+const GUARDIAN_TYPE_NAMES := {"summoner": "召喚", "spinner": "旋回", "charger": "突進"}
+const BOSS_SIGNATURE_ORDER := ["spinner", "summoner", "charger"]
+const BOSS_SIGNATURE_DELAY := 2.5
+const BOSS_SIGNATURE_INTERVAL := {"guardian": 7.0, "final": 6.0, "secret": 5.0}
+const BOSS_SPIN_WARNING := 0.6
+const BOSS_SPIN_DURATION := {"guardian": 3.0, "final": 3.0, "secret": 3.5}
+const BOSS_SPIN_SHOT_INTERVAL := {"guardian": 0.2, "final": 0.18, "secret": 0.24}
+const BOSS_SPIN_SPEED := {"guardian": 1.4, "final": 1.7, "secret": 2.0}
+const BOSS_SPIN_ARMS := {"guardian": 4, "final": 4, "secret": 8}
+const BOSS_SUMMON_WARNING := 0.8
+const BOSS_SUMMON_COUNT := {"guardian": 5, "final": 2, "secret": 3}
+const BOSS_SUMMON_MAX_ALIVE := {"guardian": 10, "final": 4, "secret": 5}
+const BOSS_SUMMON_SECOND_WAVE_RATIO := 0.5
+const BOSS_CHARGE_WARNING := {"guardian": 0.75, "final": 0.65, "secret": 0.55}
+const BOSS_CHARGE_SPEED := {"guardian": 720.0, "final": 820.0, "secret": 900.0}
+const BOSS_CHARGE_MAX_TIME := 1.4
+const BOSS_CHARGE_RECOVER := 0.5
 const BOSS_MOVE_SPEED := {"guardian": 90.0, "final": 140.0, "secret": 175.0}
 const BOSS_MOVE_PERIOD := {"guardian": 3.8, "final": 3.0, "secret": 2.5}
 const BOSS_MOVE_SLOPE := {"guardian": 0.35, "final": 0.65, "secret": 0.9}

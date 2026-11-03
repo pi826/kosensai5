@@ -88,6 +88,8 @@ func _build() -> void:
 		var name_label := Label.new()
 		name_label.text = KeyBindings.ACTIONS[action]
 		name_label.custom_minimum_size = Vector2(250, 40)
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(name_label)
 		var row: Array[Button] = []
 		for slot in range(2):

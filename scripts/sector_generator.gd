@@ -34,6 +34,14 @@ static func guardian_sectors(seed_value: int) -> Array[Vector2i]:
 					return result
 	return []
 
+static func is_arena_sector(seed_value: int, at: Vector2i, guardians: Array[Vector2i] = []) -> bool:
+	if guardians.is_empty(): guardians = guardian_sectors(seed_value)
+	if guardians.has(at): return true
+	if maxi(absi(at.x), absi(at.y)) <= T.ARENA_START_EXCLUSION: return false
+	var block := Vector2i(floori(at.x / float(T.ARENA_BLOCK)), floori(at.y / float(T.ARENA_BLOCK)))
+	var pick := posmod(_key(seed_value, block, "arena"), T.ARENA_BLOCK*T.ARENA_BLOCK)
+	return at == block*T.ARENA_BLOCK + Vector2i(pick%T.ARENA_BLOCK, pick/T.ARENA_BLOCK)
+
 # Canonical edge: right/down belongs to this cell, left/up to its neighbor.
 # Gate rects are in world coordinates so independent callers obtain identical data.
 static func boundary_gates(seed_value: int, at: Vector2i, side: Vector2i, reference: Vector2i = Vector2i.ZERO) -> Array:
@@ -328,9 +336,11 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 		var rooms: Array = []
 		if s.coord == Vector2i.ZERO:
 			rooms.append(_node(Rect2(G._pick(rng, 4, 22) * 32, 1120, 1152, 640), "start", nodes.size(), s.region))
-		elif s.coord in guardian_sectors(s.seed):
-			var w := G._pick(rng, 32, 44) * 32
-			rooms.append(_node(Rect2(G._pick(rng, 14, (3648 - w) / 32) * 32, G._pick(rng, 12, 70) * 32, w, 576), "boss", nodes.size(), s.region))
+		elif is_arena_sector(s.seed, s.coord):
+			var w := G._pick(rng, T.ARENA_WIDTH_MIN / 64, T.ARENA_WIDTH_MAX / 64) * 64
+			var arena := _node(Rect2(G._pick(rng, 14, (3648-w)/32)*32, G._pick(rng, 12, (2816-T.ARENA_HEIGHT)/32)*32, w, T.ARENA_HEIGHT), "boss", nodes.size(), s.region)
+			arena.arena_tiers = T.ARENA_TIERS
+			rooms.append(arena)
 		if not rooms.is_empty(): nodes.append(rooms[0])
 		var wanted := G._pick(rng, 4, 7)
 		for i in range(wanted):
@@ -369,6 +379,9 @@ static func _layout(s: Dictionary, rng) -> Dictionary:
 			for j in range(i + 1, nodes.size()):
 				var edge := _link(nodes[i], nodes[j], nodes, rng)
 				if edge.is_empty(): continue
+				if edge.type in ["shaft", "elbow"]:
+					var shaft: Rect2 = edge.rect if edge.type == "shaft" else edge.shaft
+					if rooms.any(func(r): return r.kind == "boss" and shaft.intersects(Rect2(r.rect.position.x, r.rect.position.y-32, r.rect.size.x, 64))): continue
 				edge.weight = (_cuts(edge).reduce(func(total, r): return total + r.size.x + r.size.y, 0.0)) * G._pick(rng, 60, 160) / 100.0
 				if edge.type == "diagonal": edge.weight *= T.DIAGONAL_WEIGHT
 				elif edge.type == "tunnel": edge.weight *= T.GENTLE_WEIGHT
@@ -486,8 +499,8 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 	for room: Dictionary in s.chambers:
 		holes.append(room.rect)
 		if room.kind != "normal": s.protected_rects.append(room.rect.grow(64))
-		if room.kind == "boss":
-			var pos := Vector2(G._pick(rng, int(room.rect.position.x + 256) / 32, int(room.rect.end.x - 256) / 32) * 32, room.rect.end.y - T.BOSS_SIZE.y / 2)
+		if room.kind == "boss" and boss_id >= 0:
+			var pos := Vector2(room.rect.get_center().x, room.rect.end.y - T.BOSS_SIZE.y / 2)
 			s.spawns.append({"id": "guardian_%d" % boss_id, "kind": "boss", "boss_id": boss_id, "polarity": int(seed_value & 1), "position": pos, "patrol": Vector2(pos.x, pos.x), "chamber_id": room.id})
 			s.landmarks.append({"id": boss_id, "position": pos})
 	for edge: Dictionary in layout.edges:
@@ -510,11 +523,12 @@ static func _build_candidate(seed_value: int, at: Vector2i, rng, fallback: bool)
 	if not _tunnel_support_errors(s).is_empty(): return {}
 	if not Vertical.errors(s, T.VERTICAL_RUN_MAX).is_empty(): return {}
 	for room: Dictionary in s.chambers:
-		if s.solids.filter(func(r): return r.size.y == 16 and room.rect.encloses(r)).size() > 4: return {}
+		if not room.has("arena_tiers") and s.solids.filter(func(r): return r.size.y == 16 and room.rect.encloses(r)).size() > 4: return {}
 	# Retry furnishing against the same carved layout, without throwing away a
 	# sound tree because one randomly chosen step, block or enemy obstructs it.
 	for furnishing in range(8):
 		var finished := _finish(s.duplicate(true), rng)
+		if finished.is_empty(): continue
 		var graphs: Array = finished.get("_graphs", [])
 		finished.erase("_graphs")
 		var failure_list := validate(finished, graphs)
@@ -592,6 +606,8 @@ static func _bridge_floors(s: Dictionary) -> void:
 static func _finish(s: Dictionary, rng) -> Dictionary:
 	if s.fallback: _fallback_decorate(s)
 	else: G._decorate(s, rng)
+	if s.get("_arena_failed", false): return {}
+	s.erase("_arena_failed")
 	if not s.fallback:
 		var normal: Array = s.chambers.filter(func(r): return r.kind=="normal")
 		if normal.filter(func(r): return not r.floor_steps.is_empty()).size()<normal.size()*0.5 or normal.filter(func(r): return not r.rocks.is_empty()).size()<normal.size()*0.3: return {}
@@ -729,15 +745,17 @@ static func _fallback_build(seed_value: int, at: Vector2i) -> Dictionary:
 	var holes: Array = []
 	for floor_y: int in [864, 1760, 2656]:
 		for x: int in [448, 2496]:
-			var kind := "start" if at == Vector2i.ZERO and x == 448 and floor_y == 1760 else ("boss" if boss_id >= 0 and x == 2496 and floor_y == 1760 else "normal")
+			var kind := "start" if at == Vector2i.ZERO and x == 448 and floor_y == 1760 else ("boss" if is_arena_sector(seed_value, at) and x == 2496 and floor_y == 1760 else "normal")
 			var height := 640 if kind == "start" else (480 if floor_y == 864 else 576)
 			var rect := Rect2(x, floor_y - height, 1152, height)
+			if kind == "boss": rect = T.ARENA_FALLBACK_RECT
 			var room := _node(rect, kind, s.chambers.size(), region)
+			if kind == "boss": room.arena_tiers = T.ARENA_FALLBACK_TIERS
 			s.chambers.append(room)
 			holes.append(rect)
 			if kind != "normal": s.protected_rects.append(rect.grow(64))
-			if kind == "boss":
-				var pos := Vector2(3424, floor_y - T.BOSS_SIZE.y / 2)
+			if kind == "boss" and boss_id >= 0:
+				var pos := Vector2(rect.get_center().x, rect.end.y - T.BOSS_SIZE.y / 2)
 				s.spawns.append({"id": "guardian_%d" % boss_id, "kind": "boss", "boss_id": boss_id, "polarity": int(seed_value & 1), "position": pos, "patrol": Vector2(pos.x, pos.x), "chamber_id": room.id})
 				s.landmarks.append({"id": boss_id, "position": pos})
 		_tunnel(s, holes, 288, 480, floor_y, floor_y, 192)
@@ -771,6 +789,12 @@ static func _fallback_build(seed_value: int, at: Vector2i) -> Dictionary:
 static func _fallback_decorate(s: Dictionary) -> void:
 	for room: Dictionary in s.chambers:
 		var r: Rect2 = room.rect
+		if room.has("arena_tiers"):
+			for arena_shelf: Rect2 in G.arena_shelves(r, room.arena_tiers):
+				s.solids.append(arena_shelf)
+				s.protected_rects.append(Rect2(snappedf(arena_shelf.get_center().x,32)-32, r.end.y-32,64,128))
+			room.shelves = s.solids.filter(func(p): return p.size.y == 16 and r.encloses(p))
+			continue
 		var shelf := Rect2(r.position.x + 160, r.end.y - 128, 192, 16)
 		s.solids.append(shelf)
 		room.shelves = s.solids.filter(func(p): return p.size.y == 16 and r.encloses(p))
@@ -836,13 +860,21 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 			step_rooms += int(not room.floor_steps.is_empty())
 			rock_rooms += int(not room.rocks.is_empty())
 		if not s.bounds.encloses(r) or room.kind not in ["normal", "start", "boss"]: errors.append("Chamber placement/kind")
-		if r.size.x < 640 or r.size.x > 1536 or r.size.y < 320 or r.size.y > 704: errors.append("Chamber dimensions")
+		if room.kind != "boss" and (r.size.x < 640 or r.size.x > 1536 or r.size.y < 320 or r.size.y > 704): errors.append("Chamber dimensions")
 		if room.kind == "start" and (s.coord != Vector2i.ZERO or r.size.x < 896 or r.size.y != T.CAVE_START_HEIGHT or not r.has_point(T.SECTOR_START)): errors.append("Start chamber")
-		if room.kind == "boss" and (r.size.x < 1024 or r.size.x > 1408 or r.size.y < 576): errors.append("Boss chamber")
+		if room.kind == "boss":
+			var tiers: int = room.get("arena_tiers", 0)
+			if s.fallback:
+				if r != T.ARENA_FALLBACK_RECT or tiers != T.ARENA_FALLBACK_TIERS: errors.append("Boss chamber")
+			elif r.size.x < T.ARENA_WIDTH_MIN or r.size.x > T.ARENA_WIDTH_MAX or fmod(r.size.x,64) != 0 or r.size.y != T.ARENA_HEIGHT or tiers != T.ARENA_TIERS: errors.append("Boss chamber")
+			for shelf: Rect2 in G.arena_shelves(r, tiers):
+				if not room.shelves.has(shelf) or not s.solids.has(shelf): errors.append("Arena shelves")
+			var zone := G.arena_zone(r, tiers)
+			if (s.solids.filter(func(p): return p.size.y != 16)+s.breakables).any(func(p): return p.intersects(zone)): errors.append("Arena zone")
 		if room.kind != "normal" and not G._any_encloses(s.protected_rects, r): errors.append("Unprotected special chamber")
 		for other: Dictionary in s.chambers:
 			if room.id < other.id and r.grow(63.9).intersects(other.rect): errors.append("Chamber rock gap")
-		if room.shelves.size() < 1 or room.shelves.size() > 4: errors.append("Chamber shelf count")
+		if room.kind != "boss" and (room.shelves.size() < 1 or room.shelves.size() > 4): errors.append("Chamber shelf count")
 		if room.shelves != s.solids.filter(func(p): return p.size.y == 16 and r.encloses(p)): errors.append("Shelf metadata")
 		if room.floor_steps.size() > 3 or room.rocks.size() > 2: errors.append("Chamber feature count")
 		for step: Rect2 in room.floor_steps:
@@ -851,7 +883,7 @@ static func validate(s: Dictionary, generated_graphs: Array = []) -> Array[Strin
 			if not r.encloses(rock) or not s.solids.has(rock) or (rock.position.y != r.position.y and rock.end.y != r.end.y) or (rock.position.y == r.position.y and r.end.y - rock.end.y < 160): errors.append("Rock clearance")
 		for point: Vector2 in room.approaches:
 			if not r.has_point(point) or not G._supported(point, T.PLAYER_SIZE, s.solids) or G._embedded(point, T.PLAYER_SIZE, s.solids): errors.append("Standing approach")
-	if starts != int(s.coord == Vector2i.ZERO) or boss_rooms != int(s.coord in guardian_sectors(s.seed)): errors.append("Special chamber count")
+	if starts != int(s.coord == Vector2i.ZERO) or boss_rooms != int(is_arena_sector(s.seed, s.coord)): errors.append("Special chamber count")
 	if step_rooms < normal_rooms * 0.5 or rock_rooms < normal_rooms * 0.3: errors.append("Chamber feature distribution")
 	for shaft: Dictionary in s.shafts:
 		if shaft.rect.size.x < 160 or shaft.rect.size.x > 320 or shaft.platforms.is_empty(): errors.append("Shaft dimensions")

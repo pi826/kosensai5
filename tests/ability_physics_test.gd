@@ -60,7 +60,7 @@ static func add_fixture(world: Node2D, rect: Rect2, thin: bool = false) -> void:
 		floor.bounds = rect
 		world.add_child(floor)
 func reset(abilities: int = 0, on_floor: bool = true) -> void:
-	for action in ["jump", "dash", "move_left", "move_right"]: input(action, false)
+	for action in ["jump", "dash", "move_up", "move_down", "move_left", "move_right", "gravity_flip"]: input(action, false)
 	if is_instance_valid(game): game.free()
 	game = Fixture.new()
 	root.add_child(game)
@@ -69,20 +69,21 @@ func reset(abilities: int = 0, on_floor: bool = true) -> void:
 	game.player.position = Vector2(0, 978 if on_floor else 300)
 	await frames(3)
 
-func flight(mask: int, steer: bool = true) -> Dictionary:
-	await reset(mask)
+func flight(profile: Dictionary, steer: bool = true) -> Dictionary:
+	await reset(profile.required)
 	var start: Vector2 = game.player.position
 	var minimum := start.y
-	var profile: Dictionary = G.flight_profiles(mask)[-1]
 	input("jump", true)
 	if steer: input("move_right", true)
 	var count := 0
 	for i in range(T.ABILITY_FLIGHT_FRAMES):
-		if i == profile.second:
-			input("jump", false)
-			input("jump", true)
-		if i == profile.dash: input("dash", true)
-		if i == profile.dash + 1: input("dash", false)
+		if not profile.glide and i == ceili(T.JUMP_SPEED / T.GRAVITY * 60): input("jump", false)
+		if i == profile.dash:
+			if profile.dash_up: input("move_up", true)
+			input("dash", true)
+		if i == profile.dash + 1:
+			input("dash", false)
+			input("move_up", false)
 		await frames()
 		minimum = minf(minimum, game.player.position.y)
 		count = i + 1
@@ -90,6 +91,12 @@ func flight(mask: int, steer: bool = true) -> Dictionary:
 	return {"height": start.y - minimum, "reach": game.player.position.x - start.x, "frames": count}
 
 func run() -> void:
+	var all_profiles := G.flight_profiles(T.ABILITY_DASH | T.ABILITY_GLIDE)
+	check(all_profiles.map(func(p): return p.id)==T.ABILITY_FLIGHT_SCHEDULES.map(func(p): return p.id),"all schedules retain declared order")
+	check(G.flight_profiles(T.ABILITY_DASH).map(func(p): return p.id)==["dash_side","dash_up"] and G.flight_profiles(T.ABILITY_GLIDE).size()==1,"unlocked masks filter schedules")
+	all_profiles[0].dash_up=true
+	check(not T.ABILITY_FLIGHT_SCHEDULES[0].dash_up,"returned profiles are independent dictionary copies")
+	check(G.flight_profiles(1).is_empty(),"removed double-jump bit unlocks no flight schedules")
 	await reset()
 	input("jump", true)
 	await frames(22)
@@ -98,46 +105,34 @@ func run() -> void:
 	input("jump", true)
 	input("dash", true)
 	await frames()
-	check(game.player.velocity.y > before and not game.player.air_jump_used and not game.player.air_dash_used, "locked abilities do not act")
-	for mask in [1, 2, 4, 3, 5, 6, 7]:
-		measurements[str(mask)] = await flight(mask)
-		check(measurements[str(mask)].frames < T.ABILITY_FLIGHT_FRAMES, "measured flight lands mask=%d" % mask)
-		var expected: Array = T.ABILITY_HOP_PROFILES[mask]
-		check(absf(measurements[str(mask)].height-expected[0])<0.2 and absf(measurements[str(mask)].reach-expected[1])<0.2 and measurements[str(mask)].frames==expected[2], "planner profile matches actual player physics mask=%d" % mask)
-	print("ABILITY MEASUREMENTS ", measurements)
-	check(measurements["1"].height > 280 and measurements["1"].height < 320, "double jump measured combined height")
-	check(measurements["2"].reach > 330, "dash increases measured horizontal reach")
-	check(measurements["4"].frames > measurements["2"].frames, "glide prolongs flight")
-	await reset(1)
-	input("jump", true)
-	await frames(22)
-	input("jump", false)
-	input("jump", true)
-	await frames()
-	check(game.player.air_jump_used and game.player.velocity.y < -750, "one second jump uses 85 percent impulse")
-	await frames(8)
-	var rising: float = game.player.velocity.y
-	input("jump", false)
-	input("jump", true)
-	await frames()
-	check(game.player.velocity.y > rising, "third jump rejected")
-	input("jump", false)
-	await frames()
-	check(game.player.velocity.y >= -T.JUMP_CUT_SPEED, "release cuts second jump")
-	await frames(75)
-	check(game.player.is_on_floor() and not game.player.air_jump_used, "landing restores second jump")
-	# Walking off a real ledge: coyote input spends the ordinary jump.
-	await reset(1, false)
+	check(game.player.velocity.y > before and not game.player.air_dash_used, "locked dash and airborne jump do not act")
+	for profile: Dictionary in T.ABILITY_FLIGHT_SCHEDULES:
+		measurements[profile.id] = await flight(profile)
+		check(measurements[profile.id].frames < T.ABILITY_FLIGHT_FRAMES, "measured flight lands id=" + profile.id)
+		var expected: Array = T.ABILITY_HOP_PROFILES[profile.id]
+		var actual: Dictionary = measurements[profile.id]
+		check(absf(actual.height-expected[0])<0.2 and absf(actual.reach-expected[1])<0.2 and actual.frames==expected[2], "planner table matches actual player physics id=" + profile.id)
+		var arc := G.ability_arc(Vector2(0,978),Rect2(0,1000,4000,96),[Rect2(-500,1000,4500,96)],profile)
+		print("ARC ", profile.id, " ", arc.get("frames"), " ", arc.get("height"), " ", arc.get("position"))
+		check(not arc.is_empty() and absf(arc.height-actual.height)<0.2 and absf(arc.position.x-actual.reach)<0.2 and arc.frames==actual.frames,"simulated arc matches actual physics id=" + profile.id)
+	var ordinary := await flight({"required":0,"dash":-1,"dash_up":false,"glide":false})
+	print("ABILITY MEASUREMENTS ", measurements, " ordinary=", ordinary)
+	check(measurements.dash_up.height > ordinary.height + 150, "up dash rises at least 150 pixels above ordinary jump")
+	check(measurements.dash_side.reach > 330, "side dash increases horizontal reach beyond 330")
+	check(measurements.glide.frames > measurements.dash_side.frames and measurements.glide.reach > measurements.dash_side.reach, "glide flies longer and farther than side dash")
+	check(measurements.dash_up_glide.reach > measurements.dash_up.reach and measurements.dash_side_glide.reach > measurements.dash_side.reach,"glide extends both dash schedules")
+	# Ordinary coyote jump retains its original impulse.
+	await reset(T.ABILITY_DASH, false)
 	fixture(Rect2(-100, 500, 100, 16), true)
 	game.player.position = Vector2(-30, 478)
 	await frames(4)
 	input("move_right", true)
 	check(await wait_until(func(): return not game.player.is_on_floor(), 3), "walked off coyote ledge")
-	await frames(1)
+	await frames()
 	input("jump", true)
 	await frames()
-	check(not game.player.air_jump_used and game.player.velocity.y < -850, "coyote press remains ordinary jump")
-	await reset(2)
+	check(game.player.velocity.y < -850, "coyote press remains ordinary jump")
+	await reset(T.ABILITY_DASH)
 	input("dash", true)
 	await frames()
 	check(not game.player.air_dash_used and game.player.dash_remaining == 0, "ground dash rejected")
@@ -157,18 +152,18 @@ func run() -> void:
 	input("jump", false)
 	await frames(75)
 	check(not game.player.air_dash_used, "landing restores dash")
-	await reset(2,false)
+	await reset(T.ABILITY_DASH, false)
 	game.player.facing = -1
 	var left_start: Vector2 = game.player.position
 	input("dash",true)
 	await frames(8)
 	check(absf(game.player.position.x-left_start.x+128)<0.2 and absf(game.player.position.y-left_start.y)<0.2, "dash follows left-facing direction without falling")
-	await reset(2, false)
+	await reset(T.ABILITY_DASH, false)
 	fixture(Rect2(70, -500, 32, 2000))
 	input("dash", true)
 	await frames(6)
 	check(game.player.position.x < 56 and game.player.dash_remaining == 0, "wall stops dash")
-	await reset(4, false)
+	await reset(T.ABILITY_GLIDE, false)
 	input("jump", true)
 	await frames(30)
 	check(game.player.gliding and game.player.velocity.y <= T.GLIDE_FALL_SPEED, "held jump caps falling at 120")
@@ -179,15 +174,8 @@ func run() -> void:
 	input("jump", false)
 	await frames(3)
 	check(not game.player.gliding and game.player.velocity.y > T.GLIDE_FALL_SPEED, "release immediately ends glide")
-	await reset(5, false)
-	input("jump", true)
-	await frames()
-	check(game.player.air_jump_used and game.player.velocity.y < 0 and not game.player.gliding, "second jump takes priority over glide")
-	await frames(45)
-	check(game.player.gliding and game.player.velocity.y <= T.GLIDE_FALL_SPEED, "continued hold glides after second jump")
-	for action in ["jump", "dash", "move_right"]: input(action, false)
+	for action in ["jump", "dash", "move_up", "move_right"]: input(action, false)
 	game.free()
-	DirAccess.make_dir_recursive_absolute("res://builds/qa/abilities")
-	FileAccess.open("res://builds/qa/abilities/physics_results.json", FileAccess.WRITE).store_string(JSON.stringify({"checks": checks,"failures": failures,"measurements": measurements}, "\t"))
+	FileAccess.open("res://.userdata/codex-delegation/task-20261103-64-physics.json", FileAccess.WRITE).store_string(JSON.stringify({"checks": checks,"failures": failures,"measurements": measurements}, "\t"))
 	print("ABILITY PHYSICS: %d checks, %d failures" % [checks, failures.size()])
 	quit(0 if failures.is_empty() else 1)

@@ -201,7 +201,8 @@ static func actor_state(actor: CharacterBody2D) -> String:
 		if actor.art_land_remaining > 0: return "land"
 		if not actor.is_on_floor():
 			if actor.is_on_wall(): return "wall"
-			return "jump" if actor.velocity.y < 0 else "fall"
+			var gravity: int = actor.get("gravity_sign") if actor.get("gravity_sign") != null else 1
+			return "jump" if actor.velocity.y * gravity < 0 else "fall"
 		return "run" if absf(actor.velocity.x) > 10 else "idle"
 	if actor.action == "windup_switch": return "windup_switch"
 	if actor.kind == "boss" and actor.action == "windup_special": return "windup_special"
@@ -232,7 +233,8 @@ static func draw_actor(actor: CharacterBody2D) -> bool:
 			if info.is_empty(): return false
 			var path: String = info.path.replace("{color}", "blue" if actor.polarity == 0 else "orange")
 			if texture(path, path) == null: return false
-		actor.draw_set_transform(Vector2(0, actor.body_size.y / 2 * (1.0 - actor.visual_scale.y)), 0, actor.visual_scale)
+		var gravity: int = actor.get("gravity_sign") if actor.get("gravity_sign") != null else 1
+		actor.draw_set_transform(Vector2(0, gravity * actor.body_size.y / 2 * (1.0 - actor.visual_scale.y)), 0, actor.visual_scale * Vector2(1, gravity))
 		var foot := Vector2(0, actor.body_size.y / 2)
 		draw_frame(actor, "player", state, actor.polarity, actor.art_time, foot, actor.facing, flash)
 		draw_frame(actor, "player_arm", arm_state, actor.polarity,

@@ -80,24 +80,24 @@ func play_route() -> void:
 	check(await driver.floor_wait(), "run begins on physical floor")
 	check(await route_to(driver, key.position), "actual inputs reach first key: " + driver.error)
 	check(game.keys == 1, "first key collected by touching during traversal")
-	check(await route_to(driver, chest.position), "actual inputs reach double-jump chest: " + driver.error)
+	check(await route_to(driver, chest.position), "actual inputs reach four-direction dash chest: " + driver.error)
 	input("interact", true)
 	input("interact", false)
 	await driver.tick(2)
-	check(game.keys == 0 and game.player.abilities == 1, "interaction key consumes first key and unlocks double jump")
-	check(not local.detours.is_empty(), "seed 37 has double-jump detour")
+	check(game.keys == 0 and game.player.abilities == T.ABILITY_DASH, "interaction key consumes first key and unlocks four-direction dash")
+	check(not local.detours.is_empty(), "seed 37 has four-direction dash detour")
 	if not local.detours.is_empty():
 		var branch: Dictionary = local.detours[0]
-		check(await route_to(driver, branch.position, 1), "actual inputs reach ability-only detour: " + driver.error)
+		check(await route_to(driver, branch.position, T.ABILITY_DASH), "actual inputs reach ability-only detour: " + driver.error)
 		check(game.crystals >= T.DETOUR_REWARD, "detour crystal collected by actual inputs")
-		check(await route_to(driver, local.start_position, 1), "actual inputs return from detour to start: " + driver.error)
+		check(await route_to(driver, local.start_position, T.ABILITY_DASH), "actual inputs return from detour to start: " + driver.error)
 	driver.release()
 	travel = {"seed": 37, "frames": driver.frames, "jumps": driver.jumps, "maximum_step": driver.max_player_step, "error": driver.error}
 	check(driver.max_player_step <= T.MAX_FALL_SPEED / 60 + 1, "traversal contains no position correction or teleport")
 
 func run() -> void:
 	game = Main.new()
-	game.controls_path = "res://builds/qa/abilities/test_controls.cfg"
+	game.controls_path = "user://task9b_abilities_controls.cfg"
 	root.add_child(game)
 	game.key_bindings.reset_defaults()
 	await play_route()
@@ -119,13 +119,13 @@ func run() -> void:
 	game._update_exploration()
 	check(game.discovered_loot.has(key_id) and game.discovered_loot[key_id].kind=="key" and game.ui.minimap.loot_marks().any(func(mark): return mark.kind=="key" and mark.position.distance_to(key.position)<0.001),"visible generated key has its own key map mark")
 	check(key.try_collect() and game.keys == 1 and not key.try_collect(), "key increments once")
-	game.key_bindings.try_bind("jump", 0, KEY_U)
+	game.key_bindings.try_bind("dash", 0, KEY_U)
 	game.player.position = first_chest.position
-	check(first_chest.try_open() and game.keys == 0 and game.player.abilities == 1, "chest consumes key and grants ability")
+	check(first_chest.try_open() and game.keys == 0 and game.player.abilities == T.ABILITY_DASH, "chest consumes key and grants ability")
 	check(game.loot_message.contains("U") and game.loot_message_remaining == T.LOOT_MESSAGE_TIME, "ability notice uses current binding for several seconds")
-	game.key_bindings.try_bind("jump",0,KEY_R)
+	game.key_bindings.try_bind("dash",0,KEY_R)
 	game.ui.update_hud()
-	check(game.ui.loot_notice.text.contains("R / W") and not game.ui.loot_notice.text.contains("U"), "active notice follows binding changes on resume")
+	check(game.ui.loot_notice.text.contains("R") and not game.ui.loot_notice.text.contains("U"), "active notice follows binding changes on resume")
 	check(not first_chest.try_open() and game.keys == 0, "opened chest cannot consume twice")
 	var chest_id: String = first_chest.spawn.id
 	game._update_camera(0, true)
@@ -220,11 +220,11 @@ func run() -> void:
 	# Version 3 migration preserves unrelated custom rows and fills dash default.
 	var cfg := ConfigFile.new()
 	cfg.set_value("controls", "version", 3)
-	cfg.set_value("bindings", "shoot", [KEY_F, KEY_NONE])
+	cfg.set_value("bindings", "shoot", [KEY_U, KEY_NONE])
 	var path := "user://abilities_legacy_controls_%d.cfg" % OS.get_process_id()
 	check(cfg.save(path) == OK, "legacy controls fixture saved")
 	game.key_bindings.load_settings(path)
-	check(game.key_bindings.get_key("dash",0) == KEY_SHIFT and game.key_bindings.get_key("shoot",0) == KEY_F, "old v3 save defaults missing dash and retains custom binding")
+	check(game.key_bindings.get_key("dash",0) == KEY_SHIFT and game.key_bindings.get_key("shoot",0) == KEY_U, "old v3 save defaults missing dash and retains custom binding")
 	check(not game.key_bindings.try_bind("shoot",0,KEY_SHIFT).is_empty(), "dash key duplicate rejected")
 	game.key_bindings.try_bind("dash",0,KEY_CTRL)
 	check(game.key_bindings.save_settings(path) == OK, "dash binding saves")
@@ -235,6 +235,6 @@ func run() -> void:
 	game.key_bindings.reset_defaults()
 	game.free()
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/abilities")
-	FileAccess.open("res://builds/qa/abilities/results.json", FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"travel":travel},"\t"))
+	FileAccess.open("res://.userdata/codex-delegation/task-20261103-64-abilities.json", FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"travel":travel},"\t"))
 	print("ABILITIES: %d checks, %d failures" % [checks,failures.size()])
 	quit(0 if failures.is_empty() else 1)

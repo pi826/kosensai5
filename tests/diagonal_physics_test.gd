@@ -92,7 +92,7 @@ func run():
 					if not check(not commands.is_empty(),"planned adjacent tread %s damaged=%s reverse=%s" % [key,damaged,returning]): ok=false; break
 					if not await driver.follow(commands): ok=false; break
 				check(ok,"actual input %s seed=%d coord=%s angle=%.1f damaged=%s reverse=%s: %s" % [key,s.seed,s.coord,fixture.angle,damaged,returning,driver.error])
-				check(game.player.abilities==0 and not game.player.air_jump_used and not game.player.air_dash_used,"initial abilities only")
+				check(game.player.abilities==0 and not game.player.air_dash_used,"initial abilities only")
 				reports.append({"type":fixture.type,"seed":s.seed,"coord":str(s.coord),"angle":fixture.angle,"damaged":damaged,"returning":returning,"passed":ok,"frames":driver.frames,"jumps":driver.jumps})
 				if not ok: break
 			driver.release()

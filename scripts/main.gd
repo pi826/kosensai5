@@ -83,6 +83,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 				actor.resting_position += delta
 				actor.arena.position += delta
 				actor.roam.position += delta
+				actor.charge_target += delta
 				actor.wall_plan.position += delta
 			actor.force_update_transform()
 			actor.reset_physics_interpolation()
@@ -538,7 +539,8 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 
 func camera_target(delta: float, snap: bool = false) -> Vector2:
 	var look := clampf(player.velocity.x / T.MOVE_SPEED, -1.0, 1.0) * T.CAMERA_LOOK_AHEAD
-	var fall_look := clampf(player.velocity.y / T.MAX_FALL_SPEED, 0.0, 1.0) * T.CAMERA_FALL_LOOK_AHEAD
+	var gravity: int = player.get("gravity_sign") if player.get("gravity_sign") != null else 1
+	var fall_look := clampf(player.velocity.y * gravity / T.MAX_FALL_SPEED, 0.0, 1.0) * T.CAMERA_FALL_LOOK_AHEAD * gravity
 	var focus := player.position + Vector2(look, -T.CAMERA_VERTICAL_OFFSET + fall_look)
 	var target := camera.position
 	if snap:
@@ -690,11 +692,11 @@ func _update_lock_marks() -> void:
 			actor.queue_redraw()
 	_lock_marked = marked
 
-func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null) -> Node2D:
+func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = false, target: Node2D = null, color: int = -1, origin: Vector2 = Vector2.INF) -> Node2D:
 	var bullet := Bullet.new()
 	bullet.game = self
 	bullet.faction = actor.faction
-	bullet.polarity = actor.polarity
+	bullet.polarity = actor.polarity if color < 0 else color
 	bullet.direction = direction.normalized()
 	bullet.homing = guided
 	bullet.target = target
@@ -713,6 +715,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 	else:
 		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
 		bullet.position = actor.position + Vector2(launch_side * (actor.body_size.x / 2 + 9), -4)
+	if origin != Vector2.INF: bullet.position = origin
 	projectiles.add_child(bullet)
 	if actor.faction == 1 and actor.kind != "boss": play_sound("enemy_homing" if guided else "enemy_shot", actor.position)
 	return bullet
@@ -773,6 +776,92 @@ func _block_removed(bounds: Rect2, player_attack: bool) -> void:
 	if stream != null: stream.remember_block(bounds)
 	if player_attack and is_instance_valid(player): player.heal(T.BLOCK_HEAL)
 
+func alive_summons(boss_actor: CharacterBody2D) -> int:
+	var count := 0
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if enemy.get_parent() == world and enemy.get_meta("summoned_by", -1) == boss_actor.boss_id and not enemy.dead and not enemy.is_queued_for_deletion(): count += 1
+	return count
+
+func summon_minions(boss_actor: CharacterBody2D, requested: int) -> void:
+	var count := mini(requested, T.BOSS_SUMMON_MAX_ALIVE[boss_actor.boss_role]-alive_summons(boss_actor))
+	var arena: Rect2 = boss_actor.arena
+	# Subtract open forbidden intervals. Endpoints allow bodies to touch terrain
+	# and make the 102px spacing exact, without a seed, RNG or grid-rounding bias.
+	var subtract := func(intervals: Array, forbidden: Vector2) -> Array:
+		var remaining: Array = []
+		for lane: Vector2 in intervals:
+			if forbidden.y <= lane.x or forbidden.x >= lane.y:
+				remaining.append(lane)
+			else:
+				if forbidden.x >= lane.x: remaining.append(Vector2(lane.x, forbidden.x))
+				if forbidden.y <= lane.y: remaining.append(Vector2(forbidden.y, lane.y))
+		return remaining
+	var terrain_obstacles: Array = stage.get("solids", []).filter(func(r): return r.size.y != 16) + stage.get("breakables", [])
+	var screen := view_rect().grow(-16)
+	var spawned: Array[Rect2] = []
+	for i in range(maxi(0,count)):
+		var walker := i%2 == 0
+		var y: float = arena.end.y-T.ENEMY_SIZE.y/2 if walker else arena.end.y-T.ARENA_FLYER_HEIGHT
+		var margin: float = maxf(64 if walker else 160, T.ENEMY_SIZE.x/2)
+		if y-T.ENEMY_SIZE.y/2 < arena.position.y or y+T.ENEMY_SIZE.y/2 > arena.end.y: continue
+		var lanes: Array = [Vector2(arena.position.x+margin, arena.end.x-margin)]
+		# Terrain and this wave's minimum separation are hard constraints.
+		for obstacle: Rect2 in terrain_obstacles + spawned:
+			var padding: float = T.ENEMY_SIZE.x/2 if not spawned.has(obstacle) else T.ENEMY_SIZE.x/2+64
+			if y+T.ENEMY_SIZE.y/2 <= obstacle.position.y or y-T.ENEMY_SIZE.y/2 >= obstacle.end.y: continue
+			lanes = subtract.call(lanes, Vector2(obstacle.position.x-padding, obstacle.end.x+padding))
+		var clear_lanes: Array = lanes.duplicate()
+		for existing in get_tree().get_nodes_in_group("enemies"):
+			if existing.get_parent() != world or existing.dead or existing.is_queued_for_deletion(): continue
+			var body := Rect2(existing.position-existing.body_size/2, existing.body_size)
+			if y+T.ENEMY_SIZE.y/2 <= body.position.y or y-T.ENEMY_SIZE.y/2 >= body.end.y: continue
+			clear_lanes = subtract.call(clear_lanes, Vector2(body.position.x-T.ENEMY_SIZE.x/2, body.end.x+T.ENEMY_SIZE.x/2))
+		# Keep the entire body inside the current view before relaxing distance
+		# or survivor overlap. Terrain and same-wave spacing never relax.
+		var visible_lanes: Array = []
+		var visible_clear_lanes: Array = []
+		if y-T.ENEMY_SIZE.y/2 >= screen.position.y and y+T.ENEMY_SIZE.y/2 <= screen.end.y:
+			for source_index in range(2):
+				var clipped: Array = []
+				for lane: Vector2 in (lanes if source_index == 0 else clear_lanes):
+					var left := maxf(lane.x, screen.position.x+T.ENEMY_SIZE.x/2)
+					var right := minf(lane.y, screen.end.x-T.ENEMY_SIZE.x/2)
+					if left <= right: clipped.append(Vector2(left,right))
+				if source_index == 0: visible_lanes = clipped
+				else: visible_clear_lanes = clipped
+		var near_player := Vector2(player.position.x-256,player.position.x+256)
+		var candidates: Array = subtract.call(visible_clear_lanes, near_player) # a
+		if candidates.is_empty(): candidates = subtract.call(visible_lanes, near_player) # b
+		if candidates.is_empty(): # c: distance may relax, but not player overlap.
+			candidates = visible_lanes.duplicate()
+			var player_body := Rect2(player.position-player.body_size/2,player.body_size)
+			if y+T.ENEMY_SIZE.y/2 > player_body.position.y and y-T.ENEMY_SIZE.y/2 < player_body.end.y:
+				candidates = subtract.call(candidates, Vector2(player_body.position.x-T.ENEMY_SIZE.x/2,player_body.end.x+T.ENEMY_SIZE.x/2))
+		if candidates.is_empty(): candidates = clear_lanes if not clear_lanes.is_empty() else lanes # d
+		if candidates.is_empty(): continue
+		var x: float = candidates[0].x
+		for lane: Vector2 in candidates:
+			for endpoint: float in [lane.x, lane.y]:
+				if absf(endpoint-player.position.x) > absf(x-player.position.x) or (absf(endpoint-player.position.x) == absf(x-player.position.x) and endpoint < x): x = endpoint
+		var serial: int = get_meta("summon_serial",0)
+		set_meta("summon_serial",serial+1)
+		var enemy := Enemy.new()
+		enemy.game = self
+		enemy.kind = "walker" if i%2 == 0 else "flyer"
+		enemy.polarity = (boss_actor.polarity+i)%2
+		enemy.position = Vector2(x, y)
+		enemy.patrol = Vector2(maxf(arena.position.x+64,x-192),minf(arena.end.x-64,x+192)) if enemy.kind == "walker" else Vector2(arena.position.x+160,arena.end.x-160)
+		enemy.spawn_id = "summon:%d:%d" % [boss_actor.boss_id,serial]
+		enemy.boss_id = -1
+		enemy.set_meta("summoned_by",boss_actor.boss_id)
+		enemy.set_meta("sector",boss_actor.get_meta("sector"))
+		enemy.set_meta("chamber_id",-1)
+		world.add_child(enemy)
+		spawned.append(Rect2(enemy.position-T.ENEMY_SIZE/2, T.ENEMY_SIZE))
+		enemy.apply_loop(enemy_loop_level())
+		effect(enemy.position,T.COLORS[enemy.polarity],"switch")
+		play_sound("enemy_switch",enemy.position)
+
 func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.has_method("cancel_attack"):
 		actor.cancel_attack()
@@ -791,6 +880,10 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.kind == "boss" and is_instance_valid(boss_impact): boss_impact.start(actor.position, actor.boss_role)
 	play_sound("boss_defeat" if actor.kind == "boss" else ("enhancer_defeat" if actor.kind == "enhancer" else "enemy_defeat"), actor.position)
 	if actor.kind == "boss" and is_instance_valid(audio): audio.boss_defeated()
+	if actor.has_meta("summoned_by"):
+		effect(actor.position, T.COLORS[actor.polarity], "defeat")
+		if is_instance_valid(player) and not player.dead: player.add_homing_charges(T.ENEMY_CHARGE_REWARD)
+		return
 	defeated_enemies[actor.spawn_id] = true
 	if not is_tutorial():
 		add_crystals(T.CRYSTAL_REWARDS[actor.boss_role if actor.kind == "boss" else "normal"])
@@ -810,6 +903,12 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.kind == "boss":
 		if defeated_bosses.has(actor.boss_id):
 			return
+		for minion in get_tree().get_nodes_in_group("enemies"):
+			if minion.get_parent() != world or minion.get_meta("summoned_by",-1) != actor.boss_id: continue
+			minion.cancel_attack()
+			minion.dead = true
+			effect(minion.position, T.COLORS[minion.polarity], "defeat")
+			minion.queue_free()
 		defeated_bosses[actor.boss_id] = true
 		score += {"guardian": T.BOSS_SCORE, "final": T.FINAL_BOSS_SCORE, "secret": T.SECRET_BOSS_SCORE}[actor.boss_role]
 		boss_cycle.defeated(actor)
@@ -872,8 +971,7 @@ func grant_loot(content: Dictionary) -> void:
 func ability_help(ability: int) -> String:
 	var jump: String = key_bindings.get_binding_text("jump")
 	match ability:
-		T.ABILITY_DOUBLE: return "二段ジャンプを覚えた！ 空中で %s（着地まで1回）" % jump
-		T.ABILITY_DASH: return "空中ダッシュを覚えた！ 空中で %s（着地まで1回）" % key_bindings.get_binding_text("dash")
+		T.ABILITY_DASH: return "空中ダッシュを覚えた！ 空中で 方向（上 %s・下 %s・左 %s・右 %s）＋ %s でその方向へ（着地まで1回）" % [key_bindings.get_binding_text("move_up"), key_bindings.get_binding_text("move_down"), key_bindings.get_binding_text("move_left"), key_bindings.get_binding_text("move_right"), key_bindings.get_binding_text("dash")]
 		T.ABILITY_GLIDE: return "滑空を覚えた！ 落下中に %s を押し続ける" % jump
 	return ""
 

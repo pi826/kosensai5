@@ -18,6 +18,17 @@ var resting_revision := -1
 var resting_position := Vector2.INF
 var support_seen := -1
 var boss_role := "guardian"
+var boss_type := ""
+var signature_clock := T.BOSS_SIGNATURE_DELAY
+var signature_index := 0
+var spin_angle := 0.0
+var spin_direction := 1
+var spin_shot_clock := 0.0
+var charge_target := Vector2.ZERO
+var summon_count := 0
+var summon_wave := 0
+var summons_to_restore := 0
+var summon_restoring := false
 var arena := Rect2()
 var roam := Rect2()
 var move_clock := 0.0
@@ -79,6 +90,7 @@ func _ready() -> void:
 	elif kind == "breaker":
 		shot_clock = T.BOMB_INTERVAL
 	super._ready()
+	if kind == "boss": collision_mask &= ~T.PLATFORM_LAYER
 
 func _physics_process(delta: float) -> void:
 	if dead or not is_instance_valid(game.player):
@@ -121,6 +133,7 @@ func _physics_process(delta: float) -> void:
 	var rate := attack_rate()
 	build_clock -= delta * rate
 	if action != "idle":
+		_tick_action(delta)
 		action_remaining -= delta
 		if action_remaining <= 0:
 			_complete_action()
@@ -129,6 +142,9 @@ func _physics_process(delta: float) -> void:
 
 func _move_kind(delta: float) -> void:
 	if kind == "boss" and roam.has_area():
+		if action in ["windup_charge", "charging", "charge_recover"]:
+			velocity = Vector2.ZERO
+			return
 		_move_boss(delta)
 		return
 	if kind == "flyer":
@@ -153,6 +169,12 @@ func _move_kind(delta: float) -> void:
 		set_meta("patrol_direction", -int(get_meta("patrol_direction", -1)))
 
 func _move_boss(delta: float) -> void:
+	var nearest := position.clamp(roam.position, roam.end)
+	if position.distance_to(nearest) > 0.5:
+		velocity = (nearest-position).normalized()*T.BOSS_RETURN_SPEED
+		move_and_collide(position.move_toward(nearest, T.BOSS_RETURN_SPEED*delta)-position)
+		game.boss_cycle.update_position(self)
+		return
 	move_clock += delta
 	var period: float = T.BOSS_MOVE_PERIOD[boss_role]
 	var speed: float = T.BOSS_MOVE_SPEED[boss_role] * (T.BOSS_PACE_MIN + T.BOSS_PACE_VARIATION * sin(move_clock * TAU / period))
@@ -193,12 +215,27 @@ func _move_enhancer(delta: float) -> void:
 func _choose_attack(delta: float, rate: float = -1.0) -> void:
 	if rate < 0.0: rate = attack_rate()
 	shot_clock -= delta * rate
+	if kind == "boss": signature_clock -= delta * rate
 	switch_clock -= delta * rate
+	if kind == "boss" and boss_role == "guardian" and boss_type == "summoner":
+		# Urgent summons wait for idle/visibility/waking in _physics_process.
+		# Keep unfinished warnings pending across cancellation and sector unload.
+		var half_hp := hp <= max_hp * T.BOSS_SUMMON_SECOND_WAVE_RATIO
+		if summons_to_restore > 0:
+			summon_count = summons_to_restore
+			summon_restoring = true
+			_begin("windup_summon", T.BOSS_SUMMON_WARNING)
+			return
+		if half_hp and (summon_wave == 1 or (summon_wave == 0 and signature_clock <= 0)):
+			_begin_signature()
+			return
 	if (kind == "shifter" or kind == "boss") and switch_clock <= 0:
 		next_polarity = 1 - polarity
 		_begin("windup_switch", T.SWITCH_WARNING)
 	elif gauge >= T.GAUGE_CAPACITY:
 		_begin("windup_special", T.SPECIAL_WARNING)
+	elif kind == "boss" and signature_clock <= 0 and _begin_signature():
+		pass
 	elif kind == "builder" and build_clock <= 0 and _choose_build():
 		_begin("windup_build", T.BUILD_WARNING)
 	elif shot_clock <= 0:
@@ -210,6 +247,54 @@ func _choose_attack(delta: float, rate: float = -1.0) -> void:
 			_begin("windup_bomb", T.BOMB_WARNING)
 		else:
 			_begin("windup_shot", T.SHOT_WARNING)
+
+func signature_pattern() -> String:
+	return boss_type if boss_role == "guardian" else T.BOSS_SIGNATURE_ORDER[signature_index % 3]
+
+func _begin_signature() -> bool:
+	var selected := signature_pattern()
+	if boss_role != "guardian": signature_index += 1
+	match selected:
+		"spinner":
+			spin_angle = (game.player.position-position).angle()
+			spin_direction *= -1
+			_begin("windup_spin", T.BOSS_SPIN_WARNING)
+		"summoner":
+			if boss_role == "guardian" and (summon_wave >= 2 or (summon_wave == 1 and hp > max_hp * T.BOSS_SUMMON_SECOND_WAVE_RATIO)): return false
+			summon_count = mini(T.BOSS_SUMMON_COUNT[boss_role], T.BOSS_SUMMON_MAX_ALIVE[boss_role]-game.alive_summons(self))
+			if summon_count <= 0: return false
+			summon_restoring = false
+			_begin("windup_summon", T.BOSS_SUMMON_WARNING)
+		"charger":
+			var clearance := Vector2.ONE*T.BOSS_CLEARANCE
+			var bounds := Rect2(arena.position+body_size/2+clearance, arena.size-body_size-clearance*2)
+			charge_target = game.player.position.clamp(bounds.position, bounds.end)
+			velocity = Vector2.ZERO
+			_begin("windup_charge", T.BOSS_CHARGE_WARNING[boss_role])
+		_: return false
+	signature_clock = T.BOSS_SIGNATURE_INTERVAL[boss_role]
+	return true
+
+func _tick_action(delta: float) -> void:
+	if action == "spinning":
+		spin_angle += spin_direction*T.BOSS_SPIN_SPEED[boss_role]*delta
+		spin_shot_clock -= delta
+		if spin_shot_clock <= 0:
+			spin_shot_clock += T.BOSS_SPIN_SHOT_INTERVAL[boss_role]
+			var arms: int = T.BOSS_SPIN_ARMS[boss_role]
+			for k in range(arms):
+				var direction := Vector2.from_angle(spin_angle+k*TAU/arms)
+				game.spawn_bullet(self, direction, false, null, polarity if k%2 == 0 else 1-polarity, position+muzzle_offset(direction))
+			game.play_sound("boss_shot", position, -6.0)
+	elif action == "charging":
+		var distance := position.distance_to(charge_target)
+		var travel: float = T.BOSS_CHARGE_SPEED[boss_role]*delta
+		velocity = (charge_target-position).normalized()*T.BOSS_CHARGE_SPEED[boss_role]
+		var collision := move_and_collide(position.move_toward(charge_target, travel)-position)
+		game.boss_cycle.update_position(self)
+		if collision or distance <= travel:
+			velocity = Vector2.ZERO
+			_begin("charge_recover", T.BOSS_CHARGE_RECOVER)
 
 func cancel_attack() -> void:
 	action = "idle"
@@ -248,6 +333,23 @@ func _begin(next_action: String, duration: float) -> void:
 
 func _complete_action() -> void:
 	match action:
+		"windup_spin":
+			spin_shot_clock = 0.0
+			_begin("spinning", T.BOSS_SPIN_DURATION[boss_role])
+			return
+		"windup_summon":
+			game.summon_minions(self, summon_count)
+			if boss_role == "guardian" and boss_type == "summoner":
+				if summon_restoring: summons_to_restore = 0
+				else: summon_wave += 1
+				summon_restoring = false
+		"windup_charge":
+			_begin("charging", T.BOSS_CHARGE_MAX_TIME)
+			return
+		"charging":
+			velocity = Vector2.ZERO
+			_begin("charge_recover", T.BOSS_CHARGE_RECOVER)
+			return
 		"windup_bomb":
 			art_fire_remaining = 3.0 / 16.0
 			if is_instance_valid(bomb):
@@ -305,6 +407,25 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO, T.ENHANCER_RADIUS, T.ENHANCER_FIELD_COLOR)
 		draw_arc(Vector2.ZERO, T.ENHANCER_RADIUS, 0, TAU, 80, Color(T.ENHANCER_RING_COLOR, 0.35), 2, false)
 	super._draw()
+	if kind == "boss":
+		var tint: Color = T.COLORS[polarity]
+		var mark := Vector2(0, -body_size.y/2-16)
+		if boss_role == "guardian":
+			match boss_type:
+				"spinner":
+					draw_line(mark-Vector2(8,0), mark+Vector2(8,0), tint, 3)
+					draw_line(mark-Vector2(0,8), mark+Vector2(0,8), tint, 3)
+				"summoner":
+					for x in [-10,0,10]: draw_circle(mark+Vector2(x,0), 3, tint)
+				"charger":
+					draw_polyline(PackedVector2Array([mark+Vector2(-facing*7,-7), mark+Vector2(facing*5,0), mark+Vector2(-facing*7,7)]), tint, 3)
+		if action == "windup_spin":
+			for k in range(T.BOSS_SPIN_ARMS[boss_role]):
+				draw_line(Vector2.ZERO, Vector2.from_angle(spin_angle+k*TAU/T.BOSS_SPIN_ARMS[boss_role])*160, Color(tint,0.35), 2)
+		elif action == "windup_summon":
+			draw_arc(Vector2.ZERO, body_size.length()/2+12+8*sin(action_remaining*TAU*3), 0, TAU, 48, Color(tint,0.55), 3)
+		elif action == "windup_charge":
+			draw_line(Vector2.ZERO, charge_target-position, Color(tint,0.5), 3)
 	if kind == "enhancer":
 		draw_arc(Vector2.ZERO, 29, 0, TAU, 32, T.ENHANCER_RING_COLOR, 3, false)
 	if enhanced(): draw_arc(Vector2.ZERO, body_size.length()/2+6, 0, TAU, 40, T.ENHANCER_RING_COLOR, 3, false)

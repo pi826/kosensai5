@@ -11,11 +11,13 @@ var drop_clear_y := 0.0
 var contact_query := PhysicsShapeQueryParameters2D.new()
 var homing_charges := 0
 var abilities := 0
-var air_jump_used := false
 var air_dash_used := false
 var dash_remaining := 0.0
-var dash_direction := 1
+var dash_vector := Vector2.RIGHT
 var pending_dash := false
+var gravity_sign := 1
+var flip_ready := true
+var pending_flip := false
 var gliding := false
 var equipment := {"weapon": "", "armor": "", "charm": ""}
 
@@ -124,7 +126,7 @@ func aim_angle() -> float:
 
 func shot_direction() -> Vector2:
 	var angle := deg_to_rad(aim_angle())
-	return Vector2(facing * cos(angle), -sin(angle))
+	return Vector2(facing * cos(angle), -sin(angle) * gravity_sign)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if dead or event.is_echo() or game.state != "playing":
@@ -149,6 +151,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		pending_special = true
 	elif event.is_action_pressed("dash"):
 		pending_dash = true
+	elif event.is_action_pressed("gravity_flip") and not game.is_tutorial():
+		pending_flip = true
 	elif event.is_action_pressed("interact") and not game.is_tutorial():
 		game.interact()
 	elif event.is_action_pressed("use_item") and not game.is_tutorial():
@@ -165,14 +169,34 @@ func _physics_process(delta: float) -> void:
 		drop_remaining = maxf(0.0, drop_remaining - delta)
 		if global_position.y - body_size.y / 2 > drop_clear_y or drop_remaining <= 0.0:
 			drop_remaining = 0.0
-			collision_mask |= T.PLATFORM_LAYER
-	elif Input.is_action_pressed("move_down") and is_on_floor():
+	elif gravity_sign == 1 and Input.is_action_pressed("move_down") and is_on_floor():
 		dropping = _try_drop_through()
 	var grounded := is_on_floor() and not dropping
+	var flipped := false
 	if grounded:
-		air_jump_used = false
 		air_dash_used = false
 		dash_remaining = 0.0
+		flip_ready = true
+	if pending_flip and flip_ready and not game.is_tutorial():
+		flipped = true
+		gravity_sign = -gravity_sign
+		up_direction = Vector2(0, -gravity_sign)
+		flip_ready = false
+		dash_remaining = 0.0
+		gliding = false
+		coyote = 0.0
+		jump_buffer = 0.0
+		jump_cut_requested = false
+		drop_remaining = 0.0
+		dropping = false
+		grounded = false
+		game.effect(global_position, T.COLORS[polarity], "switch")
+		game.play_sound("air_jump", position)
+	pending_flip = false
+	if gravity_sign == 1 and drop_remaining <= 0:
+		collision_mask |= T.PLATFORM_LAYER
+	else:
+		collision_mask &= ~T.PLATFORM_LAYER
 	var acceleration: float = T.GROUND_ACCELERATION if grounded else T.AIR_ACCELERATION
 	if is_zero_approx(horizontal):
 		acceleration = T.GROUND_DECELERATION if grounded else T.AIR_DECELERATION
@@ -181,41 +205,39 @@ func _physics_process(delta: float) -> void:
 		facing = 1 if horizontal > 0 else -1
 	coyote = 0.0 if dropping else (T.COYOTE_TIME if grounded else maxf(0.0, coyote - delta))
 	jump_buffer = maxf(0.0, jump_buffer - delta)
+	var vy := velocity.y * gravity_sign
 	if jump_buffer > 0 and coyote > 0:
-		velocity.y = -T.JUMP_SPEED
+		vy = -T.JUMP_SPEED
 		coyote = 0.0
 		jump_buffer = 0.0
 		visual_scale = Vector2(0.82, 1.16)
-		game.effect(global_position + Vector2(0, 22), T.COLORS[polarity] if Art.enabled() else Color("537083"), "jump")
+		game.effect(global_position + Vector2(0, 22 * gravity_sign), T.COLORS[polarity] if Art.enabled() else Color("537083"), "jump")
 		game.play_sound("jump", position)
-	elif jump_buffer > 0 and not grounded and dash_remaining <= 0 and not air_jump_used and has_ability(T.ABILITY_DOUBLE):
-		air_jump_used = true
-		velocity.y = -T.JUMP_SPEED * T.DOUBLE_JUMP_RATIO
-		jump_buffer = 0.0
-		visual_scale = Vector2(0.82, 1.16)
-		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else T.CRYSTAL_COLOR, "jump")
-		game.play_sound("air_jump", position)
 	if jump_cut_requested:
-		if velocity.y < 0:
-			velocity.y = maxf(velocity.y, -T.JUMP_CUT_SPEED)
+		if vy < 0:
+			vy = maxf(vy, -T.JUMP_CUT_SPEED)
 			jump_cut_requested = false
 		elif jump_buffer <= 0:
 			jump_cut_requested = false
-	var gravity: float = T.GRAVITY if velocity.y < 0 else T.FALL_GRAVITY
-	velocity.y = minf(velocity.y + gravity * delta, T.MAX_FALL_SPEED)
+	var gravity: float = T.GRAVITY if vy < 0 else T.FALL_GRAVITY
+	vy = minf(vy + gravity * delta, T.MAX_FALL_SPEED)
 	var was_gliding := gliding
-	gliding = not grounded and has_ability(T.ABILITY_GLIDE) and velocity.y > 0 and Input.is_action_pressed("jump")
-	if gliding: velocity.y = minf(velocity.y, T.GLIDE_FALL_SPEED)
-	if pending_dash and not grounded and not air_dash_used and has_ability(T.ABILITY_DASH):
+	gliding = not flipped and not grounded and has_ability(T.ABILITY_GLIDE) and vy > 0 and Input.is_action_pressed("jump")
+	if gliding: vy = minf(vy, T.GLIDE_FALL_SPEED)
+	velocity.y = vy * gravity_sign
+	if pending_dash and not grounded and not air_dash_used and dash_remaining <= 0 and has_ability(T.ABILITY_DASH):
 		air_dash_used = true
 		dash_remaining = T.AIR_DASH_TIME
-		dash_direction = facing
+		var v := int(Input.is_action_pressed("move_down")) - int(Input.is_action_pressed("move_up"))
+		var h := signf(horizontal)
+		dash_vector = Vector2(0, v) if v != 0 else Vector2(h if h != 0 else facing, 0)
+		if v == 0 and h != 0: facing = int(h)
 		game.effect(global_position, T.COLORS[polarity] if Art.enabled() else T.CRYSTAL_COLOR, "dash")
 		game.play_sound("dash", position)
 	pending_dash = false
 	var dashing := dash_remaining > 0.0
 	if dashing:
-		velocity = Vector2(dash_direction * T.AIR_DASH_SPEED, 0)
+		velocity = dash_vector * T.AIR_DASH_SPEED
 		dash_remaining = maxf(0.0, dash_remaining - delta)
 		gliding = false
 	var before_slide_y := velocity.y
@@ -223,18 +245,21 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor(): gliding = false
 	if gliding and not was_gliding: game.play_sound("glide", position)
 	if dashing:
-		if is_on_wall(): dash_remaining = 0.0
-		if dash_remaining <= 0: velocity.x = horizontal * move_speed()
+		if (dash_vector.x != 0 and is_on_wall()) or (dash_vector.y != 0 and (is_on_ceiling() or is_on_floor())):
+			dash_remaining = 0.0
+		if dash_remaining <= 0:
+			velocity.x = horizontal * move_speed()
+			velocity.y = T.MAX_FALL_SPEED * gravity_sign if dash_vector.y != 0 and signf(dash_vector.y) == gravity_sign else 0.0
 	_check_enemy_contact()
 	if dead:
 		return
-	if is_on_ceiling() and before_slide_y < 0:
+	if not dashing and is_on_ceiling() and before_slide_y * gravity_sign < 0:
 		_try_correct_ceiling(before_slide_y)
-	if not grounded and is_on_floor() and before_slide_y > 180:
+	if not grounded and is_on_floor() and before_slide_y * gravity_sign > 180:
 		art_land_remaining = 2.0 / 12.0
 		visual_scale = Vector2(1.18, 0.84)
-		game.effect(global_position + Vector2(0, 22), T.COLORS[polarity] if Art.enabled() else Color("8aa4ac"), "land")
-		game.play_sound("land", position, linear_to_db(clampf(before_slide_y / 900.0, 0.25, 1.0)))
+		game.effect(global_position + Vector2(0, 22 * gravity_sign), T.COLORS[polarity] if Art.enabled() else Color("8aa4ac"), "land")
+		game.play_sound("land", position, linear_to_db(clampf(before_slide_y * gravity_sign / 900.0, 0.25, 1.0)))
 	visual_scale = visual_scale.lerp(Vector2.ONE, 1.0 - exp(-18.0 * delta))
 	if Input.is_action_pressed("shoot") and shot_cooldown <= 0:
 		fire_normal()
@@ -273,12 +298,38 @@ func _try_drop_through() -> bool:
 	return true
 
 func _draw() -> void:
-	super._draw()
+	if gravity_sign == -1:
+		modulate.a = T.INVULNERABILITY_BLINK_ALPHA if invulnerability > 0 and hit_flash <= 0 and fmod(invulnerability, T.INVULNERABILITY_BLINK_PERIOD) < T.INVULNERABILITY_BLINK_PERIOD / 2 else 1.0
+		art_sprite_drawn = Art.draw_actor(self)
+		if not art_sprite_drawn: _draw_inverted_shape()
+	else:
+		super._draw()
+	draw_set_transform(Vector2.ZERO, 0, Vector2(1, gravity_sign))
 	if gliding and not art_sprite_drawn:
 		draw_polyline(PackedVector2Array([Vector2(-32,-18), Vector2(-18,-30), Vector2(0,-34), Vector2(18,-30), Vector2(32,-18)]), T.CRYSTAL_COLOR, 3, true)
 	if dash_remaining > 0 and not art_sprite_drawn:
+		draw_set_transform(Vector2.ZERO)
 		for i in range(3):
-			draw_line(Vector2(-facing*(22+i*12), -8+i*8), Vector2(-facing*(44+i*12), -8+i*8), Color(T.CRYSTAL_COLOR,0.7-i*0.15), 3, true)
+			var offset := dash_vector.orthogonal() * (-8 + i * 8)
+			draw_line(-dash_vector*(22+i*12)+offset, -dash_vector*(44+i*12)+offset, Color(T.CRYSTAL_COLOR,0.7-i*0.15), 3, true)
+	draw_set_transform(Vector2.ZERO)
+
+func _draw_inverted_shape() -> void:
+	# Mirror only drawing commands; the collision shape keeps its transform.
+	art_sprite_drawn = false
+	modulate.a = T.INVULNERABILITY_BLINK_ALPHA if invulnerability > 0 and hit_flash <= 0 and fmod(invulnerability, T.INVULNERABILITY_BLINK_PERIOD) < T.INVULNERABILITY_BLINK_PERIOD / 2 else 1.0
+	var tint: Color = Color.WHITE if hit_flash > 0 else T.COLORS[polarity]
+	draw_set_transform(Vector2(0, -body_size.y * 0.5 * (1.0 - visual_scale.y)), 0, visual_scale * Vector2(1, -1))
+	draw_rect(Rect2(-18, 19, 36, 5), Color(0, 0, 0, 0.25))
+	draw_style_box(_body_style(tint), Rect2(-body_size * 0.5, body_size))
+	draw_rect(Rect2(-11, -13, 22, 9), Color("102533"))
+	var direction := shot_direction() * Vector2(1, -1)
+	draw_line(direction * 10, muzzle_offset(direction), tint, 8)
+	draw_line(Vector2(-8, 15), Vector2(-8, 24), tint, 5)
+	draw_line(Vector2(8, 15), Vector2(8, 24), tint, 5)
+	draw_set_transform(Vector2.ZERO)
+	if absorb_flash > 0:
+		draw_arc(Vector2.ZERO, body_size.x * 0.65 + (0.28 - absorb_flash) * 55, 0, TAU, 32, Color(tint, absorb_flash * 3), 3, false)
 
 func _try_correct_ceiling(upward_velocity: float) -> bool:
 	# Nudge only a grazing corner. A real ceiling still stops the jump.
@@ -288,8 +339,8 @@ func _try_correct_ceiling(upward_velocity: float) -> bool:
 			var offset := Vector2((distance + safe_margin * 2.0) * direction, 0)
 			if test_move(global_transform, offset):
 				continue
-			if not test_move(global_transform.translated(offset), Vector2(0, -8)):
-				position += offset + Vector2(0, -2)
+			if not test_move(global_transform.translated(offset), Vector2(0, -8 * gravity_sign)):
+				position += offset + Vector2(0, -2 * gravity_sign)
 				velocity.y = upward_velocity
 				return true
 	return false

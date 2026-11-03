@@ -1,6 +1,7 @@
 extends RefCounted
 ## Run-owned boss records. Selection jobs only read immutable procedural data.
 const T := preload("res://scripts/tuning.gd")
+const G := preload("res://scripts/stage_generator.gd")
 const S := preload("res://scripts/sector_generator.gd")
 const Job := preload("res://scripts/sector_job.gd")
 const O := preload("res://scripts/origin_shift.gd")
@@ -68,11 +69,22 @@ static func hp_for(role: String) -> int:
 static func name_for(role: String) -> String:
 	return "ラスボス" if role == "final" else ("裏ボス" if role == "secret" else "ガーディアン")
 
-static func roam_rect(data: Dictionary, room: Rect2, role: String, preferred: Vector2 = Vector2.INF) -> Rect2:
-	# A whole swept volume is empty, including one-way shelves and boxes.
+static func display_name(role: String, boss_type: String) -> String:
+	return "ガーディアン・" + T.GUARDIAN_TYPE_NAMES.get(boss_type, boss_type) if role == "guardian" else name_for(role)
+
+static func guardian_types(seed_value: int, cycle: int) -> Array[String]:
+	var types: Array[String] = []
+	types.assign(T.GUARDIAN_TYPES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = ("%d:%d:guardian_types" % [seed_value, cycle]).hash()
+	G._shuffle(types, rng)
+	return types
+
+static func roam_rect(data: Dictionary, room: Rect2, role: String, preferred: Vector2 = Vector2.INF, ignore_shelves: bool = false) -> Rect2:
+	# Arena bosses pass through one-way shelves; other obstacles stay excluded.
 	# Thus reflections never lead into a rock, a tunnel or a vertical shaft.
 	var extent: Vector2 = size_for(role) + T.BOSS_ROAM_TRAVEL[role] + Vector2.ONE * T.BOSS_CLEARANCE * 2
-	var obstacles: Array = data.solids + data.breakables
+	var obstacles: Array = data.solids.filter(func(r): return not ignore_shelves or r.size.y != 16) + data.breakables
 	for item: Dictionary in data.get("loot", []): obstacles.append(Rect2(item.position - T.LOOT_SIZE / 2, T.LOOT_SIZE).grow(T.BOSS_CLEARANCE))
 	for item: Dictionary in data.get("merchants", []): obstacles.append(Rect2(item.position - T.MERCHANT_SIZE / 2, T.MERCHANT_SIZE).grow(T.BOSS_CLEARANCE))
 	var best := Rect2()
@@ -89,36 +101,37 @@ static func roam_rect(data: Dictionary, room: Rect2, role: String, preferred: Ve
 	return best
 
 static func select_sites(seed_value: int, center: Vector2i, cycle: int, roles: Array[String], excluded: Array[Vector2i]) -> Array:
-	var candidates: Array[Vector2i] = []
-	for y in range(-T.BOSS_SPAWN_DISTANCE_MAX, T.BOSS_SPAWN_DISTANCE_MAX + 1):
-		for x in range(-T.BOSS_SPAWN_DISTANCE_MAX, T.BOSS_SPAWN_DISTANCE_MAX + 1):
-			var distance := maxi(absi(x), absi(y))
-			var at := center + Vector2i(x, y)
-			if distance >= T.BOSS_SPAWN_DISTANCE_MIN and not excluded.has(at): candidates.append(at)
-	var salt := "%d:%d:%s" % [seed_value, cycle, ",".join(roles)]
+	var guardians := S.guardian_sectors(seed_value)
+	var types := guardian_types(seed_value, cycle)
 	var rng := RandomNumberGenerator.new()
-	rng.seed = salt.hash()
-	for i in range(candidates.size() - 1, 0, -1):
-		var other := rng.randi_range(0, i)
-		var swap := candidates[i]
-		candidates[i] = candidates[other]
-		candidates[other] = swap
+	rng.seed = ("%d:%d:%s" % [seed_value, cycle, ",".join(roles)]).hash()
 	var result: Array = []
 	var regions: Array[int] = []
-	for at: Vector2i in candidates:
-		var region := S.region_at(seed_value, at)
-		if roles.size() > 1 and regions.has(region): continue
-		var role: String = roles[result.size()]
-		var data := S.generate(seed_value, at)
-		for room: Dictionary in data.chambers:
-			if room.kind != "normal" or room.rect.size.x < T.BOSS_ROOM_MIN.x or room.rect.size.y < T.BOSS_ROOM_MIN.y: continue
-			var roam := roam_rect(data, room.rect, role)
-			if not roam.has_area(): continue
-			result.append({"sector": at, "sector_local": true, "chamber_id": room.id, "arena": room.rect, "roam": roam,
-				"position": roam.get_center(), "region": region, "role": role})
-			regions.append(region)
-			break
-		if result.size() == roles.size(): break
+	# Keep the first ring's random order, continuing the same RNG for expansion.
+	for maximum: int in [T.BOSS_SPAWN_DISTANCE_MAX, T.BOSS_SPAWN_DISTANCE_FALLBACK_MAX]:
+		var candidates: Array[Vector2i] = []
+		for y in range(-maximum, maximum+1):
+			for x in range(-maximum, maximum+1):
+				var distance := maxi(absi(x), absi(y))
+				var at := center+Vector2i(x,y)
+				if maximum > T.BOSS_SPAWN_DISTANCE_MAX and distance <= T.BOSS_SPAWN_DISTANCE_MAX: continue
+				if distance >= T.BOSS_SPAWN_DISTANCE_MIN and not excluded.has(at) and S.is_arena_sector(seed_value, at, guardians): candidates.append(at)
+		G._shuffle(candidates, rng)
+		for at: Vector2i in candidates:
+			var region := S.region_at(seed_value, at)
+			if roles.size() > 1 and regions.has(region): continue
+			var role: String = roles[result.size()]
+			var data := S.generate(seed_value, at)
+			for room: Dictionary in data.chambers:
+				if room.kind != "boss": continue
+				var zone := G.arena_zone(room.rect, room.arena_tiers)
+				var roam := roam_rect(data, zone, role, Vector2(zone.get_center().x, room.rect.end.y - T.ARENA_BOSS_CENTER_HEIGHT), true)
+				if not roam.has_area(): continue
+				result.append({"sector": at, "sector_local": true, "chamber_id": room.id, "arena": room.rect, "roam": roam,
+					"position": roam.get_center(), "region": region, "role": role, "boss_type": types[result.size()] if role == "guardian" else ""})
+				regions.append(region)
+				break
+			if result.size() == roles.size(): return result
 	return result
 
 func initialize() -> void:
@@ -149,11 +162,13 @@ func initial_spawn(spawn: Dictionary, data: Dictionary) -> Dictionary:
 	if records.has(spawn.boss_id): return records[spawn.boss_id]
 	var record := spawn.duplicate(true)
 	record.role = "guardian"
+	record.boss_type = guardian_types(game.current_seed, 1)[spawn.boss_id]
 	record.arena = Rect2()
 	record.roam = Rect2()
 	if not data.is_empty():
 		record.arena = data.chambers[spawn.chamber_id].rect
-		record.roam = roam_rect(data, record.arena, "guardian", spawn.position)
+		var zone := G.arena_zone(record.arena, data.chambers[spawn.chamber_id].arena_tiers)
+		record.roam = roam_rect(data, zone, "guardian", Vector2(zone.get_center().x, record.arena.end.y - T.ARENA_BOSS_CENTER_HEIGHT), true)
 		if record.roam.has_area(): record.position = record.roam.get_center()
 	record.hp = T.BOSS_HP
 	record.alive = true
@@ -219,7 +234,7 @@ func next_id() -> int:
 func spawn_message(record: Dictionary) -> String:
 	var offset: Vector2i = record.sector - game.stream.sector_at(game.player.position)
 	var direction := ("右" if offset.x > 0 else ("左" if offset.x < 0 else "")) + ("下" if offset.y > 0 else ("上" if offset.y < 0 else ""))
-	return "%sが%sに出現！（%s 約%d区画先）" % [name_for(record.role), T.BIOME_NAMES[record.region], direction, maxi(absi(offset.x), absi(offset.y))]
+	return "%sが%sに出現！（%s 約%d区画先）" % [display_name(record.role, record.get("boss_type", "")), T.BIOME_NAMES[record.region], direction, maxi(absi(offset.x), absi(offset.y))]
 
 func defeated(actor: CharacterBody2D) -> void:
 	if records.has(actor.boss_id):
@@ -274,3 +289,4 @@ func remember(actor: CharacterBody2D, saved: Dictionary) -> void:
 	record.hp = actor.hp
 	update_position(actor)
 	if record.revealed or game.discovered_bosses.has(actor.boss_id): game.discovered_bosses[actor.boss_id] = game.stable_point(actor.position)
+

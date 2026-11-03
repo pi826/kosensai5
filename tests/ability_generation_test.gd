@@ -56,7 +56,7 @@ func inspect(s: Dictionary, graphs: bool) -> void:
 		check(G._search(base,source,true).has(target), "detour has initial-ability return route")
 		var required := G.navigation_graph(stage,false,{},[],branch.required)
 		check(G._search(required,source).has(target) and G._search(required,source,true).has(target), "required ability graph reaches detour both ways")
-		var prior := 0 if branch.required == 1 else (1 if branch.required == 3 else 3)
+		var prior := 0 if branch.required == T.ABILITY_DASH else T.ABILITY_DASH
 		var previous := G.navigation_graph(stage,false,{},[],prior)
 		check(not G._search(previous,source).has(target), "preceding ability combination cannot reach detour")
 		check(G.connectivity_errors(stage,false,base).is_empty() and G.connectivity_errors(stage,true).is_empty(), "initial main route stays strongly connected before and after excavation")
@@ -78,11 +78,13 @@ func physical_branches() -> void:
 		var landed := false
 		input("jump",true)
 		for frame in range(T.ABILITY_FLIGHT_FRAMES):
-			if frame == profile.second:
-				input("jump",false)
-				input("jump",true)
-			if frame == profile.dash: input("dash",true)
-			if frame == profile.dash+1: input("dash",false)
+			if not profile.glide and frame == ceili(T.JUMP_SPEED/T.GRAVITY*60): input("jump",false)
+			if frame == profile.dash:
+				if profile.dash_up: input("move_up",true)
+				input("dash",true)
+			if frame == profile.dash+1:
+				input("dash",false)
+				input("move_up",false)
 			var dx: float = branch.position.x-fixture.player.position.x
 			Input.action_release("move_left")
 			Input.action_release("move_right")
@@ -92,14 +94,14 @@ func physical_branches() -> void:
 				landed = absf(fixture.player.position.y-branch.position.y)<2 and absf(dx)<T.DETOUR_WIDTH/2-16
 				break
 		check(landed, "real physics lands generated branch seed=%d coord=%s required=%d actual=%s target=%s" % [s.seed,s.coord,branch.required,fixture.player.position,branch.position])
-		for action in ["jump","dash","move_left","move_right"]: input(action,false)
+		for action in ["jump","dash","move_up","move_left","move_right"]: input(action,false)
 		fixture.free()
 
 func run() -> void:
 	for seed_value in range(64):
 		test_progress()
 		var positions := L.ability_sectors(seed_value)
-		check(positions.values().size()==3 and positions.values()[0]!=positions.values()[1] and positions.values()[1]!=positions.values()[2], "three deterministic distinct ability sectors")
+		check(positions.size()==2 and positions[T.ABILITY_DASH]==Vector2i.ZERO and positions[T.ABILITY_DASH]!=positions[T.ABILITY_GLIDE], "two deterministic distinct ability sectors")
 		for ability: int in positions:
 			var at: Vector2i = positions[ability]
 			var distance := maxi(absi(at.x),absi(at.y))
@@ -112,8 +114,8 @@ func run() -> void:
 		inspect(normal,seed_value<8)
 		if seed_value%8==0: print("ABILITY GENERATION PROGRESS ",seed_value," branches=",branches)
 	check(key_count>chest_count,"generated keys slightly outnumber normal chests on average")
-	check(branches.has(1) and branches.has(3) and branches.has(7),"all three kinds of ability detours generated")
-	# Count all chests on an unbiased square, including the three ability chests
+	check(branches.has(T.ABILITY_DASH) and branches.has(T.ABILITY_DASH | T.ABILITY_GLIDE),"both kinds of ability detours generated")
+	# Count all chests on an unbiased square, including the two ability chests
 	# when their assigned sectors fall in it (the earlier sample oversamples them).
 	for seed_value in range(8):
 		for y in range(-2,3):
@@ -137,6 +139,6 @@ func run() -> void:
 	check(not S.validate(bad).is_empty(),"reject missing first key")
 	await physical_branches()
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/abilities")
-	FileAccess.open("res://builds/qa/abilities/generation_results.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"seeds":64,"sectors":generated,"branches":branches,"keys":key_count,"normal_chests":chest_count,"unbiased":unbiased,"physical_branches":physics_cases.size()},"\t"))
+	FileAccess.open("res://.userdata/codex-delegation/task-20261103-64-generation.json",FileAccess.WRITE).store_string(JSON.stringify({"checks":checks,"failures":failures,"seeds":64,"sectors":generated,"branches":branches,"keys":key_count,"normal_chests":chest_count,"unbiased":unbiased,"physical_branches":physics_cases.size()},"\t"))
 	print("ABILITY GENERATION: %d checks, %d failures" % [checks,failures.size()])
 	quit(0 if failures.is_empty() else 1)
