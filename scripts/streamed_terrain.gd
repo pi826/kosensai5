@@ -79,9 +79,9 @@ func _ready() -> void:
 	render_root.name = "TileBatches"
 	add_child(render_root)
 
-func begin_sector(payload: Dictionary) -> void:
+func begin_sector(payload: Dictionary, dynamite_saved: Dictionary = {}) -> void:
 	assert(building.is_empty())
-	building = {"payload": payload, "phase": 0, "index": 0, "bodies": [], "rows": {}, "blocks": []}
+	building = {"payload": payload, "phase": 0, "index": 0, "bodies": [], "rows": {}, "blocks": [], "dynamite": dynamite_saved.duplicate(true)}
 	for block: Dictionary in payload.blocks:
 		var id := next_block_id
 		next_block_id += 1
@@ -104,7 +104,7 @@ func build_step() -> bool:
 	var i: int = building.index
 	match int(building.phase):
 		0:
-			if i < p.collisions.size(): building.bodies.append(_add_collision(p.collisions[i]))
+			if i < p.collisions.size(): building.bodies.append(_add_rock_collision(p.collisions[i]))
 			else: _next_phase()
 		1:
 			for j in range(i, mini(i + 64, p.occupied.size())):
@@ -134,7 +134,9 @@ func build_step() -> bool:
 		5:
 			var at: Vector2i = p.data.coord
 			sectors[at] = {"data": p.data, "cells": p.occupied, "bodies": building.bodies, "blocks": building.blocks, "surfaces": p.surfaces}
+			var saved: Dictionary = building.dynamite
 			building = {}
+			_restore_dynamite(at, saved)
 			revision += 1
 			support_serial += 1
 			_touch_support(at)
@@ -171,7 +173,7 @@ func _refresh_cell(cell: Vector2i) -> void:
 
 func snapshot(at: Vector2i) -> Dictionary:
 	var sector: Dictionary = sectors[at]
-	var saved := {"destroyed": {}, "blocks": {}}
+	var saved := {"destroyed": {}, "blocks": {}, "dynamite": sector.get("dynamite", {}).duplicate(true)}
 	for cell: Vector2i in sector.surfaces:
 		if destroyed_cells.has(cell): saved.destroyed[cell-cell_origin()] = true
 	for rect: Rect2 in sector.data.breakables: saved.blocks[rect.position] = 0
@@ -212,6 +214,11 @@ func unload_step() -> bool:
 			var stop := mini(index + 128, sector.cells.size())
 			for j in range(index, stop):
 				var cell: Vector2i = sector.cells[j]
+				if dynamic_rock_cells.has(cell):
+					_set_row_cell(cell, 1, false)
+					dynamic_rock_cells.erase(cell)
+					unloading.rows[Vector2i(1, cell.y)] = true
+				destroyed_cells.erase(cell)
 				occupied.erase(cell)
 				tile_masks.erase(cell)
 				block_cells.erase(cell)
@@ -247,6 +254,7 @@ func unload_step() -> bool:
 			var stop := mini(index + 16, sector.bodies.size())
 			for j in range(index, stop):
 				var body: Node2D = sector.bodies[j]
+				rock_bodies.erase(body)
 				body.collision_layer = 0
 				body.free()
 			unloading.index = stop
@@ -402,3 +410,59 @@ func map_geometry(area: Rect2) -> Array[Rect2]:
 		for solid: Rect2 in sectors[at].data.solids:
 			if solid.size.y == 16 and area.intersects(solid): fragments.append(area.intersection(solid))
 	return fragments
+
+func _cell_sector(cell: Vector2i) -> Vector2i:
+	var dimensions := Vector2i(T.SECTOR_SIZE / TILE_SIZE)
+	return Vector2i(floori(float(cell.x)/dimensions.x), floori(float(cell.y)/dimensions.y))
+
+func _rock_candidates(cut: Rect2i) -> Array:
+	var result: Array = []
+	var first := _cell_sector(cut.position)
+	var last := _cell_sector(cut.end-Vector2i.ONE)
+	for y in range(first.y, last.y+1):
+		for x in range(first.x, last.x+1):
+			var at := Vector2i(x,y)
+			if sectors.has(at) and unloading.get("at") != at: result.append_array(sectors[at].bodies)
+	return result
+
+func _static_replaced(old: StaticBody2D, replacements: Array[StaticBody2D]) -> void:
+	var at := _cell_sector(rock_bodies[old].position)
+	sectors[at].bodies.erase(old)
+	sectors[at].bodies.append_array(replacements)
+
+func _dynamite_cell_allowed(cell: Vector2i) -> bool:
+	var at := _cell_sector(cell)
+	return sectors.has(at) and unloading.get("at") != at
+
+func _dynamite_saved(cut: Rect2i, removed: Array[Vector2i]) -> void:
+	var touched := {}
+	for cell: Vector2i in removed:
+		var at := _cell_sector(cell)
+		var data: Dictionary = sectors[at].get("dynamite", {"holes": {}, "cuts": []})
+		data.holes[cell-at*Vector2i(T.SECTOR_SIZE/TILE_SIZE)] = true
+		sectors[at].dynamite = data
+		touched[at] = true
+	for at: Vector2i in touched:
+		var base := at*Vector2i(T.SECTOR_SIZE/TILE_SIZE)
+		var local_cut := cut.intersection(Rect2i(base, Vector2i(T.SECTOR_SIZE/TILE_SIZE)))
+		local_cut.position -= base
+		if not sectors[at].dynamite.cuts.has(local_cut): sectors[at].dynamite.cuts.append(local_cut)
+
+func _restore_dynamite(at: Vector2i, saved: Dictionary) -> void:
+	sectors[at].dynamite = saved.duplicate(true) if not saved.is_empty() else {"holes": {}, "cuts": []}
+	if saved.is_empty(): return
+	var base := at*Vector2i(T.SECTOR_SIZE/TILE_SIZE)
+	var changed: Array[Vector2i] = []
+	for local: Rect2i in saved.cuts:
+		var cut := Rect2i(local.position+base, local.size)
+		_carve_static(cut)
+		for y in range(cut.position.y, cut.end.y):
+			for x in range(cut.position.x, cut.end.x): changed.append(Vector2i(x,y))
+	for local: Vector2i in saved.holes:
+		var cell := local+base
+		occupied.erase(cell)
+		dynamic_rock_cells.erase(cell)
+		destroyed_cells[cell] = true
+		_set_row_cell(cell, 1, false)
+		changed.append(cell)
+	_changed(changed, 1)

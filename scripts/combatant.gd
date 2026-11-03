@@ -66,6 +66,14 @@ func receive_hit(attack_color: int, damage: int) -> String:
 			game.play_sound("absorb" if faction == 0 else "enemy_absorb", position, 0, pow(2.0, [0, 4, 7, 12, 16][mini(gauge, 4)] / 12.0) if faction == 0 else 1.0, polarity)
 		queue_redraw()
 		return "absorbed"
+	return _take_damage(damage, faction == 1)
+
+# Colorless attacks never enter the absorption branch above.
+func receive_neutral_hit(damage: int, player_attack: bool = true) -> String:
+	if dead: return "dead"
+	return _take_damage(damage, player_attack)
+
+func _take_damage(damage: int, player_attack: bool) -> String:
 	if invulnerability > 0.0:
 		return "protected"
 	var previous_hp := hp
@@ -83,6 +91,7 @@ func receive_hit(attack_color: int, damage: int) -> String:
 			game.show_damage(global_position + Vector2(body_size.x / 2 + 22, -body_size.y / 2 - 12), previous_hp - hp)
 	if hp == 0:
 		dead = true
+		set_meta("defeated_by_player", player_attack)
 		Art.spawn_death(self)
 		if is_instance_valid(game):
 			game.actor_defeated(self)

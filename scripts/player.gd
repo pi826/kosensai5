@@ -4,6 +4,7 @@ var shot_cooldown := 0.0
 var coyote := 0.0
 var jump_buffer := 0.0
 var pending_special := false
+var pending_dynamite := false
 var jump_cut_requested := false
 var aim_index := 0
 var drop_remaining := 0.0
@@ -86,6 +87,16 @@ func launch_homing() -> bool:
 	game.fire_special(self, volley_size())
 	return true
 
+func throw_dynamite() -> bool:
+	if dead or game.is_tutorial() or game.dynamite_stock <= 0: return false
+	var stick := preload("res://scripts/dynamite.gd").new()
+	stick.game = game
+	stick.position = position
+	stick.velocity = Vector2(facing * T.DYNAMITE_THROW_SPEED.x, -T.DYNAMITE_THROW_SPEED.y)
+	game.projectiles.add_child(stick)
+	game.dynamite_stock -= 1
+	return true
+
 func _ready() -> void:
 	super._ready()
 	contact_query.shape = body_shape
@@ -147,6 +158,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_released("jump"):
 		if not Input.is_action_pressed("jump"):
 			jump_cut_requested = true
+	elif event.is_action_pressed("dynamite") and not game.is_tutorial():
+		pending_dynamite = true
 	elif event.is_action_pressed("special"):
 		pending_special = true
 	elif event.is_action_pressed("dash"):
@@ -161,6 +174,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if dead:
 		return
+	if pending_dynamite:
+		throw_dynamite()
+		pending_dynamite = false
 	tick_visuals(delta)
 	shot_cooldown = maxf(0.0, shot_cooldown - delta)
 	var horizontal := Input.get_axis("move_left", "move_right")

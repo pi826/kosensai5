@@ -125,6 +125,8 @@ var state := "title":
 var score := 0
 var elapsed := 0.0
 var kills := 0
+var dynamite_stock := 0
+var dynamite_claimed: Dictionary = {}
 var crystals := 0
 var crystals_earned := 0
 var keys := 0
@@ -308,6 +310,8 @@ func start_run(stage_seed: int) -> void:
 	score = 0
 	elapsed = 0.0
 	kills = 0
+	dynamite_stock = 0
+	dynamite_claimed.clear()
 	boss_arrow_unlocked = false
 	crystals = 0
 	crystals_earned = 0
@@ -447,6 +451,7 @@ func open_map() -> void:
 	play_sound("map_open")
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	player.pending_special = false
+	player.pending_dynamite = false
 	player.pending_dash = false
 	ui.large_map.open()
 	ui.update_hud()
@@ -868,6 +873,8 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	if actor.get_parent() != world:
 		return
 	if actor.faction == 0:
+		dynamite_stock = 0
+		dynamite_claimed.clear()
 		play_sound("death", actor.position)
 		if not ending:
 			ending = true
@@ -919,6 +926,23 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 			boss_arrow_unlocked = true
 			announce("ボスの方角が分かるようになった")
 			play_sound("arrow_unlock")
+
+	claim_dynamite_room(actor)
+
+func claim_dynamite_room(actor: CharacterBody2D) -> void:
+	if is_tutorial() or stream == null or not is_instance_valid(player) or player.dead: return
+	if actor.kind == "boss" or actor.has_meta("summoned_by") or not actor.get_meta("defeated_by_player", false): return
+	var chamber: int = actor.get_meta("chamber_id", -1)
+	var at: Vector2i = actor.get_meta("sector", Vector2i.ZERO)
+	var key := Vector3i(at.x, at.y, chamber)
+	if chamber < 0 or dynamite_claimed.has(key) or not stream.room_cleared(at, chamber): return
+	dynamite_claimed[key] = true
+	if dynamite_stock < T.DYNAMITE_CAPACITY:
+		dynamite_stock += 1
+		announce("ダイナマイト入手 %d/%d" % [dynamite_stock, T.DYNAMITE_CAPACITY])
+	else:
+		announce("ダイナマイトは満杯です")
+	play_sound("charge", player.position)
 
 func _finish_run() -> void:
 	if not is_instance_valid(player) or player.dead:
@@ -1022,6 +1046,7 @@ func open_shop(merchant: Node2D) -> void:
 	state = "shop"
 	world.process_mode = Node.PROCESS_MODE_DISABLED
 	player.pending_special = false
+	player.pending_dynamite = false
 	player.pending_dash = false
 	ui.menu.hide()
 	ui.shop_panel.open(true)
@@ -1157,3 +1182,10 @@ func clock_text() -> String:
 func announce(message: String) -> void:
 	announcement = message
 	announcement_remaining = T.BOSS_ANNOUNCEMENT_TIME
+
+func refresh_dynamite_map(cells: Array[Vector2i]) -> void:
+	var changed := {}
+	for cell: Vector2i in cells:
+		var key := Vector2i(floori(float(cell.x)*T.TILE_SIZE/T.MAP_CELL_SIZE), floori(float(cell.y)*T.TILE_SIZE/T.MAP_CELL_SIZE))
+		if explored_cells.has(key): changed[key] = true
+	for key: Vector2i in changed: record_map_cell(key)

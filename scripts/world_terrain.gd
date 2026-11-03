@@ -57,6 +57,10 @@ var walls: Dictionary = {}
 var wall_cells: Dictionary = {}
 var row_cells: Dictionary = {}
 var row_bodies: Dictionary = {}
+# Static rectangles store integer world cells; neither origin shifts nor rock area
+# affect a local carve. Row-owned deep cells remain distinct from bomb surfaces.
+var rock_bodies: Dictionary = {}
+var dynamic_rock_cells: Dictionary = {}
 var revision := 0
 var support_serial := 0
 var next_wall_id := 0
@@ -69,6 +73,8 @@ func rebuild() -> void:
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
+	rock_bodies.clear()
+	dynamic_rock_cells.clear()
 	occupied.clear()
 	tile_masks.clear()
 	draw_chunks.clear()
@@ -93,7 +99,7 @@ func rebuild() -> void:
 	var shelves: Array[Rect2] = []
 	# Excavation rectangles are explicit and can occur on any cave floor.
 	for bounds: Rect2 in Generator.subtract_rects(stage.get("solids", []), stage.get("erodible_surfaces", [])):
-		_add_collision(bounds)
+		_add_rock_collision(bounds)
 	for bounds: Rect2 in stage.get("solids", []):
 		if bounds.size.y == 16:
 			shelves.append(bounds)
@@ -544,3 +550,88 @@ func draw_shelf_shape(canvas: Node2D, world_shelf: Rect2) -> void:
 	canvas.draw_line(shelf.position + Vector2(0, 1), Vector2(shelf.end.x, shelf.position.y + 1), theme.edge, 3.0)
 	for x in range(int(shelf.position.x), int(shelf.end.x) - 24, TILE_SIZE):
 		canvas.draw_line(Vector2(x + 16, shelf.position.y + 8), Vector2(x + 24, shelf.end.y - 2), theme.accent, 1.0)
+
+func _add_rock_collision(bounds: Rect2) -> StaticBody2D:
+	var body := _add_collision(bounds)
+	if bounds.size.y != 16:
+		rock_bodies[body] = Rect2i(Vector2i(bounds.position / TILE_SIZE) + cell_origin(), Vector2i(bounds.size / TILE_SIZE))
+	return body
+
+func _rock_candidates(_cut: Rect2i) -> Array:
+	return rock_bodies.keys()
+
+func _static_replaced(_old: StaticBody2D, _replacements: Array[StaticBody2D]) -> void:
+	pass
+
+func _carve_static(cut: Rect2i) -> void:
+	# At most four outer rectangles, regardless of the original rectangle's area.
+	for body: StaticBody2D in _rock_candidates(cut):
+		if not rock_bodies.has(body): continue # Includes indestructible shelves.
+		var rect: Rect2i = rock_bodies[body]
+		if not rect.intersects(cut): continue
+		var overlap := rect.intersection(cut)
+		var parts: Array[Rect2i] = [
+			Rect2i(rect.position, Vector2i(rect.size.x, overlap.position.y-rect.position.y)),
+			Rect2i(Vector2i(rect.position.x, overlap.end.y), Vector2i(rect.size.x, rect.end.y-overlap.end.y)),
+			Rect2i(Vector2i(rect.position.x, overlap.position.y), Vector2i(overlap.position.x-rect.position.x, overlap.size.y)),
+			Rect2i(Vector2i(overlap.end.x, overlap.position.y), Vector2i(rect.end.x-overlap.end.x, overlap.size.y))]
+		var replacements: Array[StaticBody2D] = []
+		for part: Rect2i in parts:
+			if part.has_area(): replacements.append(_add_rock_collision(Rect2(pixel_of_cell(part.position), Vector2(part.size)*TILE_SIZE)))
+		for y in range(overlap.position.y, overlap.end.y):
+			for x in range(overlap.position.x, overlap.end.x):
+				var cell := Vector2i(x,y)
+				if occupied.has(cell):
+					dynamic_rock_cells[cell] = true
+					_set_row_cell(cell, 1, true)
+		_static_replaced(body, replacements)
+		rock_bodies.erase(body)
+		body.collision_layer = 0
+		body.get_parent().remove_child(body)
+		body.queue_free()
+
+func _dynamite_cell_allowed(_cell: Vector2i) -> bool:
+	return true
+
+func _dynamite_saved(_cut: Rect2i, _removed: Array[Vector2i]) -> void:
+	pass
+
+func dynamite_explode(center: Vector2, radius: float = T.DYNAMITE_RADIUS) -> Array[Vector2i]:
+	var area := Rect2(center-Vector2.ONE*radius, Vector2.ONE*radius*2)
+	var first := cell_at(area.position)
+	var last := cell_at(area.end)+Vector2i.ONE
+	var cut := Rect2i(first, last-first)
+	var removed: Array[Vector2i] = []
+	var block_ids := {}
+	var wall_ids := {}
+	for cell: Vector2i in _cells_in(area):
+		if not _dynamite_cell_allowed(cell): continue
+		if (pixel_of_cell(cell)+Vector2.ONE*TILE_SIZE/2).distance_squared_to(center) > radius*radius: continue
+		if block_cells.has(cell): block_ids[block_cells[cell]] = true
+		elif occupied.has(cell): removed.append(cell)
+		if wall_cells.has(cell): wall_ids[wall_cells[cell]] = true
+	if not removed.is_empty(): _carve_static(cut)
+	for cell: Vector2i in removed:
+		occupied.erase(cell)
+		dynamic_rock_cells.erase(cell)
+		destroyed_cells[cell] = true
+		_set_row_cell(cell, 1, false)
+	_dynamite_saved(cut, removed)
+	for id: int in block_ids: _remove_block(id, removed, true)
+	# Include the square's surviving row-owned cells when rebuilding collision.
+	var changed: Array[Vector2i] = removed.duplicate()
+	for cell: Vector2i in _cells_in(area.grow(TILE_SIZE)):
+		if dynamic_rock_cells.has(cell): changed.append(cell)
+	_changed(changed, 1)
+	var removed_walls: Array[Vector2i] = []
+	for id: int in wall_ids:
+		for cell: Vector2i in walls[id].cells.duplicate():
+			if (pixel_of_cell(cell)+Vector2.ONE*TILE_SIZE/2).distance_squared_to(center) <= radius*radius:
+				walls[id].cells.erase(cell)
+				_erase_wall_cell(cell)
+				removed_walls.append(cell)
+		if walls[id].cells.is_empty():
+			walls.erase(id)
+			sound_requested.emit("wall_vanish", center)
+	_changed(removed_walls, T.WALL_LAYER)
+	return removed

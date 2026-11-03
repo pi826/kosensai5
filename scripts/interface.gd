@@ -17,6 +17,7 @@ var boss_color_icon: TextureRect
 var score_label: Label
 var progress_label: Label
 var gauge_label: Label
+var dynamite_label: Label
 var gauge_bar: ProgressBar
 var progress_bar: ProgressBar
 var boss_hp_label: Label
@@ -128,6 +129,9 @@ func _ready() -> void:
 	gauge_bar.add_theme_stylebox_override("fill", panel_style(Color.WHITE))
 	place(gauge_bar, Vector2(524, 62), Vector2(220, 12))
 	hud.add_child(gauge_bar)
+	dynamite_label = hud_label("", 14, Color("f4d393"))
+	place(dynamite_label, Vector2(524, 80), Vector2(250, 23))
+	hud.add_child(dynamite_label)
 	score_label = hud_label("", 21)
 	place(score_label, Vector2(862, 27), Vector2(375, 30))
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -345,10 +349,10 @@ func refresh_bindings() -> void:
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
 	if not game.is_tutorial():
-		controls_label.text = "左 %s   右 %s   %s 上   %s 下／足場を降りる   %s ジャンプ\n方向＋%s 空中ダッシュ（解禁後）   %s 重力反転   %s 射撃   %s 色切替   %s 射撃方向（前→上→下）\n%s 誘導弾（1回消費）   %s 調べる   %s 回復薬   %s 地図   %s 一時停止" % [
+		controls_label.text = "左 %s   右 %s   %s 上   %s 下／足場を降りる   %s ジャンプ\n方向＋%s 空中ダッシュ（解禁後）   %s 重力反転   %s 射撃   %s 色切替   %s 射撃方向（前→上→下）\n%s 誘導弾（1回消費）   %s ダイナマイト   %s 調べる   %s 回復薬   %s 地図   %s 一時停止" % [
 			keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("move_up"), keys.get_binding_text("move_down"), keys.get_binding_text("jump"),
 			keys.get_binding_text("dash"), keys.get_binding_text("gravity_flip"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
-			keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("use_item"), keys.get_binding_text("world_map"), keys.get_binding_text("pause_game")]
+			keys.get_binding_text("special"), keys.get_binding_text("dynamite"), keys.get_binding_text("interact"), keys.get_binding_text("use_item"), keys.get_binding_text("world_map"), keys.get_binding_text("pause_game")]
 	hint_label.text = "撃破で誘導弾+1。吸収%d回で+1、最大%d回。ハートと箱で回復。\n%s 射撃 / %s 色切替 / %s 射撃方向（前→上→下）\n%s 薄い足場を降りる / %s 1回分で複数の敵へ誘導弾" % [T.ABSORPTIONS_PER_CHARGE, T.HOMING_CHARGE_CAPACITY,
 		keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("special")]
@@ -398,6 +402,8 @@ func update_hud() -> void:
 	gauge_bar.max_value = required
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]
+	dynamite_label.visible = not game.is_tutorial()
+	dynamite_label.text = "ダイナマイト %d/%d" % [game.dynamite_stock, T.DYNAMITE_CAPACITY]
 	var stocks: int = game.player.homing_charges if live else 0
 	var capacity: int = game.player.charge_capacity() if live else T.HOMING_CHARGE_CAPACITY
 	var sprites := Art.enabled()

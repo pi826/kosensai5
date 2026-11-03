@@ -72,7 +72,7 @@ func run() -> void:
 	var expected := {
 		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
 		"jump": [KEY_SPACE, KEY_NONE], "move_up": [KEY_W, KEY_UP], "gravity_flip": [KEY_F, KEY_NONE], "move_down": [KEY_S, KEY_DOWN],
-		"dash": [KEY_SHIFT, KEY_NONE],
+		"dash": [KEY_SHIFT, KEY_NONE], "dynamite": [KEY_G, KEY_NONE],
 		"shoot": [KEY_J, KEY_NONE], "switch_color": [KEY_K, KEY_NONE],
 		"aim_cycle": [KEY_L, KEY_NONE], "special": [KEY_SEMICOLON, KEY_NONE],
 		"interact": [KEY_E, KEY_NONE], "use_item": [KEY_Q, KEY_NONE], "pause_game": [KEY_ESCAPE, KEY_NONE],
@@ -187,8 +187,8 @@ func run() -> void:
 	check(reloaded.get_binding_text("gravity_flip") == "R", "gravity binding text shows migrated spare key")
 	v3.set_value("bindings", "interact", [KEY_R, KEY_NONE])
 	migrated.interact = [KEY_R, KEY_NONE]
-	migrated.gravity_flip = [KEY_G, KEY_NONE]
-	_check_migration(reloaded, v3, migrated, "v3 occupied R makes gravity use next spare G")
+	migrated.gravity_flip = [KEY_C, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 occupied R makes gravity use next spare C (G is dynamite)")
 	v3.set_value("bindings", "shoot", [KEY_J, KEY_NONE])
 	v3.set_value("bindings", "interact", [KEY_E, KEY_NONE])
 	v3.set_value("bindings", "aim_cycle", [KEY_UP, KEY_NONE])
@@ -203,14 +203,14 @@ func run() -> void:
 	check(reloaded.get_binding_text("move_up") == "R", "upward direction binding text shows migrated spare key")
 	v3.set_value("bindings", "interact", [KEY_R, KEY_NONE])
 	migrated.interact = [KEY_R, KEY_NONE]
-	migrated.move_up = [KEY_G, KEY_NONE]
-	_check_migration(reloaded, v3, migrated, "v3 occupied R makes move_up use next spare G")
+	migrated.move_up = [KEY_C, KEY_NONE]
+	_check_migration(reloaded, v3, migrated, "v3 occupied R makes move_up use next spare C (G is dynamite)")
 	v3.set_value("bindings", "interact", [KEY_E, KEY_NONE])
 	v3.set_value("bindings", "shoot", [KEY_F, KEY_NONE])
 	migrated.interact = [KEY_E, KEY_NONE]
 	migrated.shoot = [KEY_F, KEY_NONE]
 	migrated.move_up = [KEY_R, KEY_NONE]
-	migrated.gravity_flip = [KEY_G, KEY_NONE]
+	migrated.gravity_flip = [KEY_C, KEY_NONE]
 	_check_migration(reloaded, v3, migrated, "v3 gravity spare skips R already filled for move_up")
 	# A valid old file can occupy every spare and every default of both new actions.
 	var exhausted := ConfigFile.new()
@@ -220,7 +220,7 @@ func run() -> void:
 	var claimed := {}
 	for action: String in KeyBindings.ACTIONS:
 		if action in ["move_up", "gravity_flip"]: continue
-		var pair: Array = KeyBindings.DEFAULTS[action].duplicate()
+		var pair: Array = [KEY_1, KEY_NONE] if action == "dynamite" else KeyBindings.DEFAULTS[action].duplicate()
 		if not occupied.is_empty(): pair = [occupied.pop_front(), occupied.pop_front()]
 		check(reloaded._valid_pair(action, pair), "exhausted spare fixture has valid row: " + action)
 		for key: int in pair:
@@ -230,6 +230,15 @@ func run() -> void:
 		exhausted.set_value("bindings", action, pair)
 	check(occupied.is_empty(), "exhausted spare fixture claims every migration candidate")
 	_check_migration(reloaded, exhausted, KeyBindings.DEFAULTS, "only exhausted spare keys reset all defaults")
+	var v4 := ConfigFile.new()
+	v4.set_value("controls", "version", 4)
+	for action: String in KeyBindings.DEFAULTS:
+		if action != "dynamite": v4.set_value("bindings", action, KeyBindings.DEFAULTS[action])
+	v4.set_value("bindings", "shoot", [KEY_G, KEY_NONE])
+	var migrated_v4 := KeyBindings.DEFAULTS.duplicate(true)
+	migrated_v4.shoot = [KEY_G, KEY_NONE]
+	migrated_v4.dynamite = [KEY_R, KEY_NONE]
+	_check_migration(reloaded, v4, migrated_v4, "v4 custom G retained; missing dynamite uses free R")
 	var partial := ConfigFile.new()
 	partial.set_value("controls", "version", 3)
 	partial.set_value("bindings", "jump", [KEY_U, KEY_NONE])
@@ -270,7 +279,7 @@ func run() -> void:
 	await process_frame
 	check(panel.visible and panel.get_rect().end.x <= 1280 and panel.get_rect().end.y <= 720, "settings panel fits 1280 by 720")
 	check(panel._buttons.has("interact"), "settings panel includes interaction action")
-	for action in ["move_down", "aim_cycle", "use_item", "move_up", "gravity_flip"]:
+	for action in ["move_down", "aim_cycle", "use_item", "move_up", "gravity_flip", "dynamite"]:
 		check(panel._buttons.has(action), "panel includes new action: " + action)
 		panel._begin_wait(action, 1)
 		_tap(KEY_U)
