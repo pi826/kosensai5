@@ -90,7 +90,7 @@ func launch_homing() -> bool:
 	return true
 
 func throw_dynamite() -> bool:
-	if dead or game.is_tutorial() or game.dynamite_stock <= 0: return false
+	if dead or not game.dynamite_enabled() or game.dynamite_stock <= 0: return false
 	var stick := preload("res://scripts/dynamite.gd").new()
 	stick.game = game
 	stick.position = position
@@ -172,13 +172,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_released("jump"):
 		if not Input.is_action_pressed("jump"):
 			jump_cut_requested = true
-	elif event.is_action_pressed("dynamite") and not game.is_tutorial():
+	elif event.is_action_pressed("dynamite") and game.dynamite_enabled():
 		pending_dynamite = true
 	elif event.is_action_pressed("special"):
 		pending_special = true
 	elif event.is_action_pressed("dash"):
 		pending_dash = true
-	elif event.is_action_pressed("gravity_flip") and not game.is_tutorial():
+	elif event.is_action_pressed("gravity_flip") and game.gravity_flip_enabled():
 		pending_flip = true
 	elif event.is_action_pressed("interact") and not game.is_tutorial():
 		game.interact()
@@ -208,7 +208,7 @@ func _physics_process(delta: float) -> void:
 		air_dash_used = false
 		dash_remaining = 0.0
 		flip_ready = true
-	if pending_flip and flip_ready and not game.is_tutorial():
+	if pending_flip and flip_ready and game.gravity_flip_enabled():
 		flipped = true
 		gravity_sign = -gravity_sign
 		up_direction = Vector2(0, -gravity_sign)

@@ -612,17 +612,3 @@ func neighbourhood_ready(point: Vector2, delta: float) -> bool:
 	var last := sector_at(point+margin)+Vector2i.ONE
 	return contains_rect(Rect2(sector_offset(first),Vector2(last-first+Vector2i.ONE)*T.SECTOR_SIZE))
 
-func room_cleared(at: Vector2i, chamber: int) -> bool:
-	if not loaded.has(at) or (active_job != null and active_job.coord == at): return false
-	var data: Dictionary = loaded[at]
-	if game.enemy_loop_level() > 0 and not data.has("reinforcements"): return false
-	var count := 0
-	for spawn: Dictionary in data.spawns:
-		if spawn.kind == "boss" or spawn.get("summoned_by", -1) != -1 or spawn.chamber_id != chamber: continue
-		count += 1
-		if pending_population.has(spawn.id) or not game.defeated_enemies.has(spawn.id): return false
-	if count < T.DYNAMITE_GROUP_MIN: return false
-	for enemy in game.get_tree().get_nodes_in_group("enemies"):
-		if enemy.get_parent() != game.world or enemy.dead or enemy.is_queued_for_deletion() or enemy.kind == "boss" or enemy.has_meta("summoned_by"): continue
-		if enemy.get_meta("sector", Vector2i.ZERO) == at and enemy.get_meta("chamber_id", -1) == chamber: return false
-	return true

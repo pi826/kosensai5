@@ -11,6 +11,8 @@ const IMPACT_RING_SECONDS := 1.3
 ## All prototype balance and movement values live here (pixels / seconds).
 
 const VIEW_SIZE := Vector2(1280, 720)
+const TITLE_DEMO_IDLE := 30.0
+const TITLE_DEMO_PATH := "res://assets/video/boss_demo.ogv"
 const COLORS := [Color("57d8ff"), Color("ffac63")]
 const COLOR_NAMES := ["青", "橙"]
 const PLAYER_SIZE := Vector2(30, 44)
@@ -148,12 +150,17 @@ const EQUIPMENT := {
 	"boots": {"slot": "charm", "name": "軽い靴", "description": "移動速度+12%", "price": 80},
 }
 # Tutorial geometry is fixed; no seed, generator, streaming or respawn is used.
-const TUTORIAL_BOUNDS := Rect2(0, 0, 4608, 896)
+const TUTORIAL_BOUNDS := Rect2(0, 0, 6016, 896)
 const TUTORIAL_START := Vector2(128, 618)
-const TUTORIAL_SOLIDS := [Rect2(0, 640, 4608, 256), Rect2(0, 0, 32, 640), Rect2(4576, 0, 32, 640), Rect2(448, 512, 512, 16), Rect2(1376, 512, 256, 16)]
+const TUTORIAL_CEILING := Rect2(4416, 0, 1568, 352)
+const TUTORIAL_CEILING_LIP := Rect2(4416, 352, 32, 96)
+const TUTORIAL_GRAVITY_WALL := Rect2(4800, 416, 64, 224)
+const TUTORIAL_DYNAMITE_WALL := Rect2(5248, 352, 96, 288)
+const TUTORIAL_FLIP_MIN_X := 4464.0
+const TUTORIAL_SOLIDS := [Rect2(0, 640, 6016, 256), Rect2(0, 0, 32, 640), Rect2(5984, 0, 32, 640), Rect2(448, 512, 512, 16), Rect2(1376, 512, 256, 16), TUTORIAL_CEILING, TUTORIAL_CEILING_LIP, TUTORIAL_GRAVITY_WALL, TUTORIAL_DYNAMITE_WALL]
 const TUTORIAL_BOX := Rect2(3968, 608, 32, 32)
 const TUTORIAL_HEART := Vector2(4224, 618)
-const TUTORIAL_GOALS := [Vector2(320, 618), Vector2(608, 490), Vector2(800, 618), Vector2(1120, 618), Vector2(1620, 490), Vector2(2208, 618), Vector2(2752, 618), Vector2(3328, 618), Vector2(3984, 618), Vector2(4224, 618), Vector2(4384, 618)]
+const TUTORIAL_GOALS := [Vector2(320, 618), Vector2(608, 490), Vector2(800, 618), Vector2(1120, 618), Vector2(1620, 490), Vector2(2208, 618), Vector2(2752, 618), Vector2(3328, 618), Vector2(3984, 618), Vector2(4224, 618), Vector2(5024, 618), Vector2(5504, 618), Vector2(5760, 618)]
 const TUTORIAL_AIM_TARGETS := [Vector2(1694, 362), Vector2(1694, 618)]
 const TUTORIAL_TURRET := Vector2(2448, 618)
 const TUTORIAL_VOLLEY_TARGETS := [Vector2(3520, 618), Vector2(3584, 490), Vector2(3712, 554)]
@@ -233,6 +240,11 @@ const SECRET_BOSS_SHOT_INTERVAL := 0.65
 const BOSS_FAN_ANGLE := 0.17
 const BOSS_FAN_COUNT := 5
 const SECRET_BOSS_FAN_COUNT := 7
+const BOSS_SECOND_VOLLEY_DELAY := 0.25
+const FINAL_BOSS_RAGE_RATIO := 0.5
+const FINAL_BOSS_RAGE_SPIN_INTERVAL := 0.24
+const FINAL_BOSS_RAGE_SPIN_ARMS := 4
+const FINAL_BOSS_RAGE_SPIN_SPEED := 1.7
 const BOSS_ANNOUNCEMENT_TIME := 6.0
 # Support enemy and run scaling; bosses and the tutorial are excluded.
 const ENHANCER_NAME := "強化の灯"
@@ -306,11 +318,13 @@ const BOMB_INTERVAL := 3.2
 const BOMB_WARNING := 0.6
 const BOMB_FLIGHT_TIME := 1.0
 const BOMB_GRAVITY := 900.0
-const DYNAMITE_CAPACITY := 3
-const DYNAMITE_GROUP_MIN := 2
+const DYNAMITE_CAPACITY := 20
+const DYNAMITE_KILLS_PER_STICK := 3
 const DYNAMITE_THROW_SPEED := Vector2(300, 260)
 const DYNAMITE_GRAVITY := 900.0
 const DYNAMITE_FUSE := 1.6
+const DYNAMITE_GAUGE_RADIUS := 22.0
+const DYNAMITE_GAUGE_WIDTH := 3.0
 const DYNAMITE_SHAFT_LENGTH := 11 # Cells along the blast, starting at the stick's own cell.
 const DYNAMITE_SHAFT_WIDTH := 3 # Cells across, centered on the stick's cell.
 const DYNAMITE_CORE_RADIUS := 48.0 # Damage only; terrain follows the shaft.

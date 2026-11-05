@@ -16,6 +16,7 @@ const BossCycle := preload("res://scripts/boss_cycle.gd")
 const O := preload("res://scripts/origin_shift.gd")
 const AudioDirector := preload("res://scripts/audio_director.gd")
 const DashAfterimages := preload("res://scripts/dash_afterimages.gd")
+const TitleDemo := preload("res://scripts/title_demo.gd")
 var audio: Node
 var boss_impact: CanvasLayer
 var impact_shake := Vector2.ZERO # Written by boss_impact; summed with the dash shake.
@@ -132,7 +133,7 @@ var score := 0
 var elapsed := 0.0
 var kills := 0
 var dynamite_stock := 0
-var dynamite_claimed: Dictionary = {}
+var dynamite_kill_progress := 0
 var crystals := 0
 var crystals_earned := 0
 var keys := 0
@@ -189,6 +190,8 @@ var boss_arrow_unlocked := false
 var tutorial_session: Node2D
 var tutorial_layer: CanvasLayer
 var tutorial_seed_text := ""
+var title_idle := 0.0
+var title_demo: CanvasLayer
 
 func enemy_loop_level() -> int:
 	return clampi(boss_cycle.final_clears, 0, T.FINAL_BOSS_CLEARS) if boss_cycle != null and not is_tutorial() else 0
@@ -206,8 +209,16 @@ func update_loop_scaling() -> void:
 func is_tutorial() -> bool:
 	return false
 
+func gravity_flip_enabled() -> bool:
+	return true
+
+func dynamite_enabled() -> bool:
+	return true
+
 func start_tutorial() -> void:
 	if is_instance_valid(tutorial_session): return
+	_stop_title_demo()
+	title_idle = 0.0
 	if is_instance_valid(boss_impact): boss_impact.cancel()
 	if is_instance_valid(audio): audio.reset_run()
 	play_sound("ui_confirm")
@@ -279,6 +290,9 @@ func _ready() -> void:
 	ui = Interface.new()
 	ui.game = self
 	add_child(ui)
+	title_demo = TitleDemo.new()
+	title_demo.finished.connect(_on_title_demo_finished)
+	add_child(title_demo)
 	boss_impact = preload("res://scripts/boss_impact.gd").new()
 	boss_impact.game = self
 	boss_impact.override_enabled = impact_effect_override
@@ -298,6 +312,8 @@ func _random_seed() -> int:
 	return int(Time.get_ticks_usec() % 2147483647)
 
 func start_run(stage_seed: int) -> void:
+	_stop_title_demo()
+	title_idle = 0.0
 	if is_instance_valid(boss_impact): boss_impact.cancel()
 	impact_shake = Vector2.ZERO
 	shake_remaining = 0.0
@@ -319,7 +335,7 @@ func start_run(stage_seed: int) -> void:
 	elapsed = 0.0
 	kills = 0
 	dynamite_stock = 0
-	dynamite_claimed.clear()
+	dynamite_kill_progress = 0
 	boss_arrow_unlocked = false
 	crystals = 0
 	crystals_earned = 0
@@ -472,6 +488,46 @@ func close_map() -> void:
 	resume_run()
 	ui.update_hud()
 
+func _input(event: InputEvent) -> void:
+	if title_demo_playing():
+		var dismiss: bool = (event is InputEventKey and event.pressed and not event.echo) \
+			or (event is InputEventMouseButton and event.pressed) \
+			or (event is InputEventScreenTouch and event.pressed) \
+			or (event is InputEventJoypadButton and event.pressed)
+		if dismiss:
+			get_viewport().set_input_as_handled()
+			_stop_title_demo()
+			title_idle = 0.0
+			primary_action()
+		return
+	if state == "title": title_idle = 0.0
+
+func title_demo_playing() -> bool:
+	return is_instance_valid(title_demo) and title_demo.playing()
+
+func _title_demo_allowed() -> bool:
+	return state == "title" and not ui.settings_overlay.visible and not ui.audio_overlay.visible \
+		and not is_instance_valid(tutorial_session) and not title_demo_playing()
+
+func _tick_title_idle(delta: float) -> void:
+	if not _title_demo_allowed():
+		title_idle = 0.0
+		return
+	title_idle += delta
+	if title_idle < T.TITLE_DEMO_IDLE: return
+	title_idle = 0.0
+	if not title_demo.start(): title_idle = 0.0
+
+func _stop_title_demo() -> void:
+	if is_instance_valid(title_demo): title_demo.stop()
+
+func _on_title_demo_finished() -> void:
+	_stop_title_demo()
+	title_idle = 0.0
+	if state == "title":
+		ui.menu.show()
+		ui.primary_button.grab_focus()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("world_map") and not event.is_echo() and state == "playing":
 		open_map()
@@ -536,7 +592,8 @@ func stream_view_rect(delta: float = 1.0 / 60.0) -> Rect2:
 	var movement := maxf(T.AIR_DASH_SPEED, T.MAX_FALL_SPEED) * delta + T.CEILING_CORRECTION
 	return view_rect().merge(next).grow(T.STREAM_VIEW_MARGIN + movement)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_tick_title_idle(delta)
 	if not streaming_enabled or stream == null or not is_instance_valid(terrain) or not is_instance_valid(player) or not world.visible: return
 	var area := stream_view_rect()
 	stream.prepare_backdrop_view(area)
@@ -908,7 +965,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		return
 	if actor.faction == 0:
 		dynamite_stock = 0
-		dynamite_claimed.clear()
+		dynamite_kill_progress = 0
 		if is_instance_valid(dash_afterimages): dash_afterimages.clear()
 		play_sound("death", actor.position)
 		if not ending:
@@ -957,21 +1014,18 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 	else:
 		score += T.ENEMY_SCORE
 		kills += 1
+		count_dynamite_kill(actor)
 		if actor.kind == "enhancer" and not boss_arrow_unlocked and not is_tutorial():
 			boss_arrow_unlocked = true
 			announce("ボスの方角が分かるようになった")
 			play_sound("arrow_unlock")
 
-	claim_dynamite_room(actor)
-
-func claim_dynamite_room(actor: CharacterBody2D) -> void:
-	if is_tutorial() or stream == null or not is_instance_valid(player) or player.dead: return
+func count_dynamite_kill(actor: CharacterBody2D) -> void:
+	if is_tutorial() or not is_instance_valid(player) or player.dead: return
 	if actor.kind == "boss" or actor.has_meta("summoned_by") or not actor.get_meta("defeated_by_player", false): return
-	var chamber: int = actor.get_meta("chamber_id", -1)
-	var at: Vector2i = actor.get_meta("sector", Vector2i.ZERO)
-	var key := Vector3i(at.x, at.y, chamber)
-	if chamber < 0 or dynamite_claimed.has(key) or not stream.room_cleared(at, chamber): return
-	dynamite_claimed[key] = true
+	dynamite_kill_progress += 1
+	if dynamite_kill_progress < T.DYNAMITE_KILLS_PER_STICK: return
+	dynamite_kill_progress = 0
 	if dynamite_stock < T.DYNAMITE_CAPACITY:
 		dynamite_stock += 1
 		announce("ダイナマイト入手 %d/%d" % [dynamite_stock, T.DYNAMITE_CAPACITY])
@@ -1181,6 +1235,8 @@ func close_key_settings() -> void:
 	show_menu(settings_return_state)
 
 func show_menu(next_state: String) -> void:
+	if next_state != "title": _stop_title_demo()
+	title_idle = 0.0
 	if next_state == "paused" and state == "playing": play_sound("pause")
 	if next_state == "title" and is_instance_valid(audio): audio.stop_world()
 	ui.large_map.hide()

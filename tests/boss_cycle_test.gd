@@ -151,10 +151,23 @@ func movement_and_attack(e: Node2D):
 		check(e.action == "windup_shot" and game.projectiles.get_child_count() == 0, role + " shot is warned")
 		await frames(29)
 		e.set_physics_process(false)
-		var bullets: Array = game.projectiles.get_children()
-		var expected := (1 if pattern == 0 else 5) if role == "guardian" else ((5 if role == "final" else 7) + (1 if pattern == 1 or role == "secret" else 0))
-		check(bullets.size() == expected, role + " attack pattern %d" % pattern)
-		check(bullets.filter(func(b): return b.homing).size() == (1 if role != "guardian" and (pattern == 1 or role == "secret") else 0), role + " guided mixture")
+		var boss_color: int = e.polarity
+		var fan_count := 7 if role == "secret" else 5
+		var first: Array = game.projectiles.get_children()
+		var guided := 1 if role != "guardian" and (pattern == 1 or role == "secret") else 0
+		check(first.size() == fan_count + guided, role + " first volley pattern %d" % pattern)
+		check(first.all(func(b): return b.polarity == boss_color), role + " first volley uses boss color pattern %d" % pattern)
+		check(first.filter(func(b): return b.homing).size() == guided, role + " guided mixture")
+		e.set_physics_process(true)
+		await frames(ceili(T.BOSS_SECOND_VOLLEY_DELAY*60)+2)
+		e.set_physics_process(false)
+		var all_bullets: Array = game.projectiles.get_children()
+		var second: Array = all_bullets.slice(first.size())
+		var expects_second: bool = role != "guardian" or pattern == 1
+		check(second.size() == (fan_count if expects_second else 0), role + " second volley pattern %d" % pattern)
+		check(second.all(func(b): return not b.homing and b.polarity == 1-boss_color), role + " second volley opposite color without homing pattern %d" % pattern)
+		if expects_second:
+			check(e.action == "idle", role + " second volley returns to idle pattern %d" % pattern)
 		clear_bullets()
 	e.action = "idle"
 	e.gauge = T.GAUGE_CAPACITY

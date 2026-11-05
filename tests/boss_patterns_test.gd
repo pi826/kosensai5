@@ -596,6 +596,157 @@ func floor_visibility_checks():
 			check(game.player.position == floor_spawn and not game.player.dead,"invulnerable player remains at floor centre")
 			boss.set_physics_process(false)
 	boss = null
+
+func prepare_shot(role: String, shot_pattern: int) -> void:
+	reset_boss(role)
+	boss.signature_clock = 1000
+	boss.switch_clock = 1000
+	boss.shot_clock = 1000
+	boss.pattern = shot_pattern
+	boss.move_clock = 0.0
+	boss.action = "windup_shot"
+	boss.action_remaining = T.SHOT_WARNING
+
+func barrage_checks():
+	for role: String in ["guardian", "final", "secret"]:
+		for shot_pattern in [0, 1]:
+			prepare_shot(role, shot_pattern)
+			boss._complete_action()
+			var fan_count: int = T.SECRET_BOSS_FAN_COUNT if role == "secret" else T.BOSS_FAN_COUNT
+			var guided_count := 1 if role != "guardian" and (shot_pattern == 1 or role == "secret") else 0
+			var first: Array = game.projectiles.get_children()
+			check(first.size() == fan_count+guided_count, role + " first volley is never single pattern %d" % shot_pattern)
+			check(first.all(func(b): return b.polarity == boss.polarity), role + " first volley keeps boss color pattern %d" % shot_pattern)
+			check(first.filter(func(b): return b.homing).size() == guided_count, role + " first volley guided count pattern %d" % shot_pattern)
+			var first_fan: Array = first.filter(func(b): return not b.homing)
+			var expects_second: bool = role != "guardian" or shot_pattern == 1
+			if not expects_second:
+				var first_count := first.size()
+				boss.set_physics_process(true)
+				await frames(ceili(T.BOSS_SECOND_VOLLEY_DELAY*60)+3)
+				boss.set_physics_process(false)
+				check(game.projectiles.get_child_count() == first_count and boss.action == "idle", "guardian pattern 0 has no second volley")
+			else:
+				check(boss.action == "second_volley" and is_equal_approx(boss.action_remaining, T.BOSS_SECOND_VOLLEY_DELAY), role + " schedules second volley pattern %d" % shot_pattern)
+				boss._complete_action()
+				var all_bullets: Array = game.projectiles.get_children()
+				var second: Array = all_bullets.slice(first.size())
+				check(second.size() == fan_count, role + " second volley count pattern %d" % shot_pattern)
+				check(second.all(func(b): return not b.homing and b.polarity == 1-boss.polarity), role + " second volley opposite color without homing pattern %d" % shot_pattern)
+				var offset_ok := true
+				for i in range(second.size()):
+					offset_ok = offset_ok and absf(angle_difference_signed(first_fan[i].direction.angle(), second[i].direction.angle())-T.BOSS_FAN_ANGLE/2.0) < 0.0001
+				check(offset_ok, role + " second volley interleaves by half fan angle pattern %d" % shot_pattern)
+				check(boss.action == "idle", role + " second volley returns idle pattern %d" % shot_pattern)
+			clear_bullets()
+	for role: String in ["guardian", "final", "secret"]:
+		for shot_pattern in [0, 1]:
+			if role == "guardian" and shot_pattern == 0: continue
+			prepare_shot(role, shot_pattern)
+			boss._complete_action()
+			var before: int = game.projectiles.get_child_count()
+			boss.cancel_attack()
+			boss.set_physics_process(true)
+			await frames(ceili(T.BOSS_SECOND_VOLLEY_DELAY*60)+3)
+			boss.set_physics_process(false)
+			check(game.projectiles.get_child_count() == before and boss.action == "idle", role + " cancelled second volley does not fire pattern %d" % shot_pattern)
+			clear_bullets()
+
+func prepare_rage(hp_value: int) -> void:
+	reset_boss("final")
+	boss.signature_clock = 1000
+	boss.switch_clock = 1000
+	boss.shot_clock = 1000
+	boss.hp = hp_value
+	boss.rage_started = false
+	boss.rage_spin_angle = 0.0
+	boss.rage_spin_clock = 0.0
+	boss.action = "idle"
+	boss.action_remaining = 0.0
+	clear_bullets()
+
+func rage_checks():
+	var half_hp: int = int(boss.max_hp*T.FINAL_BOSS_RAGE_RATIO)
+	prepare_rage(half_hp)
+	boss.set_physics_process(true)
+	await frames(60)
+	boss.set_physics_process(false)
+	check(game.projectiles.get_child_count() == 0, "exact half HP has no final rage spin")
+	var low_hp := half_hp-1
+	prepare_rage(low_hp)
+	boss.set_physics_process(true)
+	await frames(60)
+	boss.set_physics_process(false)
+	var bullets: Array = game.projectiles.get_children()
+	var expected := 60.0/(T.FINAL_BOSS_RAGE_SPIN_INTERVAL*60.0)*T.FINAL_BOSS_RAGE_SPIN_ARMS
+	var colors := {}
+	for bullet in bullets: colors[bullet.polarity] = true
+	check(absf(float(bullets.size())-expected) <= T.FINAL_BOSS_RAGE_SPIN_ARMS, "final rage spin volume in idle")
+	check(colors.has(0) and colors.has(1), "final rage spin uses both colors")
+	prepare_rage(low_hp)
+	boss.action = "spinning"
+	boss.action_remaining = 100.0
+	boss.spin_shot_clock = 1000.0
+	boss._physics_process(1.0/60.0)
+	check(game.projectiles.get_child_count() == 0, "final rage spin waits while signature spinning")
+	boss.action = "idle"
+	boss._physics_process(1.0/60.0)
+	check(game.projectiles.get_child_count() == T.FINAL_BOSS_RAGE_SPIN_ARMS, "final rage spin resumes after signature spinning")
+	for state: String in ["windup_charge", "charging", "windup_shot"]:
+		prepare_rage(low_hp)
+		boss.action = state
+		boss.action_remaining = 100.0
+		boss.charge_target = boss.position+Vector2(600, 0)
+		var before: int = game.projectiles.get_child_count()
+		boss._physics_process(1.0/60.0)
+		check(game.projectiles.get_child_count()-before == T.FINAL_BOSS_RAGE_SPIN_ARMS, "final rage spin continues during "+state)
+	reset_boss("final")
+	clear_minions()
+	boss.signature_index = 0
+	boss.signature_clock = 0
+	boss.switch_clock = 1000
+	boss.shot_clock = 1000
+	boss.gauge = 0
+	boss.hp = low_hp
+	boss._choose_attack(0)
+	check(boss.signature_index == 1 and boss.action == "idle", "rage skips spinner and advances signature index")
+	boss._choose_attack(0)
+	check(boss.action == "windup_summon" and boss.signature_index == 2, "rage reaches summoner on the next selection")
+	boss.cancel_attack()
+	reset_boss("final")
+	boss.signature_index = 0
+	boss.signature_clock = 0
+	boss.switch_clock = 1000
+	boss.shot_clock = 1000
+	boss.gauge = 0
+	boss.hp = boss.max_hp
+	boss._choose_attack(0)
+	check(boss.action == "windup_spin" and boss.signature_index == 1, "final above half still starts spinner")
+	boss.cancel_attack()
+	for role: String in ["guardian", "secret"]:
+		reset_boss(role)
+		boss.signature_clock = 1000
+		boss.switch_clock = 1000
+		boss.shot_clock = 1000
+		boss.hp = low_hp
+		clear_bullets()
+		boss.set_physics_process(true)
+		await frames(60)
+		boss.set_physics_process(false)
+		check(game.projectiles.get_child_count() == 0, role + " never uses final rage spin")
+	prepare_rage(low_hp)
+	var camera_position: Vector2 = game.camera.position
+	game.camera.position = boss.position+Vector2(10000, 0)
+	for tick in range(60): boss._physics_process(1.0/60.0)
+	check(game.projectiles.get_child_count() == 0, "final rage spin stops offscreen")
+	game.camera.position = camera_position
+	prepare_rage(low_hp)
+	game.effects.bursts.clear()
+	boss._physics_process(1.0/60.0)
+	var switches: int = game.effects.bursts.filter(func(e): return e.kind == "switch").size()
+	boss._physics_process(1.0/60.0)
+	check(switches == 1 and game.effects.bursts.filter(func(e): return e.kind == "switch").size() == 1, "final rage crossing effect appears once")
+
 func run():
 	game = Main.new()
 	game.controls_path = "res://builds/qa/bosses/pattern_controls.cfg"
@@ -622,6 +773,8 @@ func run():
 	await spin_checks("secret")
 	await summon_checks()
 	await charge_checks()
+	await barrage_checks()
+	await rage_checks()
 	order_checks()
 	await persistence_checks()
 	var result := {"checks":checks,"failures":failures,"summon_screen":summon_screen_results}

@@ -63,73 +63,146 @@ func extra_enemy(id: String, chamber: int, kind: String = "walker", summoned: bo
 	return actor
 
 func acquisition() -> void:
-	check(game.dynamite_stock == 0 and game.dynamite_claimed.is_empty(), "run starts empty")
-	var groups: Array = []
-	for at: Vector2i in game.stream.loaded:
-		for chamber: Dictionary in game.stream.loaded[at].chambers:
-			if enemies(at, chamber.id).size() >= 2: groups.append([at,chamber.id])
-	check(groups.size() >= 5, "loaded generated rooms supply at least five real groups")
-	var first: Array = groups[0]
-	var targets := enemies(first[0],first[1])
-	var descriptors: Array = []
-	for spawn: Dictionary in game.stream.loaded[first[0]].spawns:
-		if spawn.chamber_id == first[1] and spawn.kind != "boss": descriptors.append(spawn.duplicate(true))
-	for i in range(targets.size()-1):
-		kill(targets[i])
-		check(game.dynamite_stock == 0, "no reward before last generated normal")
-	kill(targets.back())
-	check(game.dynamite_stock == 1 and game.announcement.contains("1/3"), "last player kill awards one and announces")
-	var acquired_key := Vector3i(first[0].x,first[0].y,first[1])
-	check(game.dynamite_claimed.has(acquired_key), "room marked claimed")
-	await frames()
-	for spawn: Dictionary in descriptors:
-		game.stream._restore(game.stream.missing[spawn.id])
-		game.stream.missing.erase(spawn.id)
-	freeze()
-	for e in enemies(first[0],first[1]): kill(e)
-	check(game.dynamite_stock == 1, "restored group cannot award again")
-	await frames()
-	reload_sector(first[0])
-	check(game.dynamite_claimed.has(acquired_key) and game.dynamite_stock == 1, "claim and stock survive actual stream unload/reload")
-	for i in range(1,4):
-		for e in enemies(groups[i][0],groups[i][1]): kill(e)
-		check(game.dynamite_stock == mini(i+1,3), "group reward stops at three")
-	var full_key := Vector3i(groups[3][0].x,groups[3][0].y,groups[3][1])
-	check(game.dynamite_claimed.has(full_key) and game.announcement == "ダイナマイトは満杯です", "full stock consumes room claim and announces")
+	var player: Node2D = game.player
+	check(game.dynamite_stock == 0 and game.dynamite_kill_progress == 0, "run starts empty")
+	var normals: Array = get_nodes_in_group("enemies").filter(func(e): return e.get_parent() == game.world and not e.dead and not e.is_queued_for_deletion() and e.kind != "boss" and not e.has_meta("summoned_by"))
+	check(normals.size() >= 3, "loaded generated world supplies at least three normal enemies")
+	var picked: Array = normals.slice(0, 3)
+	if picked.size() < 3: return
+	kill(picked[0])
+	check(game.dynamite_stock == 0 and game.dynamite_kill_progress == 1, "one generated normal is progress only")
+	kill(picked[1])
+	check(game.dynamite_stock == 0 and game.dynamite_kill_progress == 2, "two generated normals still give no stick")
+	kill(picked[2])
+	check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 0, "third generated normal awards one stick")
+	check(game.announcement == "ダイナマイト入手 1/20", "third normal announces 1/20")
+	# The counter is global, not per room.
 	game.dynamite_stock = 0
-	var solo := extra_enemy("dynamite_solo",900)
-	kill(solo)
-	check(game.dynamite_stock == 0 and not game.dynamite_claimed.has(Vector3i(0,0,900)), "single normal room excluded")
-	var summon := extra_enemy("dynamite_summon",901,"walker",true)
+	game.dynamite_kill_progress = 0
+	for i in range(3):
+		kill(extra_enemy("dynamite_cross_%d" % i, 940 + i))
+	check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 0, "three different chambers award one stick")
+	check(game.announcement == "ダイナマイト入手 1/20", "cross-room award announces 1/20")
+	# A restored enemy that is already in defeated_enemies cannot count again.
+	game.dynamite_stock = 0
+	game.dynamite_kill_progress = 0
+	var source := extra_enemy("dynamite_restore_source", 950)
+	kill(source)
+	check(game.dynamite_kill_progress == 1, "restore fixture starts with one counted kill")
+	var record: Dictionary = game.stream.missing["dynamite_restore_source"]
+	game.stream._restore(record)
+	game.stream.missing.erase("dynamite_restore_source")
+	game.defeated_enemies["dynamite_restore_source"] = true
+	var restored: Node2D = null
+	for e in get_nodes_in_group("enemies"):
+		if e.get_parent() == game.world and e.spawn_id == "dynamite_restore_source": restored = e
+	check(restored != null, "restore respawns the defeated enemy")
+	if restored != null: kill(restored)
+	check(game.dynamite_kill_progress == 1, "restored enemy already in defeated_enemies is not counted")
+	# Summoned, boss, and non-player defeats are excluded.
+	var summon := extra_enemy("dynamite_count_summon", 951, "walker", true)
 	kill(summon)
-	check(game.dynamite_stock == 0, "summoned kill excluded")
-	var a := extra_enemy("dynamite_env_a",902)
-	var b := extra_enemy("dynamite_env_b",902)
-	kill(a)
-	kill(b,false)
-	check(game.dynamite_stock == 0, "non-player last kill excluded")
-	var p := extra_enemy("dynamite_pending_a",903)
-	var q := extra_enemy("dynamite_pending_b",903)
-	game.stream.pending_population[q.spawn_id] = Vector2i.ZERO
-	kill(p)
-	kill(q)
-	check(game.dynamite_stock == 0, "pending population blocks premature claim")
-	game.stream.pending_population.erase(q.spawn_id)
-	var r := extra_enemy("dynamite_pending_c",903)
-	kill(r)
-	check(game.dynamite_stock == 1, "completed population can award on final kill")
-	# An unfinished reinforcement worker can still add enemies to any room.
-	var at: Vector2i = groups[4][0]
-	var data: Dictionary = game.stream.loaded[at]
-	var had := data.has("reinforcements")
-	var reinforcement: Array = data.get("reinforcements", [])
-	data.erase("reinforcements")
-	var original_level: int = game.boss_cycle.final_clears
-	game.boss_cycle.final_clears = 1
-	for e in enemies(at,groups[4][1]): kill(e)
-	check(game.dynamite_stock == 1, "unfinished reinforcement data blocks room award")
-	game.boss_cycle.final_clears = original_level
-	if had: data.reinforcements = reinforcement
+	check(game.dynamite_kill_progress == 1, "summoned defeat is not counted")
+	var boss := Enemy.new()
+	boss.game = game
+	boss.kind = "boss"
+	boss.boss_id = 98765
+	boss.spawn_id = "dynamite_count_boss"
+	boss.set_meta("defeated_by_player", true)
+	game.count_dynamite_kill(boss)
+	check(game.dynamite_kill_progress == 1, "boss defeat is not counted")
+	boss.free()
+	var env := extra_enemy("dynamite_count_env", 952)
+	kill(env, false)
+	check(game.dynamite_kill_progress == 1, "non-player defeat is not counted")
+	# Projectile and guided projectile kills complete the third step.
+	for guided in [false, true]:
+		game.dynamite_stock = 0
+		game.dynamite_kill_progress = 0
+		var chamber := 960 + (1 if guided else 0)
+		var a := extra_enemy("dynamite_shot_a_%s" % guided, chamber)
+		var b := extra_enemy("dynamite_shot_b_%s" % guided, chamber)
+		var c := extra_enemy("dynamite_shot_c_%s" % guided, chamber)
+		kill(a)
+		kill(b)
+		check(game.dynamite_kill_progress == 2, "two direct kills precede the projectile")
+		c.position = Vector2(2000, 200)
+		c.hp = 1
+		c.polarity = 1
+		player.position = Vector2(1900, 200)
+		player.polarity = 0
+		await frames(2)
+		var bullet: Node2D = game.spawn_bullet(game.player, Vector2.RIGHT, guided, c)
+		for i in range(12): await frames()
+		check(c.dead if is_instance_valid(c) else game.defeated_enemies.has("dynamite_shot_c_%s" % guided), "projectile kills the third normal")
+		check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 0, "third normal/guided projectile awards dynamite")
+		if is_instance_valid(bullet): bullet.free()
+	# A dynamite blast can complete the third step too.
+	game.dynamite_stock = 0
+	game.dynamite_kill_progress = 0
+	var blast_a := extra_enemy("dynamite_blast_a", 970)
+	var blast_b := extra_enemy("dynamite_blast_b", 970)
+	var blast_c := extra_enemy("dynamite_blast_c", 970)
+	for e in [blast_a, blast_b, blast_c]:
+		e.position = Vector2(1800, 200)
+		e.hp = 1
+	player.position = Vector2(1200, 100)
+	player.hp = 100
+	player.invulnerability = 0
+	var blast := Dynamite.new()
+	blast.game = game
+	blast.position = Vector2(1800, 200)
+	game.projectiles.add_child(blast)
+	blast.set_physics_process(false)
+	blast.detonate()
+	check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 0, "three blast kills award one stick")
+	blast.free()
+	# Capacity 20: the twentieth stick is awarded, the next batch is announced as full.
+	game.dynamite_stock = 19
+	game.dynamite_kill_progress = 0
+	for i in range(3): kill(extra_enemy("dynamite_cap_a_%d" % i, 980 + i))
+	check(game.dynamite_stock == 20 and game.dynamite_kill_progress == 0 and game.announcement == "ダイナマイト入手 20/20", "twentieth stick reaches the cap")
+	for i in range(3): kill(extra_enemy("dynamite_cap_b_%d" % i, 983 + i))
+	check(game.dynamite_stock == 20 and game.dynamite_kill_progress == 0 and game.announcement == "ダイナマイトは満杯です", "full stock keeps 20 and announces full")
+	# Stock and progress are run state, not stream state.
+	game.dynamite_stock = 1
+	game.dynamite_kill_progress = 0
+	kill(extra_enemy("dynamite_reload_progress", 990))
+	check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 1, "reload fixture has one stick and one kill")
+	await frames()
+	reload_sector(Vector2i.ZERO)
+	check(game.dynamite_stock == 1 and game.dynamite_kill_progress == 1, "stock and kill progress survive sector reload")
+
+func hud_and_fuse_tests() -> void:
+	game.dynamite_stock = 0
+	game.dynamite_kill_progress = 0
+	game.ui.update_hud()
+	check(game.ui.dynamite_label.text == "ダイナマイト 0/20  あと3体", "HUD shows remaining kills")
+	game.dynamite_stock = 19
+	game.dynamite_kill_progress = 0
+	game.ui.update_hud()
+	check(game.ui.dynamite_label.text == "ダイナマイト 19/20  あと3体", "HUD shows the longest remaining-kill string")
+	check(game.ui.dynamite_label.get_minimum_size().x <= game.ui.dynamite_label.size.x, "longest remaining-kill string fits the label")
+	check(game.ui.dynamite_label.position.x + game.ui.dynamite_label.size.x <= game.ui.loot_label.position.x, "dynamite label stays left of loot label")
+	game.dynamite_stock = 20
+	game.dynamite_kill_progress = 2
+	game.ui.update_hud()
+	check(game.ui.dynamite_label.text == "ダイナマイト 20/20  満杯", "HUD shows full")
+	check(game.ui.dynamite_label.get_minimum_size().x <= game.ui.dynamite_label.size.x, "full string fits the label")
+	var stick := Dynamite.new()
+	stick.game = game
+	game.projectiles.add_child(stick)
+	stick.set_physics_process(false)
+	stick.elapsed = 0.0
+	check(stick.fuse_remaining() == 1.0, "fuse starts full")
+	stick.elapsed = 0.8
+	check(is_equal_approx(stick.fuse_remaining(), 0.5), "fuse is half at 0.8 seconds")
+	stick.elapsed = 1.59
+	check(stick.fuse_remaining() > 0.0 and stick.fuse_remaining() <= 0.01, "fuse is nearly empty at 1.59 seconds")
+	stick.elapsed = 1.6
+	check(stick.fuse_remaining() == 0.0, "fuse is empty at 1.6 seconds")
+	check(T.DYNAMITE_GAUGE_RADIUS == 22.0 and T.DYNAMITE_GAUGE_WIDTH == 3.0, "gauge constants match the ring")
+	stick.free()
 
 func payload(at: Vector2i) -> Dictionary:
 	var offset := Vector2(at)*T.SECTOR_SIZE
@@ -485,49 +558,18 @@ func additional_tests() -> void:
 	summon.hp=30
 	var hp: int=boss.hp
 	var stock: int=game.dynamite_stock
+	var progress: int=game.dynamite_kill_progress
 	var blast := Dynamite.new()
 	blast.game=game;blast.position=boss.position
 	game.projectiles.add_child(blast);blast.set_physics_process(false)
 	blast.detonate()
 	check(boss.hp==hp-T.DYNAMITE_DAMAGE and summon.hp==30-T.DYNAMITE_DAMAGE, "neutral blast damages boss and summoned enemy")
-	check(game.dynamite_stock==stock, "boss/summon blast does not award room stock")
+	check(game.dynamite_stock==stock and game.dynamite_kill_progress==progress, "boss/summon blast does not award dynamite")
 	boss.dead=true # Avoid altering the real boss-cycle fixture when testing exclusion.
 	boss.set_meta("defeated_by_player",true)
-	game.claim_dynamite_room(boss)
-	check(game.dynamite_stock==stock, "boss defeat is excluded from room claim")
+	game.count_dynamite_kill(boss)
+	check(game.dynamite_stock==stock and game.dynamite_kill_progress==progress, "boss defeat is excluded from dynamite count")
 	boss.free();summon.free();blast.free()
-	# Exercise the actual normal and guided projectile paths for the last kill.
-	for guided in [false,true]:
-		game.dynamite_stock=0
-		var chamber := 920+(1 if guided else 0)
-		var a := extra_enemy("dynamite_shot_a_%s" % guided,chamber)
-		var b := extra_enemy("dynamite_shot_b_%s" % guided,chamber)
-		kill(a)
-		b.position=Vector2(2000,200);b.hp=1;b.polarity=1
-		player.position=Vector2(1900,200);player.polarity=0
-		await frames(2)
-		var bullet: Node2D=game.spawn_bullet(player,Vector2.RIGHT,guided,b)
-		for i in range(12): await frames()
-		check(b.dead if is_instance_valid(b) else game.defeated_enemies.has("dynamite_shot_b_%s" % guided), "projectile kills last room member")
-		check(game.dynamite_stock==1, "last normal/guided projectile awards dynamite")
-		if is_instance_valid(bullet): bullet.free()
-	# The dynamite itself is also a player kill and can complete a group.
-	game.dynamite_stock=0
-	var first := extra_enemy("dynamite_chain_a",930)
-	var last := extra_enemy("dynamite_chain_b",930)
-	first.position=Vector2(1800,200);last.position=Vector2(1820,200)
-	blast=Dynamite.new();blast.game=game;blast.position=Vector2(1800,200)
-	game.projectiles.add_child(blast);blast.set_physics_process(false)
-	blast.detonate()
-	check(game.dynamite_stock==1 and game.dynamite_claimed.has(Vector3i(0,0,930)), "dynamite final kill earns group reward")
-	blast.free()
-	# Clear room at capacity remains consumed even after spending stock.
-	game.dynamite_stock=3
-	first=extra_enemy("dynamite_full_a",931);last=extra_enemy("dynamite_full_b",931)
-	kill(first);kill(last)
-	game.dynamite_stock=0
-	game.claim_dynamite_room(last)
-	check(game.dynamite_stock==0 and game.dynamite_claimed.has(Vector3i(0,0,931)), "capacity claim cannot be collected after stock is spent")
 	# Key input is buffered between physics ticks and consumed once.
 	player.position=Vector2(1400,100);player.hp=100;player.invulnerability=0
 	game.dynamite_stock=1
@@ -538,8 +580,10 @@ func additional_tests() -> void:
 	player._physics_process(1.0/60)
 	check(not player.pending_dynamite and game.dynamite_stock==0, "buffered throw consumes exactly one stock")
 	for child in game.projectiles.get_children(): child.free()
+	game.dynamite_stock=0
+	game.dynamite_kill_progress=0
 	game.ui.update_hud()
-	check(game.ui.dynamite_label.text=="ダイナマイト 0/3" and game.ui.controls_label.text.contains("G ダイナマイト"), "HUD and controls show stock and live key")
+	check(game.ui.dynamite_label.text=="ダイナマイト 0/20  あと3体" and game.ui.controls_label.text.contains("G ダイナマイト"), "HUD and controls show stock and live key")
 
 func map_tests() -> void:
 	# Both map controls draw the same sector image, with independent texture caches.
@@ -666,6 +710,7 @@ func run() -> void:
 	game.start_run(37)
 	freeze()
 	await acquisition()
+	hud_and_fuse_tests()
 	await terrain_tests()
 	await shaft_shape_tests()
 	await throwing_and_damage()
@@ -673,14 +718,15 @@ func run() -> void:
 	await map_tests()
 	await origin_shift_tests()
 	# Real death and retry create a clean run and stock.
-	game.dynamite_stock=3
+	game.dynamite_stock=20
+	game.dynamite_kill_progress=2
 	game.player.invulnerability=0
 	game.player.receive_neutral_hit(99999)
 	await frames(2)
-	check(game.dynamite_stock==0 and game.dynamite_claimed.is_empty() and game.state=="lost", "death clears stock and claims")
+	check(game.dynamite_stock==0 and game.dynamite_kill_progress==0 and game.state=="lost", "death clears stock and kill progress")
 	game.primary_action()
 	freeze()
-	check(game.dynamite_stock==0 and game.dynamite_claimed.is_empty(), "retry starts empty")
+	check(game.dynamite_stock==0 and game.dynamite_kill_progress==0, "retry starts empty")
 	game.start_tutorial()
 	var practice: Node2D=game.tutorial_session
 	practice.dynamite_stock=2

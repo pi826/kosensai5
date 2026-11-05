@@ -5,6 +5,9 @@ func receive_hit(attack_color: int, damage: int) -> String:
 	if result == "absorbed": game.absorptions += 1
 	return result
 
+func receive_neutral_hit(damage: int, player_attack: bool = true) -> String:
+	return super.receive_neutral_hit(mini(damage, maxi(0, hp - 1)), player_attack)
+
 func heal(amount: int) -> int:
 	var gained := super.heal(amount)
 	if gained > 0:

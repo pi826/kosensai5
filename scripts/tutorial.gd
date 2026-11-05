@@ -2,8 +2,12 @@ extends "res://scripts/main.gd"
 ## Independent scene reusing the main combat API; never generates or mutates a run.
 const PracticePlayer := preload("res://scripts/tutorial_player.gd")
 const Target := preload("res://scripts/tutorial_target.gd")
-const PracticeTerrain := preload("res://scripts/world_terrain.gd")
+const Dynamite := preload("res://scripts/dynamite.gd")
 const Heart := preload("res://scripts/heart.gd")
+const GRAVITY_LESSON := 10
+const DYNAMITE_LESSON := 11
+const CONTACT_LESSON := 12
+const LESSON_COUNT := 13
 var host: Node2D
 var lesson := 0
 var ok_remaining := 0.0
@@ -23,6 +27,14 @@ var heart_healed := false
 var turret_clock := 0.0
 var heart: Node2D
 var marker: Node2D
+var gravity_flips := 0
+var last_gravity_sign := 1
+var dynamite_explosions := 0
+
+class PracticeTerrain extends "res://scripts/world_terrain.gd":
+	func _dynamite_cell_allowed(cell: Vector2i) -> bool:
+		var center := pixel_of_cell(cell) + Vector2.ONE * TILE_SIZE * 0.5
+		return T.TUTORIAL_DYNAMITE_WALL.has_point(center)
 
 class Marker extends Node2D:
 	var session: Node2D
@@ -38,6 +50,12 @@ class Marker extends Node2D:
 
 func is_tutorial() -> bool:
 	return true
+
+func gravity_flip_enabled() -> bool:
+	return lesson >= GRAVITY_LESSON and is_instance_valid(player) and player.position.x >= T.TUTORIAL_FLIP_MIN_X
+
+func dynamite_enabled() -> bool:
+	return lesson >= DYNAMITE_LESSON
 
 func _ready() -> void:
 	streaming_enabled = false
@@ -76,7 +94,7 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if state == "playing" and event.is_action_pressed("switch_color") and not event.is_echo(): switches += 1
-	if lesson == 10 and state == "playing" and event.is_action_pressed("interact") and ok_remaining <= 0:
+	if lesson == CONTACT_LESSON and state == "playing" and event.is_action_pressed("interact") and ok_remaining <= 0:
 		complete_lesson()
 	if event.is_action_pressed("pause_game") and not event.is_echo():
 		if state == "playing": show_menu("paused")
@@ -87,6 +105,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if state != "playing": return
+	if player.gravity_sign != last_gravity_sign:
+		if lesson == GRAVITY_LESSON: gravity_flips += 1
+		last_gravity_sign = player.gravity_sign
+	if lesson == DYNAMITE_LESSON and dynamite_stock <= 0 and not projectiles.get_children().any(func(item): return item.get_script() == Dynamite and not item.exploded and not item.is_queued_for_deletion()):
+		dynamite_stock = 1
 	aim_hint_remaining = maxf(0, aim_hint_remaining - delta)
 	_update_camera(delta)
 	if ok_remaining > 0:
@@ -135,19 +158,21 @@ func lesson_text() -> String:
 	var k: Callable = key_bindings.get_binding_text
 	if lesson == 4 and aim_hint_remaining > 0:
 		var direction := "上" if aim_hint_target == "upper" else "下"
-		return "5 / 11　射撃方向：前 → 上 → 下\n%sの的は %s 向きで撃とう（%s で切り替え）。\n足場の端から狙えます。%s でジャンプ、%s で射撃。" % [direction, direction, k.call("aim_cycle"), k.call("jump"), k.call("shoot")]
+		return "5 / 13　射撃方向：前 → 上 → 下\n%sの的は %s 向きで撃とう（%s で切り替え）。\n足場の端から狙えます。%s でジャンプ、%s で射撃。" % [direction, direction, k.call("aim_cycle"), k.call("jump"), k.call("shoot")]
 	var texts := [
-		"1 / 11　左右に移動\n%s で左、%s で右。光る目印まで歩こう。\n次へ：床の上の目印に着く。" % [k.call("move_left"), k.call("move_right")],
-		"2 / 11　ジャンプ\n%s でジャンプ。長く押すほど高く跳べます。右の薄い足場へ。\n次へ：足場の上の目印に着地する。" % k.call("jump"),
-		"3 / 11　足場を降りる\n薄い足場の上で %s を押すと、真下へすり抜けます。\n次へ：足場をすり抜けて、下の目印へ着地する。" % k.call("move_down"),
-		"4 / 11　射撃\n%s を押し続けて、右の白い的を壊そう。\n次へ：通常射撃で的を壊す。" % k.call("shoot"),
-		"5 / 11　射撃方向：前 → 上 → 下\n%s で切り替え、%s で射撃。上の的は上向き、下の的は下向きで壊そう。\n%s で右の足場へジャンプし、端から狙って両方壊すと次へ。" % [k.call("aim_cycle"), k.call("shoot"), k.call("jump")],
-		"6 / 11　色を切り替えて吸収\n%s で青／橙を切替。同色の弾は吸収メーターへ、異色の弾はダメージ。\n次へ：橙の砲台の前で色を切り替え、同色の弾を%d発吸収する。" % [k.call("switch_color"), T.ABSORPTIONS_PER_CHARGE],
-		"7 / 11　敵の色を見て攻撃\n同色の攻撃は敵に吸収され、異色ならダメージ。%s で色、%s で方向。\n次へ：%s で橙の敵を倒す。撃破すると誘導弾ストック＋1。" % [k.call("switch_color"), k.call("aim_cycle"), k.call("shoot")],
-		"8 / 11　誘導弾を一斉発射\n%s でストックを1回分使い、4発を複数の敵へ。練習では空になると1回補充。\n次へ：青に切り替え、誘導弾を発射して右の3体を倒す。" % k.call("special"),
-		"9 / 11　箱で回復\nHPが減った状態で練習します。%s で右の箱を壊すとHP＋%d。\n次へ：箱を壊してHPを回復する。" % [k.call("shoot"), T.BLOCK_HEAL],
-		"10 / 11　ハートで回復\n右のピンクのハートに触れるとHP＋%d。満タンのときは残ります。\n次へ：ハートに触れてHPを回復する。" % T.HEART_HEAL,
-		"11 / 11　接触と無敵\n異色の敵の体に触れるとHPが減ります。被弾後%.1f秒は点滅し、無敵です。\n同色の弾は無敵中も吸収できます。%s で確認して練習を終える。" % [T.INVULNERABILITY, k.call("interact")]
+		"1 / 13　左右に移動\n%s で左、%s で右。光る目印まで歩こう。\n次へ：床の上の目印に着く。" % [k.call("move_left"), k.call("move_right")],
+		"2 / 13　ジャンプ\n%s でジャンプ。長く押すほど高く跳べます。右の薄い足場へ。\n次へ：足場の上の目印に着地する。" % k.call("jump"),
+		"3 / 13　足場を降りる\n薄い足場の上で %s を押すと、真下へすり抜けます。\n次へ：足場をすり抜けて、下の目印へ着地する。" % k.call("move_down"),
+		"4 / 13　射撃\n%s を押し続けて、右の白い的を壊そう。\n次へ：通常射撃で的を壊す。" % k.call("shoot"),
+		"5 / 13　射撃方向：前 → 上 → 下\n%s で切り替え、%s で射撃。上の的は上向き、下の的は下向きで壊そう。\n%s で右の足場へジャンプし、端から狙って両方壊すと次へ。" % [k.call("aim_cycle"), k.call("shoot"), k.call("jump")],
+		"6 / 13　色を切り替えて吸収\n%s で青／橙を切替。同色の弾は吸収メーターへ、異色の弾はダメージ。\n次へ：橙の砲台の前で色を切り替え、同色の弾を%d発吸収する。" % [k.call("switch_color"), T.ABSORPTIONS_PER_CHARGE],
+		"7 / 13　敵の色を見て攻撃\n同色の攻撃は敵に吸収され、異色ならダメージ。%s で色、%s で方向。\n次へ：%s で橙の敵を倒す。撃破すると誘導弾ストック＋1。" % [k.call("switch_color"), k.call("aim_cycle"), k.call("shoot")],
+		"8 / 13　誘導弾を一斉発射\n%s でストックを1回分使い、4発を複数の敵へ。練習では空になると1回補充。\n次へ：青に切り替え、誘導弾を発射して右の3体を倒す。" % k.call("special"),
+		"9 / 13　箱で回復\nHPが減った状態で練習します。%s で右の箱を壊すとHP＋%d。\n次へ：箱を壊してHPを回復する。" % [k.call("shoot"), T.BLOCK_HEAL],
+		"10 / 13　ハートで回復\n右のピンクのハートに触れるとHP＋%d。満タンのときは残ります。\n次へ：ハートに触れてHPを回復する。" % T.HEART_HEAL,
+		"11 / 13　重力反転\n%s で重力を反転して天井に立つ。もう一度押すと床へ戻る（着地ごとに1回）。\n次へ：天井を歩いて右の壁を越え、床に戻って目印に着く。" % k.call("gravity_flip"),
+		"12 / 13　ダイナマイト\n%s で投げると面に張り付き、リングが一周すると自機と反対の方向へ穴を掘る（自分も被弾）。\n本編は通常敵%d体ごとに1個（最大%d個）。次へ：右の壁を壊して奥の目印へ。" % [k.call("dynamite"), T.DYNAMITE_KILLS_PER_STICK, T.DYNAMITE_CAPACITY],
+		"13 / 13　接触と無敵\n異色の敵の体に触れるとHPが減ります。被弾後%.1f秒は点滅し、無敵です。\n同色の弾は無敵中も吸収できます。%s で確認して練習を終える。" % [T.INVULNERABILITY, k.call("interact")]
 	]
 	return texts[mini(lesson, texts.size() - 1)]
 
@@ -163,6 +188,8 @@ func lesson_satisfied() -> bool:
 		7: return volleys > lesson_volleys and defeated.has("volley0") and defeated.has("volley1") and defeated.has("volley2")
 		8: return box_healed
 		9: return heart_healed
+		GRAVITY_LESSON: return at_goal and player.gravity_sign == 1 and gravity_flips > 0
+		DYNAMITE_LESSON: return at_goal and dynamite_explosions > 0
 	return false
 
 func complete_lesson() -> void:
@@ -178,6 +205,7 @@ func show_aim_hint(id: String) -> void:
 
 func enter_lesson(next: int) -> void:
 	lesson = next
+	last_gravity_sign = player.gravity_sign
 	ok_remaining = 0
 	aim_hint_remaining = 0
 	marker.show()
@@ -210,7 +238,16 @@ func enter_lesson(next: int) -> void:
 			heart.position = T.TUTORIAL_HEART
 			heart.spawn = {"id": 0, "position": T.TUTORIAL_HEART}
 			world.add_child(heart)
-		11: show_menu("tutorial_complete")
+		GRAVITY_LESSON:
+			gravity_flips = 0
+		DYNAMITE_LESSON:
+			dynamite_stock = 1
+			dynamite_explosions = 0
+		LESSON_COUNT: show_menu("tutorial_complete")
+
+func refresh_dynamite_map(cells: Array[Vector2i]) -> void:
+	if lesson == DYNAMITE_LESSON: dynamite_explosions += 1
+	super(cells)
 
 func add_target(id: String, at: Vector2, neutral: bool = false) -> CharacterBody2D:
 	var target := Target.new()

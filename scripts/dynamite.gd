@@ -53,6 +53,9 @@ func _physics_process(delta: float) -> void:
 	if elapsed + 0.000001 >= T.DYNAMITE_FUSE: detonate()
 	queue_redraw()
 
+func fuse_remaining() -> float:
+	return clampf(1.0 - elapsed / T.DYNAMITE_FUSE, 0.0, 1.0)
+
 func aim_direction() -> Vector2i:
 	# Away from the player along the dominant axis; ties dig sideways.
 	var player = game.player
@@ -115,6 +118,11 @@ func _draw() -> void:
 		var preview: Rect2 = game.terrain.cell_rect_pixels(shaft_cells(aim_direction()))
 		var pulse := 0.28+0.15*sin(elapsed*16)
 		draw_rect(Rect2(preview.position - global_position, preview.size), Color(tint, pulse), false, 1.5)
+	var remaining := fuse_remaining()
+	draw_arc(Vector2.ZERO, T.DYNAMITE_GAUGE_RADIUS, 0, TAU, 48, Color(0,0,0,0.45), 5, true)
+	if remaining > 0.0:
+		var gauge_color := Color("f5bd68").lerp(Color("ff5a4a"), 1.0 - remaining)
+		draw_arc(Vector2.ZERO, T.DYNAMITE_GAUGE_RADIUS, -PI/2, -PI/2 + TAU*remaining, 48, gauge_color, T.DYNAMITE_GAUGE_WIDTH, true)
 	draw_rect(Rect2(-9,-5,18,10), Color("ba5148"))
 	draw_line(Vector2(-4,-5),Vector2(-4,5),tint,2)
 	draw_line(Vector2(4,-5),Vector2(4,5),tint,2)

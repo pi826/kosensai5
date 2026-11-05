@@ -24,6 +24,9 @@ var signature_index := 0
 var spin_angle := 0.0
 var spin_direction := 1
 var spin_shot_clock := 0.0
+var rage_spin_angle := 0.0
+var rage_spin_clock := 0.0
+var rage_started := false
 var charge_target := Vector2.ZERO
 var summon_count := 0
 var summon_wave := 0
@@ -130,6 +133,8 @@ func _physics_process(delta: float) -> void:
 	wake_delay = maxf(0.0, wake_delay - delta)
 	if wake_delay > 0:
 		return
+	if _rage_spin_active():
+		_tick_rage_spin(delta)
 	var rate := attack_rate()
 	build_clock -= delta * rate
 	if action != "idle":
@@ -254,6 +259,7 @@ func signature_pattern() -> String:
 func _begin_signature() -> bool:
 	var selected := signature_pattern()
 	if boss_role != "guardian": signature_index += 1
+	if selected == "spinner" and _rage_spin_active(): return false
 	match selected:
 		"spinner":
 			spin_angle = (game.player.position-position).angle()
@@ -296,6 +302,27 @@ func _tick_action(delta: float) -> void:
 			velocity = Vector2.ZERO
 			_begin("charge_recover", T.BOSS_CHARGE_RECOVER)
 
+func _rage_spin_active() -> bool:
+	return kind == "boss" and boss_role == "final" and hp < max_hp * T.FINAL_BOSS_RAGE_RATIO
+
+func _tick_rage_spin(delta: float) -> void:
+	if not _rage_spin_active(): return
+	if not rage_started:
+		rage_started = true
+		rage_spin_angle = (game.player.global_position-global_position).angle()
+		rage_spin_clock = 0.0
+		game.effect(global_position, T.COLORS[polarity], "switch")
+	if action == "spinning": return
+	rage_spin_angle += T.FINAL_BOSS_RAGE_SPIN_SPEED * delta
+	rage_spin_clock -= delta
+	if rage_spin_clock > 0: return
+	rage_spin_clock += T.FINAL_BOSS_RAGE_SPIN_INTERVAL
+	var arms: int = T.FINAL_BOSS_RAGE_SPIN_ARMS
+	for k in range(arms):
+		var direction := Vector2.from_angle(rage_spin_angle+k*TAU/arms)
+		game.spawn_bullet(self, direction, false, null, polarity if k%2 == 0 else 1-polarity, position+muzzle_offset(direction))
+	game.play_sound("boss_shot", position, -10.0)
+
 func cancel_attack() -> void:
 	action = "idle"
 	if is_instance_valid(laser_beam):
@@ -330,6 +357,14 @@ func _begin(next_action: String, duration: float) -> void:
 		game.play_sound("enemy_warn_special" if next_action == "windup_special" else "enemy_warn", position)
 	action = next_action
 	action_remaining = duration
+
+func _boss_fan_count() -> int:
+	return T.SECRET_BOSS_FAN_COUNT if boss_role == "secret" else T.BOSS_FAN_COUNT
+
+func _fire_fan(direction: Vector2, count: int, color: int, offset: float) -> void:
+	for i in range(count):
+		var angle := (i - (count - 1) / 2.0) * T.BOSS_FAN_ANGLE + offset
+		game.spawn_bullet(self, direction.rotated(angle), false, null, color)
 
 func _complete_action() -> void:
 	match action:
@@ -384,21 +419,29 @@ func _complete_action() -> void:
 		"windup_shot":
 			art_special_fire = false
 			art_fire_remaining = 3.0 / 16.0
-			if kind == "boss": game.play_sound("boss_shot", position)
 			var direction: Vector2 = (game.player.global_position - global_position).normalized()
-			if kind == "boss" and boss_role != "guardian":
-				var count := T.SECRET_BOSS_FAN_COUNT if boss_role == "secret" else T.BOSS_FAN_COUNT
-				for i in range(count):
-					var angle := (i - (count - 1) / 2.0) * T.BOSS_FAN_ANGLE
-					if pattern == 1: angle += sin(move_clock) * T.BOSS_FAN_ANGLE
-					game.spawn_bullet(self, direction.rotated(angle))
-				if pattern == 1 or boss_role == "secret":
-					game.spawn_bullet(self, direction, true, game.player)
-			elif kind == "boss" and pattern == 1:
-				for i in range(T.BOSS_FAN_COUNT):
-					game.spawn_bullet(self, direction.rotated((i - (T.BOSS_FAN_COUNT - 1) / 2.0) * T.BOSS_FAN_ANGLE))
-			else:
+			if kind != "boss":
 				game.spawn_bullet(self, direction)
+				shot_clock = _base_shot_interval()
+			else:
+				game.play_sound("boss_shot", position)
+				if boss_role == "guardian" and pattern == 0:
+					_fire_fan(direction, T.BOSS_FAN_COUNT, polarity, 0.0)
+					shot_clock = _base_shot_interval()
+				else:
+					var count := _boss_fan_count()
+					var offset := sin(move_clock) * T.BOSS_FAN_ANGLE if boss_role != "guardian" and pattern == 1 else 0.0
+					_fire_fan(direction, count, polarity, offset)
+					if boss_role != "guardian" and (pattern == 1 or boss_role == "secret"):
+						game.spawn_bullet(self, direction, true, game.player)
+					_begin("second_volley", T.BOSS_SECOND_VOLLEY_DELAY)
+					return
+		"second_volley":
+			art_special_fire = false
+			art_fire_remaining = 3.0 / 16.0
+			game.play_sound("boss_shot", position)
+			var direction: Vector2 = (game.player.global_position - global_position).normalized()
+			_fire_fan(direction, _boss_fan_count(), 1-polarity, T.BOSS_FAN_ANGLE / 2.0)
 			shot_clock = _base_shot_interval()
 	action = "idle"
 

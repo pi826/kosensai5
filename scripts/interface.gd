@@ -345,7 +345,7 @@ func refresh_bindings() -> void:
 	if game.state == "title": menu_detail.text = title_instructions()
 
 func title_instructions() -> String:
-	return "あなたの色は青か橙です。%s でいつでも切り替えられます。\n自分と同じ色の攻撃は吸収し、ダメージを受けません。\n違う色の攻撃を受けるとHP（体力）が減ります。\n同じ色の攻撃を%d回吸収するか、敵を1体倒すと誘導弾が1回分たまります。\n%s で、敵を自動で追いかける「誘導弾」を撃てます。\nピンクのハートに触れるか、箱を撃って壊すとHPが回復します。\nHPが0になると結晶・鍵・装備などを全て失い、最初からやり直します。" % [game.key_bindings.get_binding_text("switch_color"), T.ABSORPTIONS_PER_CHARGE, game.key_bindings.get_binding_text("special")]
+	return "同じ色を吸収して、違う色で攻撃せよ！"
 
 func update_equipment() -> void:
 	var pending := false
@@ -384,7 +384,10 @@ func update_hud() -> void:
 	gauge_bar.value = charge
 	gauge_bar.modulate = T.COLORS[color_index]
 	dynamite_label.visible = not game.is_tutorial()
-	dynamite_label.text = "ダイナマイト %d/%d" % [game.dynamite_stock, T.DYNAMITE_CAPACITY]
+	if game.dynamite_stock >= T.DYNAMITE_CAPACITY:
+		dynamite_label.text = "ダイナマイト %d/%d  満杯" % [game.dynamite_stock, T.DYNAMITE_CAPACITY]
+	else:
+		dynamite_label.text = "ダイナマイト %d/%d  あと%d体" % [game.dynamite_stock, T.DYNAMITE_CAPACITY, T.DYNAMITE_KILLS_PER_STICK - game.dynamite_kill_progress]
 	var stocks: int = game.player.homing_charges if live else 0
 	var capacity: int = game.player.charge_capacity() if live else T.HOMING_CHARGE_CAPACITY
 	var sprites := Art.enabled()
@@ -398,9 +401,9 @@ func update_hud() -> void:
 	loot_notice.text = game.loot_message if game.loot_message_remaining > 0 else game.interaction_hint()
 	if game.loot_message_remaining > 0 and game.loot_ability != 0: loot_notice.text = game.ability_help(game.loot_ability)
 	if game.is_tutorial():
-		score_label.text = "チュートリアル  %d / 11" % mini(game.lesson + 1, 11)
+		score_label.text = "チュートリアル  %d / %d" % [mini(game.lesson + 1, game.LESSON_COUNT), game.LESSON_COUNT]
 		progress_label.text = "練習中はHPが1未満になりません"
-		progress_bar.max_value = 11
+		progress_bar.max_value = game.LESSON_COUNT
 		progress_bar.value = game.lesson
 		location_label.text = "操作の練習"
 		objective_label.text = game.direction_hint()
@@ -442,9 +445,11 @@ func show_menu(next_state: String) -> void:
 	place(eyebrow, Vector2(300, 56 if title else 160), Vector2(680, 24))
 	place(menu_title, Vector2(300, 80 if title else 191), Vector2(680, 72))
 	menu_subtitle.visible = not title
-	place(menu_detail, Vector2(302, 162 if title else 327), Vector2(676, 238 if title else 110))
-	menu_detail.add_theme_font_size_override("font_size", 16 if title else 18)
-	menu_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	place(menu_detail, Vector2(302, 176 if title else 327), Vector2(676, 60 if title else 110))
+	menu_detail.add_theme_font_size_override("font_size", 34 if title else 18)
+	menu_detail.add_theme_color_override("font_color", Color("f4f0d8") if title else Color("afc2cf"))
+	menu_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER if title else HORIZONTAL_ALIGNMENT_LEFT
+	menu_detail.autowrap_mode = TextServer.AUTOWRAP_OFF if title else TextServer.AUTOWRAP_WORD_SMART
 	seed_field.text = str(game.current_seed)
 	seed_field.visible = next_state == "title"
 	seed_label.visible = next_state == "title"
@@ -490,7 +495,7 @@ func show_menu(next_state: String) -> void:
 			menu_detail.text = "同じ色は吸収、違う色はダメージ。\n本編では洞窟を探索し、ガーディアンを探します。\nキー設定は本編でも引き継ぎます。"
 			primary_button.text = "本編を始める"
 	if game.is_tutorial() and next_state == "paused":
-		menu_detail.text = "練習 %d / 11\n再開すると同じ課題から続けます。" % mini(game.lesson + 1, 11)
+		menu_detail.text = "練習 %d / %d\n再開すると同じ課題から続けます。" % [mini(game.lesson + 1, game.LESSON_COUNT), game.LESSON_COUNT]
 		new_button.text = "チュートリアルを最初から"
 	update_hud()
 	primary_button.grab_focus()

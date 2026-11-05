@@ -156,18 +156,26 @@ func shop_and_hud() -> void:
 
 func title_and_bindings() -> void:
 	game.show_menu("title")
-	var text: String = game.ui.menu_detail.text + game.ui.menu_subtitle.text
-	for removed in ["ガーディアンとラスボスを巡り", "3体撃破でラスボス", "ラスボス3回撃破で裏ボス", "倒れたら全リセット"]:
-		check(not text.contains(removed), "old title text removed " + removed)
-	for required in ["青か橙", "ダメージを受けません", "HP（体力）", "%d回吸収" % T.ABSORPTIONS_PER_CHARGE, "自動で追いかける", "ピンクのハート", "最初からやり直"]:
-		check(text.contains(required), "title explains " + required)
+	var expected := "同じ色を吸収して、違う色で攻撃せよ！"
+	var label: Label = game.ui.menu_detail
+	check(label.text == expected, "title instruction is exact")
+	check(label.get_theme_font_size("font_size") == 34, "title instruction uses 34pt")
+	check(label.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER, "title instruction is centered")
+	check(label.get_theme_color("font_color") == Color("f4f0d8"), "title instruction stays bright")
+	check(label.autowrap_mode == TextServer.AUTOWRAP_OFF and label.get_line_count() == 1, "title instruction fits one line")
+	check(label.position.y + label.size.y < game.ui.seed_label.position.y, "title instruction sits above seed row")
+	for removed in ["あなたの色は", "青か橙", "ダメージを受けません", "V でいつでも", "B で、敵", "HP（体力）"]:
+		check(not label.text.contains(removed), "old title text removed " + removed)
 	game.key_bindings.try_bind("switch_color", 0, KEY_V)
 	game.key_bindings.try_bind("special", 0, KEY_B)
 	game.ui.refresh_bindings()
-	check(game.ui.menu_detail.text.contains("V でいつでも") and game.ui.menu_detail.text.contains("B で、敵"), "title follows rebound keys")
-	var label: Label = game.ui.menu_detail
-	check(label.position.y + label.get_line_count() * label.get_theme_font("font").get_height(label.get_theme_font_size("font_size")) < game.ui.seed_label.position.y, "title prose fits above seed")
+	check(label.text == expected, "title instruction ignores rebound keys")
 	game.key_bindings.reset_defaults()
+	game.show_menu("paused")
+	check(label.get_theme_font_size("font_size") == 18 and label.horizontal_alignment == HORIZONTAL_ALIGNMENT_LEFT, "other menu restores detail size and alignment")
+	check(label.size == Vector2(676, 110) and label.get_theme_color("font_color") == Color("afc2cf"), "other menu restores detail layout and color")
+	game.show_menu("title")
+	check(label.text == expected and label.get_theme_font_size("font_size") == 34, "title instruction returns after other menu")
 	var path := "user://task7a_controls.cfg"
 	var cfg := ConfigFile.new()
 	cfg.set_value("controls", "version", 3)
@@ -195,6 +203,7 @@ func title_and_bindings() -> void:
 	tap(KEY_N)
 	check(game.state == "playing", "new map key closes")
 	game.key_bindings.reset_defaults()
+	game.resume_run()
 
 func map_checks() -> void:
 	game.set_physics_process(true)
