@@ -212,6 +212,11 @@ func run() -> void:
 	check(game.key_bindings.try_bind("move_left", 0, KEY_U).is_empty(), "rebind move left")
 	check(practice.lesson_text() != initial_text and practice.lesson_text().contains("U"), "current lesson text follows changed binding immediately")
 	game.key_bindings.reset_defaults()
+	check(practice.ui.controls_label.text.contains(game.key_bindings.get_binding_text("move_up") + " 2回でも可"), "tutorial help mentions double up jump with live key")
+	check(practice.ui.controls_label.get_minimum_size().y <= practice.ui.controls_label.size.y, "tutorial help fits footer height")
+	practice.lesson = 1
+	check(practice.lesson_text().contains(game.key_bindings.get_binding_text("move_up") + " を2回押してもジャンプ"), "jump lesson mentions double up jump with live key")
+	practice.lesson = 0
 	var driver := Driver.new()
 	driver.tree = self
 	driver.game = practice
@@ -302,6 +307,7 @@ func run() -> void:
 	check(game.score == 0 and game.kills == 0 and game.elapsed < 0.2 and game.player.hp == T.PLAYER_HP and game.player.homing_charges == 0, "completion starts a clean main run")
 	check(game.key_bindings.get_key("shoot", 0) == KEY_R, "tutorial key changes carry into main")
 	check(game.ui.controls_label.text.contains("R 射撃"), "main help refreshes shared bindings after tutorial")
+	check(game.ui.controls_label.text.contains("上（2回でジャンプ）"), "main help mentions double up jump")
 	game.key_bindings.reset_defaults()
 	await check_aim_route(true, false)
 	await check_aim_route(false, true)

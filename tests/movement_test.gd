@@ -42,7 +42,7 @@ func key_event(key: int, pressed: bool) -> void:
 	Input.flush_buffered_events()
 
 func reset_player() -> void:
-	for action in ["move_left", "move_right", "jump", "move_down", "shoot", "switch_color", "aim_cycle", "special"]:
+	for action in ["move_left", "move_right", "move_up", "jump", "move_down", "dash", "gravity_flip", "shoot", "switch_color", "aim_cycle", "special"]:
 		input_action(action, false)
 	game.start_run(37)
 	game.streaming_enabled = false
@@ -81,6 +81,22 @@ func jump_height(short_tap: bool) -> float:
 	measurements["short_airtime" if short_tap else "full_airtime"] = landed_at / 60.0
 	return initial - minimum
 
+func up_double_tap_height(hold_second: bool) -> float:
+	await reset_player()
+	var initial: float = game.player.position.y
+	var minimum := initial
+	key_event(KEY_W, true)
+	key_event(KEY_W, false)
+	await frames(6)
+	key_event(KEY_W, true)
+	if not hold_second:
+		key_event(KEY_W, false)
+	for i in range(50):
+		await frames()
+		minimum = minf(minimum, game.player.position.y)
+	key_event(KEY_W, false)
+	return initial - minimum
+
 func run() -> void:
 	game = Main.new()
 	game.controls_path = "res://builds/qa/movement_controls.cfg"
@@ -103,6 +119,64 @@ func run() -> void:
 	check(short_height > 25 and short_height < full_height * 0.6, "short tap creates a low jump")
 	check(measurements.full_airtime >= (32.0 / 60) * 1.25 and measurements.full_airtime <= (32.0 / 60) * 1.35, "full airtime is 1.25 to 1.35 times the measured Task 4B jump")
 	check(is_equal_approx(T.MAX_STEP_HEIGHT, T.JUMP_SPEED * T.JUMP_SPEED / (2 * T.GRAVITY) - T.LANDING_MARGIN), "reach validation derives height from the new physics")
+	var up_full := await up_double_tap_height(true)
+	var up_short := await up_double_tap_height(false)
+	measurements.up_full_height = up_full
+	measurements.up_short_height = up_short
+	check(absf(up_full - full_height) <= 6.0, "held second up press matches full jump height within six pixels")
+	check(absf(up_short - short_height) <= 6.0, "released second up press matches short jump height within six pixels")
+	await reset_player()
+	var floor_y: float = game.player.position.y
+	key_event(KEY_W, true)
+	key_event(KEY_W, false)
+	await frames(20)
+	key_event(KEY_W, true)
+	await frames(2)
+	check(game.player.is_on_floor() and absf(game.player.position.y - floor_y) < 0.2 and game.player.jump_buffer == 0.0, "two up presses beyond the window do not jump")
+	key_event(KEY_W, false)
+	await reset_player()
+	floor_y = game.player.position.y
+	key_event(KEY_W, true)
+	key_event(KEY_W, false)
+	await frames(10)
+	check(game.player.is_on_floor() and absf(game.player.position.y - floor_y) < 0.2, "one up press does not jump")
+	await reset_player()
+	key_event(KEY_W, true)
+	key_event(KEY_W, false)
+	await frames(6)
+	key_event(KEY_W, true)
+	await frames(2)
+	check(game.player.velocity.y < 0, "second up press jumps")
+	key_event(KEY_W, false)
+	await frames(1)
+	key_event(KEY_W, true)
+	await frames(1)
+	check(game.player.jump_buffer == 0.0 and not game.player.up_jump_held and game.player.last_up_press_clock >= 0.0, "third up press is counted as a new first press")
+	key_event(KEY_W, false)
+	await reset_player()
+	check(game.key_bindings.try_bind("move_up", 0, KEY_I).is_empty(), "move_up can be rebound for jump")
+	key_event(KEY_I, true)
+	key_event(KEY_I, false)
+	await frames(6)
+	key_event(KEY_I, true)
+	await frames(2)
+	check(game.player.velocity.y < 0, "remapped move_up double tap jumps")
+	key_event(KEY_I, false)
+	game.key_bindings.reset_defaults()
+	await reset_player()
+	fixture(Rect2(0, 380, 4000, 32))
+	input_action("gravity_flip", true)
+	input_action("gravity_flip", false)
+	await frames(45)
+	check(game.player.gravity_sign == -1 and game.player.is_on_floor(), "inverted fixture lands on the ceiling")
+	var ceiling_y: float = game.player.position.y
+	key_event(KEY_W, true)
+	key_event(KEY_W, false)
+	await frames(6)
+	key_event(KEY_W, true)
+	await frames(2)
+	check(game.player.gravity_sign == -1 and game.player.velocity.y > 0 and game.player.position.y > ceiling_y + 1.0, "two up presses jump away from inverted gravity")
+	key_event(KEY_W, false)
 	await reset_player()
 	game.key_bindings.try_bind("jump", 1, KEY_U)
 	key_event(KEY_SPACE, true)

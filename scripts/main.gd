@@ -91,6 +91,7 @@ func shift_origin(sectors: Vector2i) -> Vector2:
 				actor.arena.position += delta
 				actor.roam.position += delta
 				actor.charge_target += delta
+				actor.wander_target += delta
 				actor.wall_plan.position += delta
 			actor.force_update_transform()
 			actor.reset_physics_interpolation()
@@ -128,6 +129,7 @@ var current_seed := 1
 var state := "title":
 	set(value):
 		if value != "playing" and is_instance_valid(boss_impact): boss_impact.cancel()
+		if value != "playing" and is_instance_valid(player) and player.has_method("clear_up_double_tap"): player.clear_up_double_tap()
 		state = value
 var score := 0
 var elapsed := 0.0
@@ -145,6 +147,8 @@ var loot_message_remaining := 0.0
 var loot_ability := 0
 var potions := 0
 var owned_equipment: Dictionary = {}
+var upgrade_tokens := 0
+var equipment_levels: Dictionary = {}
 var merchant_sold: Dictionary = {}
 var discovered_merchants: Dictionary = {}
 var active_merchant: Dictionary = {}
@@ -348,6 +352,8 @@ func start_run(stage_seed: int) -> void:
 	loot_ability = 0
 	potions = 0
 	owned_equipment.clear()
+	upgrade_tokens = 0
+	equipment_levels.clear()
 	merchant_sold.clear()
 	discovered_merchants.clear()
 	active_merchant.clear()
@@ -806,7 +812,7 @@ func spawn_bullet(actor: CharacterBody2D, direction: Vector2, guided: bool = fal
 	else:
 		bullet.speed = T.PLAYER_BULLET_SPEED if actor.faction == 0 else T.ENEMY_BULLET_SPEED
 	if actor.faction == 0 and not guided:
-		bullet.penetrations = T.BULLET_PENETRATIONS if actor.wears("pierce") else 0
+		bullet.penetrations = T.PIERCE_COUNTS[equipment_level("pierce") - 1] if actor.wears("pierce") else 0
 		bullet.position = actor.position + actor.muzzle_offset(bullet.direction)
 	else:
 		var launch_side: float = signf(direction.x) if guided else float(actor.facing)
@@ -1011,6 +1017,11 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		defeated_bosses[actor.boss_id] = true
 		score += {"guardian": T.BOSS_SCORE, "final": T.FINAL_BOSS_SCORE, "secret": T.SECRET_BOSS_SCORE}[actor.boss_role]
 		boss_cycle.defeated(actor)
+		if actor.boss_role == "final" and not is_tutorial():
+			upgrade_tokens += 1
+			loot_message = T.LOOP_NOTICE + "　装備を1つ強化できる（商人の「強化」）"
+			loot_message_remaining = T.LOOT_MESSAGE_TIME
+			ui.update_hud()
 	else:
 		score += T.ENEMY_SCORE
 		kills += 1
@@ -1171,6 +1182,62 @@ func item_price(id: String) -> int:
 	if id == "potion": return T.POTION_PRICE
 	if id == "key": return T.SHOP_KEY_PRICE
 	return int(T.EQUIPMENT.get(id, {}).get("price", 0))
+
+func equipment_level(id: String) -> int:
+	return clampi(int(equipment_levels.get(id, 1)), 1, T.EQUIPMENT_MAX_LEVEL)
+
+func equipment_effect_text(id: String, level: int) -> String:
+	var index := clampi(level, 1, T.EQUIPMENT_MAX_LEVEL) - 1
+	match id:
+		"rapid":
+			return "射撃の間隔 −%d%%" % roundi((1.0 - T.RAPID_INTERVAL_RATIOS[index]) * 100.0)
+		"triple":
+			return "%d発に広がる" % T.TRIPLE_COUNTS[index]
+		"pierce":
+			return "敵を%d体貫通" % T.PIERCE_COUNTS[index]
+		"shell":
+			return "最大HP+%d" % T.SHELL_HP_BONUSES[index]
+		"cushion":
+			return "受けるダメージ −%d%%" % roundi((1.0 - T.ARMOR_DAMAGE_RATIOS[index]) * 100.0)
+		"invincible":
+			return "無敵時間+%.1f秒" % T.LONG_INVULNERABILITY_BONUSES[index]
+		"homing":
+			return "ストック上限+%d、発射数+%d" % [T.HOMING_CAPACITY_BONUSES[index], T.HOMING_VOLLEY_BONUSES[index]]
+		"absorb":
+			return "吸収%d回で1ストック" % T.EFFICIENT_ABSORPTION_COUNTS[index]
+		"boots":
+			return "移動速度+%d%%" % roundi((T.BOOTS_SPEED_RATIOS[index] - 1.0) * 100.0)
+	return ""
+
+func upgrade_price(id: String) -> int:
+	if not T.EQUIPMENT.has(id): return 0
+	return int(T.EQUIPMENT[id].price * T.UPGRADE_PRICE_RATIO * equipment_level(id))
+
+func upgrade_reason(id: String) -> String:
+	if state != "shop": return "商人の画面で強化できます"
+	if not T.EQUIPMENT.has(id) or not owned_equipment.has(id): return "未所持"
+	if upgrade_tokens <= 0: return "ラスボスを倒すと強化できます"
+	if equipment_level(id) >= T.EQUIPMENT_MAX_LEVEL: return "最大"
+	if crystals < upgrade_price(id): return "結晶不足"
+	return ""
+
+func upgrade_item(id: String) -> bool:
+	if state != "shop" or not upgrade_reason(id).is_empty():
+		if state == "shop" and Time.get_ticks_msec() - last_shop_action_ms >= int(T.SHOP_ACTION_INTERVAL * 1000): play_sound("deny")
+		return false
+	var now := Time.get_ticks_msec()
+	if now - last_shop_action_ms < int(T.SHOP_ACTION_INTERVAL * 1000): return false
+	last_shop_action_ms = now
+	var slot: String = T.EQUIPMENT[id].slot
+	var equipped: bool = is_instance_valid(player) and player.equipment.get(slot, "") == id
+	var next_level := equipment_level(id) + 1
+	crystals -= upgrade_price(id)
+	upgrade_tokens -= 1
+	equipment_levels[id] = next_level
+	if equipped: player.apply_equipment(slot, id)
+	play_sound("buy")
+	ui.update_hud()
+	return true
 
 func buy_item(id: String) -> bool:
 	if state != "shop" or not purchase_reason(id).is_empty():

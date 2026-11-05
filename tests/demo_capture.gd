@@ -11,6 +11,9 @@ const CAPTURE_STEPS := 1800
 const SAVE_EVERY := 2
 const FRAME_DIR := "res://builds/qa/demo/frames"
 const RESULT_PATH := "res://builds/qa/demo/capture.json"
+const CAMERA_SAFE_RECT := Rect2(20.0, 120.0, 1240.0, 530.0)
+const CAMERA_FOLLOW := 0.12
+const CAMERA_SAFE_EPSILON := 0.5
 
 var game: Node2D
 var boss: Node2D
@@ -48,6 +51,9 @@ var special_clock := 0.0
 var dash_cooldown := 0.0
 var absorb_remaining := 0.0
 var boss_half_locked := false
+var camera_ready := false
+var boss_out_of_safe_frames := 0
+var player_out_of_safe_frames := 0
 
 func _initialize() -> void: call_deferred("run")
 
@@ -167,7 +173,7 @@ func prepare() -> bool:
 	boss.wake_delay = 0.0
 	boss.shot_clock = 0.7
 	boss.signature_clock = 2.5
-	_fit_camera()
+	_fit_camera(true)
 	await frames(30)
 	clear_bullets()
 	boss.was_visible = true
@@ -179,7 +185,7 @@ func prepare() -> bool:
 	game.dynamite_stock = 6
 	game.dynamite_kill_progress = 1
 	game.ui.update_hud()
-	_fit_camera()
+	_fit_camera(true)
 	var distance := absf(game.player.position.x - boss.position.x)
 	prep_detail = "guardians=%d phase=%s boss=%s distance=%.1f floor=%.1f on_floor=%s arena=%s" % [
 		sectors.size(), game.boss_cycle.phase, boss.name if boss.name != "" else "final", distance,
@@ -199,10 +205,53 @@ func _clear_frames() -> void:
 		entry = dir.get_next()
 	dir.list_dir_end()
 
-func _fit_camera() -> void:
+func _body_rect(actor: Node2D) -> Rect2:
+	var size: Vector2 = actor.get("body_size")
+	return Rect2(actor.position - size / 2.0, size)
+
+func _axis_camera(boss_min: float, boss_max: float, player_min: float, player_max: float,
+		safe_min: float, safe_max: float, view_center: float) -> float:
+	var boss_low := boss_max - safe_max + view_center
+	var boss_high := boss_min - safe_min + view_center
+	var player_low := player_max - safe_max + view_center
+	var player_high := player_min - safe_min + view_center
+	var low := maxf(boss_low, player_low)
+	var high := minf(boss_high, player_high)
+	if low <= high:
+		return (low + high) * 0.5
+	# If both bodies cannot fit, keep the boss inside and move as close as
+	# possible to the player's interval.
+	if player_high < boss_low:
+		return boss_low
+	return boss_high
+
+func _camera_target() -> Vector2:
+	var boss_rect := _body_rect(boss)
+	var player_rect := _body_rect(game.player)
+	var view_center := T.VIEW_SIZE / 2.0
+	return Vector2(
+		_axis_camera(boss_rect.position.x, boss_rect.end.x, player_rect.position.x, player_rect.end.x,
+			CAMERA_SAFE_RECT.position.x, CAMERA_SAFE_RECT.end.x, view_center.x),
+		_axis_camera(boss_rect.position.y, boss_rect.end.y, player_rect.position.y, player_rect.end.y,
+			CAMERA_SAFE_RECT.position.y, CAMERA_SAFE_RECT.end.y, view_center.y))
+
+func _fit_camera(snap: bool = false) -> void:
 	if not is_instance_valid(boss) or not is_instance_valid(game.player): return
-	game.camera.position = (game.player.position + boss.position) * 0.5
+	var target := _camera_target()
+	if snap or not camera_ready:
+		game.camera.position = target
+		camera_ready = true
+	else:
+		game.camera.position = game.camera.position.lerp(target, CAMERA_FOLLOW)
 	game.camera.reset_smoothing()
+
+func _outside_safe(actor: Node2D) -> bool:
+	var world_rect := _body_rect(actor)
+	var screen_rect := Rect2(world_rect.position - game.camera.position + T.VIEW_SIZE / 2.0, world_rect.size)
+	return screen_rect.position.x < CAMERA_SAFE_RECT.position.x - CAMERA_SAFE_EPSILON \
+		or screen_rect.position.y < CAMERA_SAFE_RECT.position.y - CAMERA_SAFE_EPSILON \
+		or screen_rect.end.x > CAMERA_SAFE_RECT.end.x + CAMERA_SAFE_EPSILON \
+		or screen_rect.end.y > CAMERA_SAFE_RECT.end.y + CAMERA_SAFE_EPSILON
 
 func _action(action_name: String, pressed: bool) -> void:
 	var event := InputEventAction.new()
@@ -329,6 +378,8 @@ func _after_step(step: int) -> void:
 	last_boss_hp = boss.hp
 	max_player_rise = maxf(max_player_rise, player_start_y - player.position.y)
 	max_player_above_boss = maxf(max_player_above_boss, boss.position.y - player.position.y)
+	if _outside_safe(boss): boss_out_of_safe_frames += 1
+	if _outside_safe(player): player_out_of_safe_frames += 1
 	var half: float = boss.max_hp * 0.5
 	var fallback := 18.0
 	if not boss_half_locked and boss.hp < half:
@@ -359,14 +410,15 @@ func _after_step(step: int) -> void:
 
 func _run_steps(steps: int) -> void:
 	Input.action_press("shoot")
+	camera_ready = false
 	for step in range(steps):
 		game.elapsed += 1.0 / 60.0
 		_apply_controls(step)
 		game.player.hp = game.player.max_hp
-		_fit_camera()
+		_fit_camera(step == 0)
 		await physics_frame
 		await process_frame
-		_fit_camera()
+		_fit_camera(step == 0)
 		_after_step(step)
 		if step % 10 == 0: game.ui.update_hud()
 		steps_run = step + 1
@@ -406,6 +458,8 @@ func _finish() -> void:
 		"special_shots": special_shots,
 		"max_player_rise": max_player_rise,
 		"max_player_above_boss": max_player_above_boss,
+		"boss_out_of_safe_frames": boss_out_of_safe_frames,
+		"player_out_of_safe_frames": player_out_of_safe_frames,
 		"hp_by_second": hp_by_second,
 		"distance_by_second": distance_by_second,
 		"failed": failed,
@@ -415,10 +469,10 @@ func _finish() -> void:
 	var hp10: int = hp_by_second[9] if hp_by_second.size() >= 10 else -1
 	var hp20: int = hp_by_second[19] if hp_by_second.size() >= 20 else -1
 	var hp30: int = hp_by_second[29] if hp_by_second.size() >= 30 else -1
-	print("DEMO CAPTURE frames=%d steps=%d boss_hp=%d->%d half=%.2f rage=%.2f max_bullets=%d enemy_max=%d hits=%d hit_frames=%d specials=%d rise=%.0f above=%.0f hp10=%d hp20=%d hp30=%d failed=%s" % [
+	print("DEMO CAPTURE frames=%d steps=%d boss_hp=%d->%d half=%.2f rage=%.2f max_bullets=%d enemy_max=%d hits=%d hit_frames=%d specials=%d rise=%.0f above=%.0f boss_out=%d player_out=%d hp10=%d hp20=%d hp30=%d failed=%s" % [
 		saved_frames, steps_run, boss_start_hp, boss_end_hp, half_time, rage_time, max_projectiles,
 		max_enemy_projectiles, player_hits, hp_hit_frames, special_shots, max_player_rise, max_player_above_boss,
-		hp10, hp20, hp30, str(failed)])
+		boss_out_of_safe_frames, player_out_of_safe_frames, hp10, hp20, hp30, str(failed)])
 	quit(0 if prep_ok and not failed else 1)
 
 func run() -> void:

@@ -56,8 +56,9 @@ func settle():
 		await frames()
 		OS.delay_msec(1)
 	check(false, "boss selection completed within watchdog")
-func load_boss(record: Dictionary) -> Node2D:
-	check(await Support.ready(self, game, game.boss_cycle.world_record(record).position), "boss sector and its neighbours stream in")
+func load_boss(record: Dictionary, player_at: Vector2 = Vector2.INF) -> Node2D:
+	var point: Vector2 = game.boss_cycle.world_record(record).position if player_at == Vector2.INF else player_at
+	check(await Support.ready(self, game, point), "boss sector and its neighbours stream in")
 	freeze()
 	await frames(2)
 	var e = actor(record.boss_id)
@@ -146,6 +147,9 @@ func movement_and_attack(e: Node2D):
 		e.was_visible = true
 		e.switch_clock = 100
 		e.shot_clock = 0
+		# The movement check can leave the boss beyond the test camera.
+		game.player.position = e.position + Vector2(230, 10)
+		game.camera.position = e.position
 		e.set_physics_process(true)
 		await frames()
 		check(e.action == "windup_shot" and game.projectiles.get_child_count() == 0, role + " shot is warned")
@@ -183,6 +187,7 @@ func movement_and_attack(e: Node2D):
 	check(e.action == "windup_switch" and e.polarity == old_color, role + " color change is telegraphed")
 	e._complete_action()
 	check(e.polarity == 1-old_color, role + " changes color after warning")
+	game.player.position = e.arena.position - Vector2(64, 64)
 	game.camera.position = e.position + Vector2(5000, 5000)
 	e.shot_clock = 0
 	e.set_physics_process(true)
@@ -209,13 +214,16 @@ func persistence(record: Dictionary):
 	var position: Vector2 = e.position
 	var clock: float = e.move_clock
 	var local_position: Vector2 = position - game.stream.sector_offset(record.sector)
+	# Keep the player outside the arena so streaming the sector back in does not
+	# consume the restored wake delay.
+	var outside: Vector2 = e.arena.position - Vector2(200, 200)
 	game.stream._unload(record.sector)
 	var restored_position: Vector2 = game.boss_cycle.world_record(record).position
 	# World/local conversion uses float32 vectors. Require the exact stored local
 	# coordinates and restored representation, plus a separate subpixel bound.
 	check(record.hp == 17 and record.position == local_position and record.saved.position == local_position and record.saved.gauge == 3, "unload captures boss HP position and gauge in run state")
 	check(restored_position.distance_to(position) < 0.001, "boss world/local coordinate roundtrip stays within 0.001px")
-	e = await load_boss(record)
+	e = await load_boss(record, outside)
 	check(e.hp == 17 and e.gauge == 3 and e.position == restored_position and e.move_clock == clock and e.wake_delay == T.ENEMY_WAKE_DELAY, "reload preserves live boss and restores wake delay")
 	e.hp = e.max_hp
 

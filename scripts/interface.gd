@@ -330,12 +330,12 @@ func _ready() -> void:
 
 func refresh_bindings() -> void:
 	var keys: RefCounted = game.key_bindings
-	controls_label.text = "左 %s   右 %s   %s ジャンプ   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 射撃方向（前→上→下）   %s 誘導弾（1回消費）   %s 調べる   %s 一時停止" % [
-		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"),
+	controls_label.text = "左 %s   右 %s   %s ジャンプ（%s 2回でも可）   %s 薄い足場を降りる\n%s 射撃   %s 色切替   %s 射撃方向（前→上→下）   %s 誘導弾（1回消費）   %s 調べる   %s 一時停止" % [
+		keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("jump"), keys.get_binding_text("move_up"),
 		keys.get_binding_text("move_down"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"),
 		keys.get_binding_text("aim_cycle"), keys.get_binding_text("special"), keys.get_binding_text("interact"), keys.get_binding_text("pause_game")]
 	if not game.is_tutorial():
-		controls_label.text = "左 %s   右 %s   %s 上   %s 下／足場を降りる   %s ジャンプ\n方向＋%s 空中ダッシュ（解禁後）   %s 重力反転   %s 射撃   %s 色切替   %s 射撃方向（前→上→下）\n%s 誘導弾（1回消費）   %s ダイナマイト   %s 調べる   %s 回復薬   %s 地図   %s 一時停止" % [
+		controls_label.text = "左 %s   右 %s   %s 上（2回でジャンプ）   %s 下／足場を降りる   %s ジャンプ\n方向＋%s 空中ダッシュ（解禁後）   %s 重力反転   %s 射撃   %s 色切替   %s 射撃方向（前→上→下）\n%s 誘導弾（1回消費）   %s ダイナマイト   %s 調べる   %s 回復薬   %s 地図   %s 一時停止" % [
 			keys.get_binding_text("move_left"), keys.get_binding_text("move_right"), keys.get_binding_text("move_up"), keys.get_binding_text("move_down"), keys.get_binding_text("jump"),
 			keys.get_binding_text("dash"), keys.get_binding_text("gravity_flip"), keys.get_binding_text("shoot"), keys.get_binding_text("switch_color"), keys.get_binding_text("aim_cycle"),
 			keys.get_binding_text("special"), keys.get_binding_text("dynamite"), keys.get_binding_text("interact"), keys.get_binding_text("use_item"), keys.get_binding_text("world_map"), keys.get_binding_text("pause_game")]
@@ -357,8 +357,13 @@ func update_equipment() -> void:
 		var candidates: Array = game.owned_equipment.keys().filter(func(k): return T.EQUIPMENT[k].slot == slot)
 		var available := id.is_empty() and not candidates.is_empty()
 		pending = pending or available
-		entry.text = "%s  %s" % [T.EQUIPMENT_SLOTS[slot], "なし" if id.is_empty() else T.EQUIPMENT[id].name]
-		if available: entry.text += " ← %sを付けられます" % T.EQUIPMENT[candidates[0]].name
+		var name: String = "なし" if id.is_empty() else T.EQUIPMENT[id].name
+		if not id.is_empty() and game.equipment_level(id) > 1: name += " Lv%d" % game.equipment_level(id)
+		entry.text = "%s  %s" % [T.EQUIPMENT_SLOTS[slot], name]
+		if available:
+			var candidate: String = T.EQUIPMENT[candidates[0]].name
+			if game.equipment_level(candidates[0]) > 1: candidate += " Lv%d" % game.equipment_level(candidates[0])
+			entry.text += " ← %sを付けられます" % candidate
 		entry.modulate = Color("ffdf80") if available else Color("dce9ef")
 	equipment_hint.visible = pending and game.state == "playing"
 	equipment_hint.text = "%s → 装備 で付け替え" % game.key_bindings.get_binding_text("pause_game")

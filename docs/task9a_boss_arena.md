@@ -34,6 +34,8 @@ Claudeのplaythroughで、床に立つ自機からボスが見えず発見され
 
 通常ボスは薄い足場を通過し、岩・設置壁の衝突は保持する。突進等でroam外へ出た場合、320px/秒の衝突移動で最寄りの境界点へ戻る。瞬間移動しない。原点移動時は固定した突進目標も同じ量だけ動かす。
 
+Task 9F で移動を変更（[task9f_jump_boss_upgrade.md](task9f_jump_boss_upgrade.md)）。
+
 区画解放時は既存欄に加えて `signature_clock`、`signature_index`、`spin_direction`、`summon_wave`、`summons_to_restore` を区画状態とBossCycleのsavedへ保存する。召喚ガーディアンの解放直前の生存召喚数を数え、未完了の呼び直し数も保持する。タイプはBossCycleの個体記録へ保持する。攻撃中の一時状態は破棄し、再読込はidleと通常の起床待ちから始める。
 
 ### 固有攻撃

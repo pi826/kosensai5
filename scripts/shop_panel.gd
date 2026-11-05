@@ -4,18 +4,22 @@ const T := preload("res://scripts/tuning.gd")
 const Tile := preload("res://scripts/shop_tile.gd")
 var game: Node2D
 var buying := true
+var upgrading := false
 var can_buy := true
 var balance_label: Label
 var status_label: Label
 var help_label: Label
 var buy_tab: Button
 var equipment_tab: Button
+var upgrade_tab: Button
 var close_button: Button
 var rows: Control
 var focus_buttons: Array[Button] = []
 var item_buttons: Dictionary = {}
 var equipment_buttons: Dictionary = {}
+var upgrade_buttons: Dictionary = {}
 var current_cards: Dictionary = {}
+var upgrade_message := ""
 var _accept_held: Dictionary = {}
 var _last_activation_ms := -1000
 
@@ -50,6 +54,9 @@ func _ready() -> void:
 	buy_tab.pressed.connect(_switch_tab.bind(true))
 	equipment_tab = _button("装備", Vector2(294, 118), Vector2(150, 42))
 	equipment_tab.pressed.connect(_switch_tab.bind(false))
+	upgrade_tab = _button("強化", Vector2(456, 118), Vector2(150, 42))
+	upgrade_tab.pressed.connect(_switch_tab.bind(false, true))
+	upgrade_tab.visible = false
 	close_button = _button("閉じる", Vector2(994, 118), Vector2(152, 42))
 	close_button.pressed.connect(game.close_shop)
 	rows = Control.new()
@@ -80,18 +87,23 @@ func _button(text: String, at: Vector2, extent: Vector2) -> Button:
 func open(from_merchant: bool) -> void:
 	can_buy = from_merchant
 	buying = from_merchant
+	upgrading = false
+	upgrade_message = ""
 	_accept_held.clear()
 	buy_tab.visible = from_merchant
+	upgrade_tab.visible = from_merchant
 	status_label.text = "装備は購入後、この画面の「装備」で選んで付けます。" if from_merchant else "枠ごとに1つ。付け替えはすぐに反映されます。"
-	help_label.text = "↑↓←→ カードを選択　 Enter / Space 決定　 %sEsc / %s 閉じる" % ["Tab 買う・装備　 " if from_merchant else "", game.key_bindings.get_binding_text("interact")]
+	help_label.text = "↑↓←→ カードを選択　 Enter / Space 決定　 %sEsc / %s 閉じる" % ["Tab 買う・装備・強化　 " if from_merchant else "", game.key_bindings.get_binding_text("interact")]
 	show()
 	_rebuild()
 
-func _switch_tab(next_buying: bool) -> void:
-	if next_buying and not can_buy: return
-	if buying != next_buying: game.play_sound("ui_move")
-	buying = next_buying
-	status_label.text = "装備は自動で付きません。「装備」で選んでください。" if buying else "各枠に1つ。選び直すか「外す」で変更できます。"
+func _switch_tab(next_buying: bool, next_upgrading: bool = false) -> void:
+	if (next_buying or next_upgrading) and not can_buy: return
+	if buying != (next_buying and not next_upgrading) or upgrading != next_upgrading: game.play_sound("ui_move")
+	buying = next_buying and not next_upgrading
+	upgrading = next_upgrading
+	upgrade_message = ""
+	status_label.text = "装備は自動で付きません。「装備」で選んでください。" if buying else ("各枠に1つ。選び直すか「外す」で変更できます。" if not upgrading else "")
 	_rebuild()
 
 func _tile(at: Vector2, extent: Vector2, category: String, small: bool = false) -> Button:
@@ -125,10 +137,13 @@ func _rebuild() -> void:
 		child.queue_free()
 	item_buttons.clear()
 	equipment_buttons.clear()
+	upgrade_buttons.clear()
 	current_cards.clear()
 	focus_buttons.clear()
-	if can_buy: focus_buttons.append(buy_tab)
-	focus_buttons.append_array([equipment_tab, close_button])
+	upgrade_tab.visible = can_buy
+	if can_buy: focus_buttons.append_array([buy_tab, equipment_tab, upgrade_tab])
+	else: focus_buttons.append(equipment_tab)
+	focus_buttons.append(close_button)
 	if buying:
 		var equipment_index := 0
 		var equipment_count: int = game.active_merchant.stock.filter(func(id): return T.EQUIPMENT.has(id)).size()
@@ -154,6 +169,25 @@ func _rebuild() -> void:
 			button.art_id = id
 			button.pressed.connect(_buy.bind(id))
 			item_buttons[id] = button
+	elif upgrading:
+		var column := 0
+		for slot: String in T.EQUIPMENT_SLOTS:
+			var owned: Array = T.EQUIPMENT.keys().filter(func(k): return T.EQUIPMENT[k].slot == slot and game.owned_equipment.has(k))
+			if owned.is_empty():
+				var empty := Label.new()
+				empty.text = "まだ持っていません"
+				empty.position = Vector2(column * 338, 0)
+				empty.size = Vector2(330, 44)
+				empty.add_theme_font_size_override("font_size", 14)
+				empty.modulate = Color("8496a6")
+				rows.add_child(empty)
+			for i in range(owned.size()):
+				var id: String = owned[i]
+				var button := _tile(Vector2(column * 338, i * 116), Vector2(330, 108), slot, true)
+				button.art_id = id
+				button.pressed.connect(_upgrade.bind(id))
+				upgrade_buttons[id] = button
+			column += 1
 	else:
 		var column := 0
 		for slot: String in T.EQUIPMENT_SLOTS:
@@ -173,12 +207,18 @@ func _rebuild() -> void:
 				equipment_buttons[slot + ":" + id] = button
 			column += 1
 	refresh()
-	focus_buttons[3 if can_buy else 2].grab_focus()
+	var first_card := 4 if can_buy else 2
+	if focus_buttons.size() > first_card: focus_buttons[first_card].grab_focus()
+	else: close_button.grab_focus()
 
 func refresh() -> void:
 	balance_label.text = "結晶 %d　 鍵 %d　 回復薬 %d/%d" % [game.crystals, game.keys, game.potions, T.POTION_CAPACITY]
 	buy_tab.text = "● 買う" if buying else "買う"
-	equipment_tab.text = "● 装備" if not buying else "装備"
+	equipment_tab.text = "● 装備" if not buying and not upgrading else "装備"
+	upgrade_tab.text = "● 強化" if upgrading else "強化"
+	if upgrading:
+		status_label.text = "強化できる回数 %d（ラスボスを倒すごとに1回）" % game.upgrade_tokens
+		if not upgrade_message.is_empty(): status_label.text += "\n" + upgrade_message
 	for id: String in item_buttons:
 		var name: String = "回復薬" if id == "potion" else ("鍵" if id == "key" else T.EQUIPMENT[id].name)
 		var category: String = "回復" if id == "potion" else ("宝箱" if id == "key" else T.EQUIPMENT_SLOTS[T.EQUIPMENT[id].slot])
@@ -189,15 +229,29 @@ func refresh() -> void:
 	for slot: String in current_cards:
 		var id: String = game.player.equipment[slot]
 		var owned: bool = game.owned_equipment.keys().any(func(k): return T.EQUIPMENT[k].slot == slot)
-		current_cards[slot].text = "%s / 今の装備\n%s\n%s" % [T.EQUIPMENT_SLOTS[slot], "なし" if id.is_empty() else T.EQUIPMENT[id].name, ("下のカードで装備できます" if owned else "まだ持っていません") if id.is_empty() else T.EQUIPMENT[id].description]
+		var current_name: String = "なし" if id.is_empty() else _equipment_name(id)
+		current_cards[slot].text = "%s / 今の装備\n%s\n%s" % [T.EQUIPMENT_SLOTS[slot], current_name, ("下のカードで装備できます" if owned else "まだ持っていません") if id.is_empty() else T.EQUIPMENT[id].description]
 	for key: String in equipment_buttons:
 		var parts := key.split(":")
 		var id := parts[1]
 		var selected: bool = game.player.equipment[parts[0]] == id
 		if current_cards[parts[0]] == equipment_buttons[key]: continue
-		equipment_buttons[key].text = "外す（装備なし）" if id.is_empty() else T.EQUIPMENT[id].name + " を付ける"
+		equipment_buttons[key].text = "外す（装備なし）" if id.is_empty() else _equipment_name(id) + " を付ける"
 		equipment_buttons[key].tooltip_text = "" if id.is_empty() else T.EQUIPMENT[id].description
 		equipment_buttons[key].modulate = T.MERCHANT_COLOR if selected else Color.WHITE
+	for id: String in upgrade_buttons:
+		var level: int = game.equipment_level(id)
+		var category: String = T.EQUIPMENT_SLOTS[T.EQUIPMENT[id].slot]
+		var reason: String = game.upgrade_reason(id)
+		if level >= T.EQUIPMENT_MAX_LEVEL:
+			upgrade_buttons[id].text = "%s / %s\nLv%d（最大）\n%s" % [category, T.EQUIPMENT[id].name, level, game.equipment_effect_text(id, level)]
+		else:
+			upgrade_buttons[id].text = "%s / %s\nLv%d → Lv%d：%s → %s\n結晶 %d　 %s" % [category, T.EQUIPMENT[id].name, level, level + 1, game.equipment_effect_text(id, level), game.equipment_effect_text(id, level + 1), game.upgrade_price(id), "強化可" if reason.is_empty() else reason]
+		upgrade_buttons[id].modulate = Color.WHITE if reason.is_empty() else Color("8496a6")
+
+func _equipment_name(id: String) -> String:
+	var level: int = game.equipment_level(id)
+	return T.EQUIPMENT[id].name + (" Lv%d" % level if level > 1 else "")
 
 func _allow_activation() -> bool:
 	var now := Time.get_ticks_msec()
@@ -214,11 +268,22 @@ func _buy(id: String) -> void:
 	refresh()
 
 func _equip(slot: String, id: String) -> void:
-	if not visible or buying or not _allow_activation(): return
+	if not visible or buying or upgrading or not _allow_activation(): return
 	if game.equip(slot, id):
 		status_label.text = "%s：%s" % [T.EQUIPMENT_SLOTS[slot], "装備なし" if id.is_empty() else T.EQUIPMENT[id].name]
 		_rebuild()
 		if equipment_buttons.has(slot + ":" + id): equipment_buttons[slot + ":" + id].grab_focus()
+
+func _upgrade(id: String) -> void:
+	if not visible or not upgrading or not _allow_activation(): return
+	var reason: String = game.upgrade_reason(id)
+	var before: int = game.equipment_level(id)
+	if game.upgrade_item(id):
+		upgrade_message = "%sを Lv%d に強化しました" % [T.EQUIPMENT[id].name, before + 1]
+	elif not reason.is_empty():
+		upgrade_message = reason
+	refresh()
+	if upgrade_buttons.has(id): upgrade_buttons[id].grab_focus()
 
 func neighbor(button: Button, direction: Vector2) -> Button:
 	var best: Button = button
@@ -257,7 +322,10 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.keycode == KEY_TAB:
-		if can_buy: _switch_tab(not buying)
+		if can_buy:
+			if buying: _switch_tab(false)
+			elif upgrading: _switch_tab(true)
+			else: _switch_tab(false, true)
 	else:
 		var direction := Vector2.ZERO
 		if event.is_action_pressed("ui_left"): direction = Vector2.LEFT

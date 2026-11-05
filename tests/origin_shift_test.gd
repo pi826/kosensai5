@@ -170,6 +170,8 @@ func combat():
 	if is_instance_valid(heart): heart.set_physics_process(false)
 	boss.roam = Rect2(base + Vector2(800, 180), Vector2(400,120))
 	boss.arena = Rect2(base, Vector2(1800,640))
+	boss.wander_target = boss.position + Vector2(100,-20)
+	var wander_target: Vector2 = boss.wander_target
 	var wall: int = game.terrain.place_wall(Rect2(base + Vector2(1408, 576), Vector2(32,64)), 77)
 	check(wall >= 0, "installed wall fixture")
 	var normal: Node2D = game.spawn_bullet(game.player, Vector2.UP)
@@ -248,6 +250,7 @@ func combat():
 	check(game.terrain.walls[wall].remaining == T.WALL_LIFETIME and game.terrain.wall_cells.has(game.terrain.cell_at(base+Vector2(1408,576)+d)), "wall collision cells and lifetime survive")
 	check(is_instance_valid(heart) and heart.position == heart_at+d and heart.spawn.position == heart_at+d and heart.age == 0, "heart body, durable descriptor and bob phase survive")
 	check(game.effects.damage_numbers[0].at == popup+d and game.effects.health_display.position == display+d and game.effects.health_display.remaining == hp_time, "effects and health display shift without aging")
+	check(boss.wander_target == wander_target+d, "boss wander target shifts with the origin")
 	check(game.terrain.theme_at(game.player.position) == theme, "regional terrain theme is invariant")
 	check(game.stream.missing == missing and game.stream.stable_block_id(Rect2(block.position+d,block.size)) == block_id, "respawn records and block identity invariant")
 	var marks: Array = game.ui.minimap.guardian_marks()
@@ -258,7 +261,7 @@ func combat():
 	check(game.boss_cycle.spawn_message({"sector": at+Vector2i(3,-2), "region":1,"role":"final"}) == message, "spawn direction and sector distance invariant")
 	game.camera.position += Vector2(0, -150)
 	boss._move_boss(1.0/60)
-	check(boss.roam.has_point(boss.position) and boss.position.distance_to(last+d) < 2, "boss continues movement within shifted range")
+	check(boss.wander_area().has_point(boss.position) and boss.position.distance_to(last+d) < 3, "boss continues movement within shifted range")
 	var flyer_y: float = flyer.flight_center_y
 	flyer._move_flyer(1.0/60)
 	check(absf(flyer.position.y-flyer_y) <= T.FLYER_BOB_AMPLITUDE, "flyer continues bobbing around shifted center")

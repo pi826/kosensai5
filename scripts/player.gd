@@ -6,6 +6,9 @@ var jump_buffer := 0.0
 var pending_special := false
 var pending_dynamite := false
 var jump_cut_requested := false
+var input_clock := 0.0
+var last_up_press_clock := -1.0
+var up_jump_held := false
 var aim_index := 0
 var drop_remaining := 0.0
 var drop_clear_y := 0.0
@@ -27,32 +30,37 @@ var equipment := {"weapon": "", "armor": "", "charm": ""}
 func wears(id: String) -> bool:
 	return equipment.values().has(id)
 
+func _equipment_level(id: String) -> int:
+	if is_instance_valid(game) and game.has_method("equipment_level"):
+		return clampi(game.equipment_level(id), 1, T.EQUIPMENT_MAX_LEVEL)
+	return 1
+
 func shot_interval() -> float:
-	return T.SHOT_INTERVAL * (T.RAPID_INTERVAL_RATIO if wears("rapid") else 1.0)
+	return T.SHOT_INTERVAL * (T.RAPID_INTERVAL_RATIOS[_equipment_level("rapid") - 1] if wears("rapid") else 1.0)
 
 func move_speed() -> float:
-	return T.MOVE_SPEED * (T.BOOTS_SPEED_RATIO if wears("boots") else 1.0)
+	return T.MOVE_SPEED * (T.BOOTS_SPEED_RATIOS[_equipment_level("boots") - 1] if wears("boots") else 1.0)
 
 func charge_capacity() -> int:
-	return T.HOMING_CHARGE_CAPACITY + (T.HOMING_CAPACITY_BONUS if wears("homing") else 0)
+	return T.HOMING_CHARGE_CAPACITY + (T.HOMING_CAPACITY_BONUSES[_equipment_level("homing") - 1] if wears("homing") else 0)
 
 func volley_size() -> int:
-	return T.HOMING_VOLLEY_SIZE + (T.HOMING_VOLLEY_BONUS if wears("homing") else 0)
+	return T.HOMING_VOLLEY_SIZE + (T.HOMING_VOLLEY_BONUSES[_equipment_level("homing") - 1] if wears("homing") else 0)
 
 func absorptions_per_charge() -> int:
-	return T.EFFICIENT_ABSORPTIONS if wears("absorb") else T.ABSORPTIONS_PER_CHARGE
+	return T.EFFICIENT_ABSORPTION_COUNTS[_equipment_level("absorb") - 1] if wears("absorb") else T.ABSORPTIONS_PER_CHARGE
 
 func hit_damage(amount: int) -> int:
-	return maxi(1, ceili(amount * T.ARMOR_DAMAGE_RATIO)) if wears("cushion") else amount
+	return maxi(1, ceili(amount * T.ARMOR_DAMAGE_RATIOS[_equipment_level("cushion") - 1])) if wears("cushion") else amount
 
 func hurt_invulnerability() -> float:
-	return T.INVULNERABILITY + (T.LONG_INVULNERABILITY_BONUS if wears("invincible") else 0.0)
+	return T.INVULNERABILITY + (T.LONG_INVULNERABILITY_BONUSES[_equipment_level("invincible") - 1] if wears("invincible") else 0.0)
 
 func apply_equipment(slot: String, id: String) -> void:
 	var old_max := max_hp
 	var previous_hp := hp
 	equipment[slot] = id
-	max_hp = T.PLAYER_HP + (T.SHELL_HP_BONUS if wears("shell") else 0)
+	max_hp = T.PLAYER_HP + (T.SHELL_HP_BONUSES[_equipment_level("shell") - 1] if wears("shell") else 0)
 	# Preserve missing HP across equipment changes; removal alone cannot kill.
 	if max_hp != old_max: hp = clampi(hp + max_hp - old_max, 1, max_hp)
 	if hp != previous_hp or max_hp != old_max: _hp_changed(previous_hp)
@@ -114,6 +122,13 @@ func dash_steering() -> Vector2:
 	var v := int(Input.is_action_pressed("move_down")) - int(Input.is_action_pressed("move_up"))
 	return Vector2(h, v).normalized()
 
+func jump_held() -> bool:
+	return Input.is_action_pressed("jump") or up_jump_held
+
+func clear_up_double_tap() -> void:
+	last_up_press_clock = -1.0
+	up_jump_held = false
+
 func aim_indicator_alpha() -> float:
 	var fade := T.AIM_INDICATOR_TIME - T.AIM_INDICATOR_SOLID
 	return clampf(aim_indicator_remaining / fade, 0.0, 1.0)
@@ -153,7 +168,10 @@ func shot_direction() -> Vector2:
 	return Vector2(facing * cos(angle), -sin(angle) * gravity_sign)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if dead or event.is_echo() or game.state != "playing":
+	if event.is_echo():
+		return
+	if dead or game.state != "playing":
+		clear_up_double_tap()
 		return
 	# A short tap can occur entirely between physics ticks. Keep discrete actions.
 	if event.is_action_pressed("switch_color"):
@@ -170,8 +188,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		jump_buffer = T.JUMP_BUFFER
 		jump_cut_requested = false
 	elif event.is_action_released("jump"):
-		if not Input.is_action_pressed("jump"):
+		if not jump_held():
 			jump_cut_requested = true
+	elif event.is_action_pressed("move_up"):
+		if last_up_press_clock >= 0.0 and input_clock - last_up_press_clock <= T.UP_DOUBLE_TAP_WINDOW:
+			jump_buffer = T.JUMP_BUFFER
+			jump_cut_requested = false
+			up_jump_held = true
+			last_up_press_clock = -1.0
+		else:
+			last_up_press_clock = input_clock
+	elif event.is_action_released("move_up"):
+		if up_jump_held:
+			up_jump_held = false
+			if not Input.is_action_pressed("jump"):
+				jump_cut_requested = true
 	elif event.is_action_pressed("dynamite") and game.dynamite_enabled():
 		pending_dynamite = true
 	elif event.is_action_pressed("special"):
@@ -186,8 +217,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		game.use_potion()
 
 func _physics_process(delta: float) -> void:
-	if dead:
+	if dead or game.state != "playing":
+		clear_up_double_tap()
 		return
+	input_clock += delta
 	if pending_dynamite:
 		throw_dynamite()
 		pending_dynamite = false
@@ -253,7 +286,7 @@ func _physics_process(delta: float) -> void:
 	var gravity: float = T.GRAVITY if vy < 0 else T.FALL_GRAVITY
 	vy = minf(vy + gravity * delta, T.MAX_FALL_SPEED)
 	var was_gliding := gliding
-	gliding = not flipped and not grounded and has_ability(T.ABILITY_GLIDE) and vy > 0 and Input.is_action_pressed("jump")
+	gliding = not flipped and not grounded and has_ability(T.ABILITY_GLIDE) and vy > 0 and jump_held()
 	if gliding: vy = minf(vy, T.GLIDE_FALL_SPEED)
 	velocity.y = vy * gravity_sign
 	var steer := dash_steering()
@@ -313,7 +346,10 @@ func fire_normal() -> void:
 	art_fire_remaining = 0.125
 	game.play_sound("shot", position, 0, 1, polarity)
 	var direction := shot_direction()
-	for spread: float in ([-T.TRIPLE_SPREAD, 0.0, T.TRIPLE_SPREAD] if wears("triple") else [0.0]):
+	var triple := wears("triple")
+	var count: int = T.TRIPLE_COUNTS[_equipment_level("triple") - 1] if triple else 1
+	for i in range(count):
+		var spread := (i - (count - 1) / 2.0) * T.TRIPLE_SPREAD if triple else 0.0
 		game.spawn_bullet(self, direction.rotated(spread))
 
 func _try_drop_through() -> bool:

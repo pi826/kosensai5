@@ -2,13 +2,17 @@ extends "res://tests/test_tree.gd"
 const Main = preload("res://scripts/main.gd")
 const T = preload("res://scripts/tuning.gd")
 const S = preload("res://scripts/sector_generator.gd")
+const G = preload("res://scripts/stage_generator.gd")
 const Cycle = preload("res://scripts/boss_cycle.gd")
 const Support = preload("res://tests/stream_test_support.gd")
+const STEP := 1.0 / 60.0
 var game: Node2D
 var boss: CharacterBody2D
 var checks := 0
 var failures: Array[String] = []
 var summon_screen_results: Array = []
+var wander_results := {}
+var route_timing_result := {}
 func _initialize(): call_deferred("run")
 func check(ok: bool, message: String) -> bool:
 	checks += 1
@@ -429,10 +433,10 @@ func charge_checks():
 		var previous := boss.position
 		await frames()
 		max_step = maxf(max_step,previous.distance_to(boss.position))
-		if boss.position.distance_to(boss.position.clamp(boss.roam.position,boss.roam.end)) < 0.5: break
+		if boss.position.distance_to(boss.position.clamp(boss.wander_area().position,boss.wander_area().end)) < 0.5: break
 	boss.set_physics_process(false)
 	check(max_step <= T.BOSS_RETURN_SPEED/60+1,"return has no teleport frame")
-	check(boss.position.distance_to(boss.position.clamp(boss.roam.position,boss.roam.end)) < 0.5,"returns into roam within five seconds")
+	check(boss.position.distance_to(boss.position.clamp(boss.wander_area().position,boss.wander_area().end)) < 0.5,"returns into the wander area within five seconds")
 	# Expiry and collision paths both recover rather than snapping into roam.
 	boss._begin("charging",0.001)
 	boss.charge_target = boss.position+Vector2(0,100)
@@ -585,14 +589,14 @@ func floor_visibility_checks():
 			check(game.discovered_bosses.has(id),"guardian discovered from arena floor %d:%d" % [seed_value,id])
 			var initial_position: Vector2 = boss.position
 			var moved := false
+			var initial_visible: bool = game.is_on_screen(boss.position,20.0)
 			boss.set_physics_process(true)
 			for tick in range(300):
 				test_progress()
 				await physics_frame
 				await process_frame
-				check(game.is_on_screen(boss.position,20.0),"moving guardian stays visible from floor %d:%d frame %d" % [seed_value,id,tick])
 				moved = moved or boss.position.distance_to(initial_position) > 1.0
-			check(moved and boss.was_visible,"visible guardian actually moves")
+			check(initial_visible and moved and boss.was_visible,"guardian starts visible from the floor and keeps moving while engaged %d:%d" % [seed_value,id])
 			check(game.player.position == floor_spawn and not game.player.dead,"invulnerable player remains at floor centre")
 			boss.set_physics_process(false)
 	boss = null
@@ -736,9 +740,16 @@ func rage_checks():
 		check(game.projectiles.get_child_count() == 0, role + " never uses final rage spin")
 	prepare_rage(low_hp)
 	var camera_position: Vector2 = game.camera.position
+	game.player.position = Vector2(boss.arena.get_center().x,boss.arena.end.y-game.player.body_size.y/2)
 	game.camera.position = boss.position+Vector2(10000, 0)
-	for tick in range(60): boss._physics_process(1.0/60.0)
-	check(game.projectiles.get_child_count() == 0, "final rage spin stops offscreen")
+	for _tick in range(60): boss._physics_process(1.0/60.0)
+	check(game.projectiles.get_child_count() > 0, "final rage spin continues offscreen while player is in arena")
+	clear_bullets()
+	prepare_rage(low_hp)
+	game.player.position = boss.arena.position-Vector2(200,200)
+	game.camera.position = boss.position+Vector2(10000, 0)
+	for _tick in range(60): boss._physics_process(1.0/60.0)
+	check(game.projectiles.get_child_count() == 0, "final rage spin stops when player leaves the arena offscreen")
 	game.camera.position = camera_position
 	prepare_rage(low_hp)
 	game.effects.bursts.clear()
@@ -746,6 +757,251 @@ func rage_checks():
 	var switches: int = game.effects.bursts.filter(func(e): return e.kind == "switch").size()
 	boss._physics_process(1.0/60.0)
 	check(switches == 1 and game.effects.bursts.filter(func(e): return e.kind == "switch").size() == 1, "final rage crossing effect appears once")
+
+func set_boss_role(role: String) -> void:
+	boss.boss_role = role
+	boss.body_size = Cycle.size_for(role)
+	if boss.body_shape != null: boss.body_shape.size = boss.body_size
+	boss.max_hp = Cycle.hp_for(role)
+	boss.hp = boss.max_hp
+
+func reset_wander(role: String) -> void:
+	boss.set_physics_process(false)
+	boss.cancel_attack()
+	set_boss_role(role)
+	boss.position = boss.wander_area().get_center()
+	boss.velocity = Vector2.ZERO
+	boss.move_clock = 0.0
+	boss.move_direction = Vector2(-1, -0.35)
+	boss.wander_target = Vector2.INF
+	boss.retarget_clock = 0.0
+	boss.wander_retargets = 0
+	boss.wander_rng_ready = false
+	boss.wander_seed_role = ""
+	boss.wander_route.clear()
+	boss.wander_route_target = Vector2.INF
+	boss.wander_route_shift = -1
+	boss.wake_delay = 0.0
+	boss.was_visible = true
+	boss.action = "idle"
+	boss.action_remaining = 0.0
+	boss.gauge = 0
+	boss.pattern = 0
+	boss.signature_clock = 10000.0
+	boss.signature_index = 0
+	boss.shot_clock = 10000.0
+	boss.switch_clock = 10000.0
+	boss.summon_count = 0
+	boss.summon_wave = 0
+	boss.summons_to_restore = 0
+	boss.summon_restoring = false
+	boss.rage_started = false
+	game.player.dead = false
+	game.player.position = Vector2(boss.arena.get_center().x, boss.arena.end.y-game.player.body_size.y/2)
+	game.player.velocity = Vector2.ZERO
+	game.player.invulnerability = 10000
+	game.camera.position = boss.position
+	clear_bullets()
+
+func route_timing_checks() -> Dictionary:
+	reset_wander("guardian")
+	var area: Rect2 = boss.wander_area()
+	# The game refreshes this cache incrementally before combat; complete it here.
+	boss._service_wander_sight_warm()
+	while boss.wander_warm_index < boss.wander_sight_grid.size():
+		boss._service_wander_sight_warm()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 37037
+	var samples: Array[float] = []
+	var first_profile := {}
+	for _sample in range(20):
+		var target := Vector2(rng.randf_range(area.position.x, area.end.x-0.01), rng.randf_range(area.position.y, area.end.y-0.01))
+		boss.wander_profile_route = _sample == 0
+		var began := Time.get_ticks_usec()
+		boss._wander_route_to(area, target)
+		samples.append(float(Time.get_ticks_usec()-began)/1000.0)
+		if _sample == 0:
+			first_profile = boss.wander_route_profile.duplicate(true)
+	boss.wander_profile_route = false
+	var total := 0.0
+	var maximum := 0.0
+	for sample in samples:
+		total += sample
+		maximum = maxf(maximum, sample)
+	var average := total/float(samples.size())
+	var ordered := samples.duplicate()
+	ordered.sort()
+	var middle := ordered.size() >> 1
+	var median: float = ordered[middle] if ordered.size() % 2 == 1 else (ordered[middle-1]+ordered[middle])*0.5
+	check(median < 3.0, "boss route calculation median finishes under 3ms")
+	check(samples[0] < 6.0, "boss route calculation first call finishes under 6ms")
+	return {"first_ms":samples[0], "average_ms":average, "median_ms":median, "maximum_ms":maximum, "samples_ms":samples,
+		"first_profile":first_profile, "test_sight_player":game.player.global_position-area.position,
+		"warm_sight_player":boss.wander_sight_player, "terrain_revision":game.terrain.revision,
+		"warm_sight_revision":boss.wander_sight_revision}
+
+func wander_body(point: Vector2, size: Vector2) -> Rect2:
+	return Rect2(point-size/2,size).grow(-0.001)
+
+func wander_shelf_overlap(point: Vector2, size: Vector2, data: Dictionary) -> bool:
+	var body := wander_body(point,size)
+	return data.solids.any(func(r): return r.size.y == 16 and r.intersects(body))
+
+func wander_rock_overlap(point: Vector2, size: Vector2, data: Dictionary) -> bool:
+	var body := wander_body(point,size)
+	var obstacles: Array = data.solids.filter(func(r): return r.size.y != 16) + data.breakables
+	return obstacles.any(func(r): return r.intersects(body))
+
+func wander_line_clear(point: Vector2) -> bool:
+	var query := PhysicsRayQueryParameters2D.create(point,game.player.global_position,1|T.PLATFORM_LAYER)
+	return boss.get_world_2d().direct_space_state.intersect_ray(query).is_empty()
+
+func wander_metrics(role: String) -> Dictionary:
+	reset_wander(role)
+	boss.set_physics_process(true)
+	var data: Dictionary = game.stream.loaded[boss.get_meta("sector")]
+	var area: Rect2 = boss.wander_area()
+	var size: Vector2 = boss.body_size
+	var overlap_frames := 0
+	var line_frames := 0
+	var inside := true
+	var arena_inside := true
+	var rocks_clear := true
+	var left := false
+	var right := false
+	var above_center_shelf := false
+	for _tick in range(1200):
+		await frames()
+		inside = inside and area.has_point(boss.position)
+		arena_inside = arena_inside and boss.arena.encloses(wander_body(boss.position,size))
+		rocks_clear = rocks_clear and not wander_rock_overlap(boss.position,size,data)
+		if wander_shelf_overlap(boss.position,size,data): overlap_frames += 1
+		if wander_line_clear(boss.position): line_frames += 1
+		left = left or boss.position.x < boss.arena.get_center().x
+		right = right or boss.position.x > boss.arena.get_center().x
+		above_center_shelf = above_center_shelf or boss.position.y < boss.arena.end.y-320.0
+	boss.set_physics_process(false)
+	var shelf_fraction := float(overlap_frames)/1200.0
+	var line_fraction := float(line_frames)/1200.0
+	check(inside,"wander target mode stays inside wander area "+role)
+	check(arena_inside and rocks_clear,"wander target mode stays in arena and outside rocks "+role)
+	check(shelf_fraction < 0.35,"wander body avoids shelves "+role)
+	var required_line: float = {"guardian":0.65,"final":0.80,"secret":0.85}[role]
+	check(line_fraction >= required_line,"wander keeps a clear line to the player "+role)
+	check(left and right and above_center_shelf,"wander visits both halves and above the centre shelf "+role)
+	check(boss.wander_retargets >= 5,"wander retargets repeatedly "+role)
+	return {"shelf_overlap":shelf_fraction,"sightline_clear":line_fraction,"retargets":boss.wander_retargets,
+		"left":left,"right":right,"above_center_shelf":above_center_shelf}
+
+func legacy_wander_metrics(role: String) -> Dictionary:
+	var data: Dictionary = game.stream.loaded[boss.get_meta("sector")]
+	var zone := G.arena_zone(boss.arena,0)
+	var lane := Cycle.roam_rect(data,zone,role,Vector2(zone.get_center().x,boss.arena.end.y-T.ARENA_BOSS_CENTER_HEIGHT),true)
+	if not lane.has_area(): lane = boss.roam
+	var point := lane.get_center()
+	var direction := Vector2(-1,-0.35)
+	var clock := 0.0
+	var size := Cycle.size_for(role)
+	var overlap_frames := 0
+	var line_frames := 0
+	for _tick in range(1200):
+		clock += STEP
+		var period: float = T.BOSS_MOVE_PERIOD[role]
+		var speed: float = T.BOSS_MOVE_SPEED[role] * (T.BOSS_PACE_MIN + T.BOSS_PACE_VARIATION * sin(clock * TAU / period))
+		var slope: float = T.BOSS_MOVE_SLOPE[role]
+		var velocity := Vector2(signf(direction.x),signf(direction.y)*slope).normalized()*speed
+		var target := point + velocity*STEP
+		if target.x <= lane.position.x or target.x >= lane.end.x: direction.x *= -1
+		if target.y <= lane.position.y or target.y >= lane.end.y: direction.y *= -1
+		point = Vector2(clampf(target.x,lane.position.x,lane.end.x),clampf(target.y,lane.position.y,lane.end.y))
+		if wander_shelf_overlap(point,size,data): overlap_frames += 1
+		if wander_line_clear(point): line_frames += 1
+	return {"shelf_overlap":float(overlap_frames)/1200.0,"sightline_clear":float(line_frames)/1200.0}
+
+func wander_trace(role: String) -> Array:
+	reset_wander(role)
+	boss.set_physics_process(true)
+	var trace: Array = []
+	for _tick in range(60):
+		await frames()
+		trace.append(boss.position)
+	boss.set_physics_process(false)
+	return trace
+
+func wander_checks():
+	for role: String in ["guardian","final","secret"]:
+		var current: Dictionary = await wander_metrics(role)
+		var legacy := legacy_wander_metrics(role)
+		current["legacy_shelf_overlap"] = legacy.shelf_overlap
+		current["legacy_sightline_clear"] = legacy.sightline_clear
+		wander_results[role] = current
+	var first := await wander_trace("guardian")
+	var second := await wander_trace("guardian")
+	var replay_equal := first.size() == second.size()
+	for index in range(mini(first.size(),second.size())):
+		replay_equal = replay_equal and first[index] == second[index]
+	check(replay_equal,"same seed and boss id replay the wander trace")
+
+func offscreen_checks():
+	reset_wander("guardian")
+	var camera_position: Vector2 = game.camera.position
+	game.camera.position = boss.position+Vector2(10000,0)
+	boss.shot_clock = 0.0
+	var start: Vector2 = boss.position
+	for _tick in range(30): boss._physics_process(STEP)
+	check(start.distance_to(boss.position) > 10.0 and boss.was_visible,"arena player keeps offscreen boss moving")
+	clear_bullets()
+	boss._begin("windup_shot",STEP*2.0)
+	boss.action_remaining = STEP*2.0
+	boss.shot_clock = 1000.0
+	for _tick in range(5): boss._physics_process(STEP)
+	check(boss.action == "idle" and game.projectiles.get_child_count() > 0,"offscreen warning completes while player is in arena")
+	clear_bullets()
+	boss.action = "second_volley"
+	boss.action_remaining = STEP*2.0
+	boss.pattern = 1
+	for _tick in range(4): boss._physics_process(STEP)
+	check(boss.action == "idle" and game.projectiles.get_child_count() == T.BOSS_FAN_COUNT,"offscreen second volley completes")
+	clear_bullets()
+	boss.action = "charging"
+	boss.action_remaining = T.BOSS_CHARGE_MAX_TIME
+	boss.charge_target = boss.position+Vector2(140,0)
+	start = boss.position
+	for _tick in range(30): boss._physics_process(STEP)
+	check(start.distance_to(boss.position) > 1.0 and boss.action != "charging","offscreen charge completes")
+	boss.cancel_attack()
+	boss.shot_clock = 0.0
+	boss.switch_clock = 1000.0
+	boss.signature_clock = 1000.0
+	boss.gauge = 0
+	clear_bullets()
+	for _tick in range(120): boss._physics_process(STEP)
+	check(boss.action == "idle" and game.projectiles.get_child_count() == 0,"offscreen idle starts no new attack")
+	game.camera.position = boss.position
+	boss.shot_clock = 0.0
+	boss._physics_process(STEP)
+	check(boss.action == "windup_shot","returning onscreen starts a new attack")
+	boss.cancel_attack()
+	game.player.position = boss.arena.position-Vector2(200,200)
+	game.camera.position = boss.position+Vector2(10000,0)
+	boss.was_visible = true
+	boss._begin("windup_shot",0.5)
+	start = boss.position
+	for _tick in range(2): boss._physics_process(STEP)
+	check(boss.action == "idle" and not boss.was_visible and boss.position.distance_to(start) < 0.1,"outside arena and offscreen stops and cancels the boss")
+	game.player.position = Vector2(boss.arena.get_center().x,boss.arena.end.y-game.player.body_size.y/2)
+	game.player.dead = true
+	game.camera.position = boss.position+Vector2(10000,0)
+	boss.was_visible = true
+	boss._begin("windup_shot",0.5)
+	boss._physics_process(STEP)
+	check(boss.action == "idle" and not boss.was_visible,"dead player does not engage the boss")
+	game.player.dead = false
+	game.player.hp = T.PLAYER_HP
+	game.player.invulnerability = 10000
+	reset_boss("guardian")
+	game.camera.position = camera_position
+	clear_bullets()
 
 func run():
 	game = Main.new()
@@ -761,6 +1017,7 @@ func run():
 	for enemy in get_nodes_in_group("enemies"): enemy.set_physics_process(false)
 	check(boss.collision_mask & T.PLATFORM_LAYER == 0 and boss.collision_mask & 1 != 0,"boss ignores shelves and retains rock collisions")
 	check(boss.boss_type == Cycle.guardian_types(37,1)[0],"initial type assigned by seed and ID")
+	route_timing_result = route_timing_checks()
 	for boss_type: String in T.GUARDIAN_TYPES:
 		boss.boss_type = boss_type
 		game.boss = boss
@@ -775,9 +1032,11 @@ func run():
 	await charge_checks()
 	await barrage_checks()
 	await rage_checks()
+	await wander_checks()
+	offscreen_checks()
 	order_checks()
 	await persistence_checks()
-	var result := {"checks":checks,"failures":failures,"summon_screen":summon_screen_results}
+	var result := {"checks":checks,"failures":failures,"summon_screen":summon_screen_results,"wander":wander_results,"route_timing":route_timing_result}
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/bosses")
 	FileAccess.open("res://builds/qa/bosses/pattern-results.json",FileAccess.WRITE).store_string(JSON.stringify(result,"\t"))
 	print("BOSS PATTERNS ",JSON.stringify(result))
