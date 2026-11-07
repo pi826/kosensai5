@@ -197,16 +197,22 @@ var tutorial_seed_text := ""
 var title_idle := 0.0
 var title_demo: CanvasLayer
 
-func enemy_loop_level() -> int:
-	return clampi(boss_cycle.final_clears, 0, T.FINAL_BOSS_CLEARS) if boss_cycle != null and not is_tutorial() else 0
+func enemy_count_level() -> int:
+	var clears: int = clampi(boss_cycle.final_clears, 0, T.FINAL_BOSS_CLEARS) if boss_cycle != null and not is_tutorial() else 0
+	return (clears + 1) / 2
+
+func enemy_stat_level() -> int:
+	var clears: int = clampi(boss_cycle.final_clears, 0, T.FINAL_BOSS_CLEARS) if boss_cycle != null and not is_tutorial() else 0
+	return clears / 2
 
 func update_loop_scaling() -> void:
 	if is_tutorial(): return
 	play_sound("loop_up")
 	for enemy in get_tree().get_nodes_in_group("enemies"):
-		if enemy.get_parent() == world and not enemy.dead: enemy.apply_loop(enemy_loop_level())
+		if enemy.get_parent() == world and not enemy.dead: enemy.apply_loop(enemy_stat_level())
 	if stream != null: stream.queue_population()
-	loot_message = T.LOOP_NOTICE
+	var clears: int = boss_cycle.final_clears if boss_cycle != null else 0
+	loot_message = T.LOOP_COUNT_NOTICE if clears % 2 == 1 else T.LOOP_STAT_NOTICE
 	loot_message_remaining = T.LOOT_MESSAGE_TIME
 	loot_ability = 0
 
@@ -643,7 +649,7 @@ func camera_target(delta: float, snap: bool = false) -> Vector2:
 	var look := clampf(player.velocity.x / T.MOVE_SPEED, -1.0, 1.0) * T.CAMERA_LOOK_AHEAD
 	var gravity: int = player.get("gravity_sign") if player.get("gravity_sign") != null else 1
 	var fall_look := clampf(player.velocity.y * gravity / T.MAX_FALL_SPEED, 0.0, 1.0) * T.CAMERA_FALL_LOOK_AHEAD * gravity
-	var focus := player.position + Vector2(look, -T.CAMERA_VERTICAL_OFFSET + fall_look)
+	var focus := player.position + Vector2(look, -T.CAMERA_VERTICAL_OFFSET * gravity + fall_look)
 	var target := camera.position
 	if snap:
 		target = focus
@@ -960,7 +966,7 @@ func summon_minions(boss_actor: CharacterBody2D, requested: int) -> void:
 		enemy.set_meta("chamber_id",-1)
 		world.add_child(enemy)
 		spawned.append(Rect2(enemy.position-T.ENEMY_SIZE/2, T.ENEMY_SIZE))
-		enemy.apply_loop(enemy_loop_level())
+		enemy.apply_loop(enemy_stat_level())
 		effect(enemy.position,T.COLORS[enemy.polarity],"switch")
 		play_sound("enemy_switch",enemy.position)
 
@@ -1019,7 +1025,7 @@ func actor_defeated(actor: CharacterBody2D) -> void:
 		boss_cycle.defeated(actor)
 		if actor.boss_role == "final" and not is_tutorial():
 			upgrade_tokens += 1
-			loot_message = T.LOOP_NOTICE + "　装備を1つ強化できる（商人の「強化」）"
+			loot_message += "　装備を1つ強化できる（商人の「強化」）"
 			loot_message_remaining = T.LOOT_MESSAGE_TIME
 			ui.update_hud()
 	else:

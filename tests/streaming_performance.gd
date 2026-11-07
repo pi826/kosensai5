@@ -97,7 +97,8 @@ func run():
 			test_progress()
 			OS.delay_msec(1)
 		check(game.stream.population_jobs.is_empty() and game.stream.population_waiting.is_empty() and game.stream.population_queue.is_empty(),"initial stage-three population and jobs complete within deadline")
-		check(get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and e.kind!="boss" and not e.dead).size()==base_count*T.LOOP_COUNT_CAP,"benchmark begins with full fourfold normal-enemy population")
+		var count_level: int = mini((T.FINAL_BOSS_CLEARS+1)/2,T.LOOP_COUNT_CAP-1)
+		check(get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and e.kind!="boss" and not e.dead).size()==base_count*(1+count_level),"benchmark begins with full threefold normal-enemy population")
 		game.world.process_mode=Node.PROCESS_MODE_INHERIT
 	game.set_physics_process(true)
 	var gate: Dictionary = S.boundary_gates(37,Vector2i.ZERO,Vector2i.RIGHT)[0]
@@ -131,7 +132,8 @@ func run():
 	check(game.stream.loaded.size()>9,"moving benchmark includes incremental loading")
 	check(game.physics_frame_times.size()==900,"full physics frames measured after all actor callbacks")
 	var frame_report:={"frames":game.physics_frame_times.size(),"main_mean_ms":game.frame_times.reduce(func(a,b):return a+b,0.0)/game.frame_times.size(),"main_max_ms":game.frame_times.max(),"physics_mean_ms":game.physics_frame_times.reduce(func(a,b):return a+b,0.0)/game.physics_frame_times.size(),"physics_max_ms":game.physics_frame_times.max(),"loaded_sectors":game.stream.loaded.size(),"hold_frames":game.stream.hold_frames}
-	frame_report.loop_level=game.enemy_loop_level()
+	frame_report.enemy_count_level=game.enemy_count_level()
+	frame_report.enemy_stat_level=game.enemy_stat_level()
 	frame_report.enemy_count=get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==game.world and not e.dead).size()
 	frame_report.worker_generation_mean_ms=game.stream.generation_times.reduce(func(a,b):return a+b,0.0)/game.stream.generation_times.size()
 	frame_report.worker_generation_max_ms=game.stream.generation_times.max()

@@ -44,7 +44,7 @@ func run() -> void:
 		if index%25==0:
 			check(S.signature(s)==S.signature(S.generate(700+index,at)), "generation reproducible including NPC and stock")
 			print("MERCHANT GENERATION PROGRESS ", index)
-	check(merchants>=20 and merchants<=60, "roughly one merchant per five sectors: %d/200" % merchants)
+	check(merchants>=60 and merchants<=180, "roughly three merchants per five sectors: %d/200" % merchants)
 	check(contents.has("potion") and contents.has("equipment") and contents.has("crystal"), "ordinary chests generate potions, equipment and crystals")
 	for seed_value in [1,37,2026]:
 		var s := S.generate_fallback(seed_value, Vector2i.ZERO)

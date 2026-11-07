@@ -13,6 +13,7 @@ var failures: Array[String] = []
 var summon_screen_results: Array = []
 var wander_results := {}
 var route_timing_result := {}
+var ceiling_results := {}
 func _initialize(): call_deferred("run")
 func check(ok: bool, message: String) -> bool:
 	checks += 1
@@ -255,10 +256,13 @@ func summon_checks():
 	check(boss.action == "idle","half HP waits for wake delay")
 	boss.wake_delay = 0
 	var camera_position: Vector2 = game.camera.position
+	var arena_player_position: Vector2 = game.player.position
+	game.player.position = boss.arena.position-Vector2(200,200)
 	game.camera.position += Vector2(10000,0)
 	boss._physics_process(0.01)
 	check(boss.action == "idle","half HP waits offscreen")
 	game.camera.position = camera_position
+	game.player.position = arena_player_position
 	boss.was_visible = true
 	boss._physics_process(0.01)
 	check(boss.action == "windup_summon","half HP begins after current attack and wake")
@@ -975,8 +979,13 @@ func offscreen_checks():
 	boss.signature_clock = 1000.0
 	boss.gauge = 0
 	clear_bullets()
+	var arena_player_position: Vector2 = game.player.position
+	game.player.position = boss.arena.position-Vector2(200,200)
 	for _tick in range(120): boss._physics_process(STEP)
 	check(boss.action == "idle" and game.projectiles.get_child_count() == 0,"offscreen idle starts no new attack")
+	game.player.position = arena_player_position
+	boss.wake_delay = 0.0
+	boss.was_visible = true
 	game.camera.position = boss.position
 	boss.shot_clock = 0.0
 	boss._physics_process(STEP)
@@ -1002,6 +1011,113 @@ func offscreen_checks():
 	reset_boss("guardian")
 	game.camera.position = camera_position
 	clear_bullets()
+
+func ceiling_fixture(role: String) -> Vector2:
+	reset_wander(role)
+	clear_minions()
+	boss.set_physics_process(false)
+	boss.action = "idle"
+	boss.action_remaining = 0.0
+	boss.wake_delay = 0.0
+	boss.was_visible = true
+	boss.shot_clock = 0.0
+	boss.signature_clock = 10000.0
+	boss.switch_clock = 10000.0
+	boss.build_clock = 10000.0
+	boss.gauge = 0
+	boss.pattern = 1
+	boss.signature_index = 0
+	boss.rage_started = false
+	game.player.dead = false
+	game.player.hp = game.player.max_hp
+	game.player.invulnerability = 0.0
+	game.player.velocity = Vector2.ZERO
+	game.player.gravity_sign = -1
+	game.player.up_direction = Vector2.DOWN
+	game.player.position = Vector2(boss.arena.get_center().x+745.0,
+		boss.arena.position.y+game.player.body_size.y/2+2.0)
+	boss.position = game.player.position+Vector2(0,734)
+	boss.velocity = Vector2.ZERO
+	# Guardian's offset second volley damages a same-color player. Final and
+	# secret guided bullets damage an opposite-color player.
+	game.player.polarity = boss.polarity if role == "guardian" else 1-boss.polarity
+	game.camera.position = boss.position+Vector2(10000,0)
+	clear_bullets()
+	return boss.position
+
+func ceiling_checks():
+	for role: String in ["guardian","final","secret"]:
+		var pinned := ceiling_fixture(role)
+		var start_hp: int = game.player.hp
+		var first_action := ""
+		var action_tick := -1
+		var shot_tick := -1
+		var aimed_tick := -1
+		var damage_tick := -1
+		var remained_offscreen := true
+		for tick in range(480):
+			boss.position = pinned
+			boss.velocity = Vector2.ZERO
+			boss._physics_process(STEP)
+			boss.position = pinned
+			boss.velocity = Vector2.ZERO
+			if action_tick < 0 and boss.action != "idle":
+				action_tick = tick+1
+				first_action = boss.action
+			for bullet in game.projectiles.get_children():
+				if bullet.faction != 1 or bullet.is_queued_for_deletion(): continue
+				if shot_tick < 0: shot_tick = tick+1
+				var to_player: Vector2 = (game.player.global_position-bullet.global_position).normalized()
+				if aimed_tick < 0 and bullet.direction.dot(to_player) > 0.8: aimed_tick = tick+1
+			remained_offscreen = remained_offscreen and not game.is_on_screen(boss.global_position,20.0)
+			test_progress()
+			await physics_frame
+			test_progress()
+			await process_frame
+			if damage_tick < 0 and game.player.hp < start_hp: damage_tick = tick+1
+			if damage_tick >= 0: break
+		check(pinned.y > game.player.position.y and remained_offscreen,"ceiling boss remains below and offscreen "+role)
+		check(action_tick >= 0 and first_action != "idle","ceiling player triggers a new boss attack "+role)
+		check(shot_tick >= 0,"ceiling boss fires a projectile "+role)
+		check(aimed_tick >= 0,"ceiling boss projectile travels toward the player "+role)
+		check(damage_tick >= 0 and game.player.hp < start_hp,"stationary ceiling player takes damage "+role)
+		var inside := {
+			"first_action":first_action,
+			"action_seconds":float(action_tick)*STEP if action_tick >= 0 else -1.0,
+			"shot_seconds":float(shot_tick)*STEP if shot_tick >= 0 else -1.0,
+			"aimed_seconds":float(aimed_tick)*STEP if aimed_tick >= 0 else -1.0,
+			"damage_seconds":float(damage_tick)*STEP if damage_tick >= 0 else -1.0,
+			"hp_before":start_hp,
+			"hp_after":game.player.hp,
+		}
+		var outside_action := "idle"
+		var outside_bullets := 0
+		pinned = ceiling_fixture(role)
+		game.player.position = boss.arena.position-Vector2(200,200)
+		game.player.velocity = Vector2.ZERO
+		for _tick in range(120):
+			boss.position = pinned
+			boss.velocity = Vector2.ZERO
+			boss._physics_process(STEP)
+			boss.position = pinned
+			boss.velocity = Vector2.ZERO
+			if boss.action != "idle": outside_action = boss.action
+			outside_bullets = maxi(outside_bullets,game.projectiles.get_children().filter(func(b): return b.faction == 1).size())
+			test_progress()
+			await physics_frame
+			test_progress()
+			await process_frame
+		check(outside_action == "idle" and outside_bullets == 0,"outside-arena ceiling player does not start an offscreen attack "+role)
+		inside["outside_action"] = outside_action
+		inside["outside_bullets"] = outside_bullets
+		ceiling_results[role] = inside
+		clear_bullets()
+	game.player.gravity_sign = 1
+	game.player.up_direction = Vector2.UP
+	game.player.velocity = Vector2.ZERO
+	game.player.hp = game.player.max_hp
+	game.player.invulnerability = 10000.0
+	reset_boss("guardian")
 
 func run():
 	game = Main.new()
@@ -1034,9 +1150,10 @@ func run():
 	await rage_checks()
 	await wander_checks()
 	offscreen_checks()
+	await ceiling_checks()
 	order_checks()
 	await persistence_checks()
-	var result := {"checks":checks,"failures":failures,"summon_screen":summon_screen_results,"wander":wander_results,"route_timing":route_timing_result}
+	var result := {"checks":checks,"failures":failures,"summon_screen":summon_screen_results,"wander":wander_results,"route_timing":route_timing_result,"ceiling":ceiling_results}
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/bosses")
 	FileAccess.open("res://builds/qa/bosses/pattern-results.json",FileAccess.WRITE).store_string(JSON.stringify(result,"\t"))
 	print("BOSS PATTERNS ",JSON.stringify(result))

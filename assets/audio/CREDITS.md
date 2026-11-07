@@ -100,3 +100,26 @@ HydroGene and Someoneman author/license confirmed at the pages above on 2026-11-
 | assets/audio/source/bang_07.ogg | rubberduck / builds/qa/sound/source-packs/task8d/rubberduck-bang/bang_07.ogg (CC0; original bytes) | a16c416e8715aa937d9009c7337a35a21d85bb087ba866e9eed89c1c7862b4f3 |
 | assets/audio/source/sfx_deathscream_robot2.wav | Juhani Junkala / builds/qa/sound/task8d/baseline-audio/sfx_deathscream_robot2.wav (CC0; original bytes) | 971b70c67a99fb0311ee3ccec3b87885c977193814c8344b6ca8db036dffa044 |
 | assets/audio/source/impactMetal_heavy_003.ogg | Kenney / builds/qa/sound/source-packs/task8d/kenney-impact/Audio/impactMetal_heavy_003.ogg (CC0; original bytes) | b0f2ba4dabde9a87eb9c188a19d31e0c2300fd321adeba08d3b9b8aa011d7037 |
+
+## Task 9G-2 dark music set: HydroGene (CC0), original OGG bytes
+
+Source pack: High Quality 16-bit RPG Music / HydroGene, https://hydrogene.itch.io/high-quality-16-bit-music, ZIP SHA-256 0b05400358ac746edbe38427ad6c2ea0123e5128506e1110a4d6893960514416. Files were copied from builds/qa/sound/source-packs/task8d/hydrogene-28/ogg/ without changing bytes.
+
+| ID | Original member | Project path | SHA-256 |
+|---|---|---|---|
+| title | 12. Goofy Monster.ogg | assets/audio/music/hydrogene_goofy_monster.ogg | 71940f1a69f30d062a911721412e4c1bd1d6fbef9c93100977288b107408cd3d |
+| region0 | 22. Ancient Library.ogg | assets/audio/music/hydrogene_ancient_library.ogg | 084c5e8ede117ee3d83902763b111dc08d4ef08f7b1b61fd5c3caba407fa8cc9 |
+| region1 | 18. The Old Magician.ogg | assets/audio/music/hydrogene_the_old_magician.ogg | d5038dfd0508b1d777030d8df0f53e812d28a861a86298f02a1e98c104a89f96 |
+| region2 | 21. Malicious Scheme.ogg | assets/audio/music/hydrogene_malicious_scheme.ogg | b5406e882704e1799ffc9a65609fe88ac40cbf958d59b05b6ca4232d8edc171e |
+| boss | 27. The Evil One.ogg | assets/audio/music/hydrogene_the_evil_one.ogg | 1636b312d488025f348513014aa063497058c686aedd1c5975cbd9840e56729a |
+
+## Task 9G-2 Junkala music set: Juhani Junkala (CC0), original WAV bytes
+
+Source: 5 Chiptunes (Action), https://opengameart.org/content/5-chiptunes-action. ZIP: 5 Action Chiptunes By Juhani Junkala.zip, SHA-256 ea189990c0fb9a700187ccc740eda72400341a082305a163867467d96346460d, stored at builds/qa/sound/source-packs/. The four files below are copied without changing bytes. The Ending track is not used. The boss track is synthesized by scripts/sound_bank.gd because this pack has no boss track.
+
+| ID | Original member | Project path | SHA-256 |
+|---|---|---|---|
+| title | Juhani Junkala [Retro Game Music Pack] Title Screen.wav | assets/audio/music/junkala_title_screen.wav | d1590ec1b4a9e0ff948437c8e1d7f416ee382600af6e454fa0452903d8de1964 |
+| region0 | Juhani Junkala [Retro Game Music Pack] Level 1.wav | assets/audio/music/junkala_level1.wav | 6f79ae4c6f2b59baa62c46bcd264c9d157f5dca2c30845fabc3c5be4e2b64a43 |
+| region1 | Juhani Junkala [Retro Game Music Pack] Level 2.wav | assets/audio/music/junkala_level2.wav | c782eccc0634db2818feee4b1f01360dd355505df036732359f2bedb7c772758 |
+| region2 | Juhani Junkala [Retro Game Music Pack] Level 3.wav | assets/audio/music/junkala_level3.wav | c30ae8521119deefd0e22224310e45c07ca726c20760dd93e64e02b9b59a8e6c |

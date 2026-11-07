@@ -246,10 +246,10 @@ func real_main_tests() -> void:
 	var focus: Vector2 = game.camera_target(0,true)
 	game.player.velocity.y=-T.MAX_FALL_SPEED
 	focus=game.camera_target(0,true)
-	check(absf(focus.y-(game.player.position.y-T.CAMERA_VERTICAL_OFFSET-T.CAMERA_FALL_LOOK_AHEAD))<0.01,"camera looks screen-up during inverted gravity fall")
+	check(absf(focus.y-(game.player.position.y+T.CAMERA_VERTICAL_OFFSET-T.CAMERA_FALL_LOOK_AHEAD))<0.01,"inverted gravity keeps the ceiling fall view below the player")
 	game.player.velocity.y=T.MAX_FALL_SPEED
 	focus=game.camera_target(0,true)
-	check(absf(focus.y-(game.player.position.y-T.CAMERA_VERTICAL_OFFSET))<0.01,"camera ignores velocity against inverted gravity")
+	check(absf(focus.y-(game.player.position.y+T.CAMERA_VERTICAL_OFFSET))<0.01,"inverted gravity ignores velocity against gravity")
 	game.player.velocity.y=0
 	var actual_player: CharacterBody2D=game.player
 	var dummy:=CharacterBody2D.new()

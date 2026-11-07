@@ -55,11 +55,12 @@ func placement():
 		var extras := P.reserve(data)
 		reserve_times.append((Time.get_ticks_usec()-begin)/1000.0)
 		var base: Array = data.spawns.filter(func(e):return e.kind!="boss")
-		check(extras.size()==base.size()*(T.LOOP_COUNT_CAP-1),"full reserve population seed %d: %d/%d" % [seed_value,extras.size(),base.size()*3])
+		check(extras.size()==base.size()*(T.LOOP_COUNT_CAP-1),"full reserve population seed %d: %d/%d" % [seed_value,extras.size(),base.size()*(T.LOOP_COUNT_CAP-1)])
 		var blocked := P.occupied(data.spawns)
 		var fixed := P.obstacles(data)
 		var ids := {}
-		for level in range(1,4):
+		check(extras.all(func(e):return e.spawn_stage<=T.LOOP_COUNT_CAP-1),"reserve never computes stages beyond the cap")
+		for level in range(1,T.LOOP_COUNT_CAP):
 			check(extras.filter(func(e):return e.spawn_stage<=level).size()==base.size()*level,"stage %d count is base times 1+n" % level)
 		for e: Dictionary in extras:
 			check(not ids.has(e.id),"extra IDs unique across all stages")
@@ -147,58 +148,63 @@ func scaling():
 	game.world.add_child(source)
 	source.set_physics_process(false)
 	var boss_hp: int = source.max_hp
-	for level in range(4):
-		if level>0:
+	for clears in range(4):
+		if clears>0:
 			# Real progression entry point; discard only the asynchronous site search.
 			game.boss_cycle.defeated(source)
 			game.boss_cycle.shutdown()
-		check(game.enemy_loop_level()==level,"final defeat increments run scaling level")
+		var count_level: int = (clears+1)/2
+		var stat_level: int = clears/2
+		check(game.enemy_count_level()==count_level,"final defeat increments the enemy count stage")
+		check(game.enemy_stat_level()==stat_level,"final defeat increments the enemy stat stage")
 		check(source.max_hp==boss_hp and source.outgoing_damage(12)==12 and source.movement_ratio()==1,"boss stats excluded")
-		check(victim.hp==victim.max_hp-1,"living enemy retains damage deficit at level %d" % level)
+		check(victim.hp==victim.max_hp-1,"living enemy retains damage deficit at clear %d" % clears)
 		for e in originals:
 			var base: int = T.ENHANCER_HP if e.kind=="enhancer" else T.ENEMY_HP
-			check(e.max_hp==base*(1+2*level),"all original kinds HP at level %d: %s" % [level,e.kind])
+			check(e.max_hp==base*(1+2*stat_level),"all original kinds HP at clear %d: %s" % [clears,e.kind])
 			for damage: int in [T.ENEMY_NORMAL_DAMAGE,T.ENEMY_HOMING_DAMAGE,T.LASER_DAMAGE,T.BOMB_DAMAGE,T.CONTACT_DAMAGE]:
-				check(e.outgoing_damage(damage)==roundi(damage*(1.0+0.2*level)),"all outgoing damage paths scale")
-			check(is_equal_approx(e.movement_ratio(),1.0+0.1*level),"patrol and flight speed scale")
+				check(e.outgoing_damage(damage)==roundi(damage*(1.0+0.2*stat_level)),"all outgoing damage paths scale")
+			check(is_equal_approx(e.movement_ratio(),1.0+0.1*stat_level),"patrol and flight speed scale")
 			# Disable nearby fields for the interval measurement by observing offscreen.
 			game.camera.position=Vector2(-20000,-20000)
-			check(is_equal_approx(e.attack_rate(),1.0+0.15*level),"attack interval denominator scales")
-		await movement_ticks(originals,level)
+			check(is_equal_approx(e.attack_rate(),1.0+0.15*stat_level),"attack interval denominator scales")
+		await movement_ticks(originals,stat_level)
 		var missile_target := Enemy.new()
 		missile_target.game=game
 		missile_target.kind="turret"
-		missile_target.spawn_id="missile_fixture_%d" % level
+		missile_target.spawn_id="missile_fixture_%d" % clears
 		game.world.add_child(missile_target)
 		missile_target.set_physics_process(false)
-		for shot in range(level): missile_target.receive_hit(1-missile_target.polarity,T.HOMING_DAMAGE)
-		check(not missile_target.dead,"level %d needs more than %d homing hits" % [level,level])
+		for shot in range(stat_level): missile_target.receive_hit(1-missile_target.polarity,T.HOMING_DAMAGE)
+		check(not missile_target.dead,"clear %d needs more than %d homing hits" % [clears,stat_level])
 		missile_target.receive_hit(1-missile_target.polarity,T.HOMING_DAMAGE)
-		check(missile_target.dead,"homing hits required are 1/2/3/4")
+		check(missile_target.dead,"homing hits required are 1/1/2/2")
 		await frames(2)
-		if level>0:
-			check(game.loot_message==T.LOOP_NOTICE and game.loot_message_remaining>0,"level increase notification is separate from boss spawn banner")
-			if level==1:
+		if clears>0:
+			var expected_notice: String = T.LOOP_COUNT_NOTICE if clears%2==1 else T.LOOP_STAT_NOTICE
+			check(game.loot_message==expected_notice and game.loot_message_remaining>0,"clear %d shows the matching scale notice" % clears)
+			if clears==1:
 				game.stream._service_population_jobs()
 				game.shift_origin(Vector2i(1,0))
 				check(game.stream.population_sources[Vector2i.ZERO].coord==Vector2i.ZERO,"population worker input remains sector-local during origin shift")
 			check(await prepare_population(),"immutable population jobs complete")
 			check(game.stream.loaded[Vector2i.ZERO].reinforcements.all(func(e):return e.id.begins_with("0,0:") and Rect2(game.stream.sector_offset(Vector2i.ZERO),T.SECTOR_SIZE).has_point(e.position)),"worker output installs at current origin with stable IDs")
-			var extra: Dictionary = game.stream.loaded[Vector2i.ZERO].reinforcements.filter(func(e):return e.spawn_stage==level)[0]
-			game.camera.position=extra.position
-			game.player.position=extra.position
-			await flush_population()
-			check(not enemies(Vector2i.ZERO).any(func(e):return e.spawn_id==extra.id),"new enemy cannot suddenly appear on screen or inside margin")
+			if clears%2==1:
+				var extra: Dictionary = game.stream.loaded[Vector2i.ZERO].reinforcements.filter(func(e):return e.spawn_stage==count_level)[0]
+				game.camera.position=extra.position
+				game.player.position=extra.position
+				await flush_population()
+				check(not enemies(Vector2i.ZERO).any(func(e):return e.spawn_id==extra.id),"new enemy cannot suddenly appear on screen or inside margin")
 			game.camera.position=Vector2(-20000,-20000)
 			game.player.position=game.camera.position
 			await flush_population()
-			check(enemies(Vector2i.ZERO).size()==originals.size()*(1+level),"loaded sector reaches full multiplied population after leaving view")
+			check(enemies(Vector2i.ZERO).size()==originals.size()*(1+count_level),"loaded sector reaches full multiplied population after leaving view")
 	# Real projectile producers preserve scaled launch damage, including source death.
 	var bullet = game.spawn_bullet(victim,Vector2.RIGHT)
 	var guided = game.spawn_bullet(victim,Vector2.RIGHT,true,game.player)
 	var laser = game.spawn_laser(victim)
 	var bomb = game.spawn_bomb_warning(victim)
-	check(bullet.damage==19 and guided.damage==29 and laser.damage==22 and bomb.damage==26,"bullet/guided/laser/bomb producers use stage-three damage")
+	check(bullet.damage==14 and guided.damage==22 and laser.damage==17 and bomb.damage==19,"bullet/guided/laser/bomb producers use the final stat-stage damage")
 	for shot in [bullet,guided,laser,bomb]: shot.free()
 	game.player.hp=100
 	game.player.invulnerability=0
@@ -206,13 +212,13 @@ func scaling():
 	game.player.position=victim.position
 	await frames(2)
 	game.player._check_enemy_contact()
-	check(game.player.hp==84,"real contact query uses scaled stage-three damage")
+	check(game.player.hp==88,"real contact query uses scaled final stat-stage damage")
 	game.camera.position=Vector2(-20000,-20000)
 	game.player.position=game.camera.position
 	check(await Support.ready(self,game,game.stream.sector_offset(Vector2i(-1,0))+T.SECTOR_START),"reload sector saved at stage zero after three clears")
 	freeze()
 	var awakened: Array = enemies(Vector2i(-1,0)).filter(func(e):return e.spawn_id==sleeping_id)
-	check(awakened.size()==1 and awakened[0].max_hp==14 and awakened[0].hp==13,"unloaded living enemy upgrades while preserving one point of damage")
+	check(awakened.size()==1 and awakened[0].max_hp==6 and awakened[0].hp==5,"unloaded living enemy upgrades while preserving one point of damage")
 	game.camera.position=Vector2(-20000,-20000)
 	game.player.position=game.camera.position
 	await flush_population()
@@ -223,7 +229,7 @@ func scaling():
 	extra_actor.gauge=2
 	var position: Vector2 = extra_actor.position
 	game.stream._unload(Vector2i.ZERO)
-	check(game.stream.states[Vector2i.ZERO].actors[extra_id].hp==T.ENEMY_HP*7-3,"extra enemy state persisted on unload")
+	check(game.stream.states[Vector2i.ZERO].actors[extra_id].hp==T.ENEMY_HP*3-3,"extra enemy state persisted on unload")
 	game.shift_origin(Vector2i(2,-3))
 	check(await Support.ready(self,game,game.stream.sector_offset(Vector2i.ZERO)+T.SECTOR_START),"reload after origin shift")
 	freeze()
@@ -231,34 +237,36 @@ func scaling():
 	game.player.position=game.camera.position
 	await flush_population()
 	var restored: Array = enemies(Vector2i.ZERO).filter(func(e):return e.spawn_id==extra_id)
-	check(restored.size()==1 and restored[0].hp==11 and restored[0].gauge==2 and restored[0].position.is_equal_approx(position-Vector2(2,-3)*T.SECTOR_SIZE),"added enemy HP/gauge/position survives reload and origin move")
+	check(restored.size()==1 and restored[0].hp==3 and restored[0].gauge==2 and restored[0].position.is_equal_approx(position-Vector2(2,-3)*T.SECTOR_SIZE),"added enemy HP/gauge/position survives reload and origin move")
 	if not restored.is_empty():
 		restored[0].receive_hit(1-restored[0].polarity,999)
 		check(game.stream.missing.has(extra_id) and game.defeated_enemies.has(extra_id),"added enemy uses normal defeat/respawn records")
 		await frames(2)
 		game.elapsed+=1000
 		game.stream.update_rewards()
-		check(enemies(Vector2i.ZERO).any(func(e):return e.spawn_id==extra_id and e.hp==14),"added enemy respawns at current stage full HP")
+		check(enemies(Vector2i.ZERO).any(func(e):return e.spawn_id==extra_id and e.hp==6),"added enemy respawns at current stat-stage full HP")
 	# A sector not previously loaded gets the same current stats and population.
-	check(await Support.ready(self,game,game.stream.sector_offset(Vector2i(4,0))+T.SECTOR_START),"new sector at stage three loads from worker")
+	check(await Support.ready(self,game,game.stream.sector_offset(Vector2i(4,0))+T.SECTOR_START),"new sector at three clears loads from worker")
 	freeze()
 	game.camera.position=Vector2(-20000,-20000)
 	game.player.position=game.camera.position
 	await flush_population()
 	var later := enemies(Vector2i(4,0))
-	check(later.size()==game.stream.loaded[Vector2i(4,0)].spawns.filter(func(e):return e.kind!="boss").size() and later.size()>=56,"later sector uses multiplied population")
-	check(later.all(func(e):return e.max_hp==(42 if e.kind=="enhancer" else 14)),"later sector uses stage-three HP")
+	var later_spawns: Array = game.stream.loaded[Vector2i(4,0)].spawns.filter(func(e):return e.kind!="boss")
+	var later_base: int = later_spawns.filter(func(e):return int(e.get("spawn_stage",0))==0).size()
+	check(later.size()==later_spawns.size() and later_spawns.size()==later_base*3,"later sector uses the full count-stage population")
+	check(later.all(func(e):return e.max_hp==(18 if e.kind=="enhancer" else 6)),"later sector uses the final stat-stage HP")
 	var tutorial := Tutorial.new()
 	tutorial.key_bindings=game.key_bindings
 	root.add_child(tutorial)
 	tutorial.set_physics_process(false)
-	check(tutorial.enemy_loop_level()==0,"tutorial never scales")
+	check(tutorial.enemy_count_level()==0 and tutorial.enemy_stat_level()==0,"tutorial never scales")
 	tutorial.update_loop_scaling()
 	check(get_nodes_in_group("enemies").filter(func(e):return e.get_parent()==tutorial.world).all(func(e):return e.max_hp==T.ENEMY_HP),"tutorial targets retain their original HP")
 	tutorial.free()
 	game.start_run(37)
 	freeze()
-	check(game.enemy_loop_level()==0 and enemies(Vector2i.ZERO).size()==15 and game.stream.pending_population.is_empty(),"retry restores base population and level")
+	check(game.enemy_count_level()==0 and game.enemy_stat_level()==0 and enemies(Vector2i.ZERO).size()==15 and game.stream.pending_population.is_empty(),"retry restores base population and stages")
 	check(enemies(Vector2i.ZERO).all(func(e):return e.hp==(6 if e.kind=="enhancer" else 2)),"retry restores base HP")
 	game.free()
 

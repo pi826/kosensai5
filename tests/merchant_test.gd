@@ -49,9 +49,13 @@ func next_decision() -> void:
 	OS.delay_msec(ceili(T.SHOP_ACTION_INTERVAL*1000)+5)
 	await frames()
 func merchant(id: String = "") -> Node2D:
+	var fallback: Node2D = null
 	for npc in get_nodes_in_group("merchants"):
-		if npc.get_parent()==game.world and (npc.spawn.id==id or id.is_empty()): return npc
-	return null
+		if npc.get_parent()!=game.world: continue
+		if not id.is_empty() and npc.spawn.id==id: return npc
+		if id.is_empty() and npc.spawn.sector==Vector2i.ZERO: return npc
+		if id.is_empty() and fallback==null: fallback = npc
+	return fallback
 func freeze() -> void:
 	game.set_physics_process(false)
 	game.player.set_physics_process(false)

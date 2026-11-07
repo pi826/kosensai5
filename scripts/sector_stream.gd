@@ -65,7 +65,7 @@ func queue_population() -> void:
 	_refresh_stage()
 
 func _queue_population(data: Dictionary) -> void:
-	var level: int = mini(game.enemy_loop_level(), T.LOOP_COUNT_CAP-1)
+	var level: int = mini(game.enemy_count_level(), T.LOOP_COUNT_CAP-1)
 	if level>0 and not data.has("reinforcements"):
 		if not population_jobs.has(data.coord) and not population_waiting.has(data.coord): population_waiting.append(data.coord)
 		return
@@ -343,7 +343,7 @@ func _spawn(spawn: Dictionary) -> void:
 		saved = record.saved
 		enemy.hp = record.hp
 	for field: String in saved: enemy.set(field, saved[field])
-	enemy.apply_loop(game.enemy_loop_level())
+	enemy.apply_loop(game.enemy_stat_level())
 	# Temporary warnings are intentionally discarded on unload. Visibility always wakes normally.
 	enemy.was_visible = false
 	enemy.action = "idle"

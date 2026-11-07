@@ -256,7 +256,7 @@ func token_checks() -> void:
 	game.world.add_child(final)
 	game.actor_defeated(final)
 	check(game.upgrade_tokens == 1, "first final boss defeat grants one token")
-	check(game.loot_message.contains(T.LOOP_NOTICE) and game.loot_message.contains("装備を1つ強化できる（商人の「強化」）"), "loop and upgrade notices share the loot message")
+	check(game.loot_message.contains(T.LOOP_COUNT_NOTICE) and game.loot_message.contains("装備を1つ強化できる（商人の「強化」）"), "loop and upgrade notices share the loot message")
 	check(game.ui.loot_notice.text.contains("装備を1つ強化できる（商人の「強化」）"), "HUD shows the upgrade notice")
 	var notice_size: Vector2 = game.ui.loot_notice.get_theme_font("font").get_multiline_string_size(game.ui.loot_notice.text, HORIZONTAL_ALIGNMENT_CENTER, game.ui.loot_notice.size.x, 20)
 	check(notice_size.y <= game.ui.loot_notice.size.y, "upgrade notice fits the HUD notice area")

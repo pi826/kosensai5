@@ -733,10 +733,11 @@ func run_enemies() -> void:
 	await capture("arrow_unlocked_notice")
 	game.announcement_remaining = 0
 	await capture("arrow_only_no_distance")
-	for level in [1,3]:
+	for level in [1,2,3]:
 		game.boss_cycle.final_clears = level
 		game.update_loop_scaling()
-		if level==1: await capture("loop_increase_notice")
+		if level==1: await capture("loop_count_notice")
+		if level==2: await capture("loop_stat_notice")
 		game.camera.position=Vector2(-20000,-20000)
 		var deadline := Time.get_ticks_msec()+30000
 		while Time.get_ticks_msec()<deadline:

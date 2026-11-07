@@ -237,7 +237,7 @@ func _ready() -> void:
 	if kind == "enhancer": add_to_group("enhancers")
 	if kind == "boss": add_to_group("bosses")
 	ground_actor = kind not in ["flyer", "enhancer"]
-	apply_loop(game.enemy_loop_level())
+	apply_loop(game.enemy_stat_level())
 	facing = -1
 	flight_center_y = position.y
 	if kind == "laser":
@@ -257,7 +257,8 @@ func _physics_process(delta: float) -> void:
 	if dead or not is_instance_valid(game.player):
 		return
 	var on_screen: bool = game.is_on_screen(global_position, 20.0)
-	var engaged := on_screen or _player_in_arena()
+	var in_arena := _player_in_arena()
+	var engaged := on_screen or in_arena
 	if kind == "boss" and not engaged:
 		_service_wander_sight_warm()
 	# The cached field drawing extends beyond the body. Clear it on exit even
@@ -297,14 +298,16 @@ func _physics_process(delta: float) -> void:
 	if _rage_spin_active():
 		_tick_rage_spin(delta)
 	var rate := attack_rate()
-	if on_screen: build_clock -= delta * rate
+	# A boss may start attacks while offscreen when the player is in its arena.
+	var attack_window := on_screen or in_arena
+	if attack_window: build_clock -= delta * rate
 	if action != "idle":
 		_tick_action(delta)
 		action_remaining -= delta
 		if action_remaining <= 0:
 			_complete_action()
 		return
-	if on_screen: _choose_attack(delta, rate)
+	if attack_window: _choose_attack(delta, rate)
 
 func _move_kind(delta: float) -> void:
 	if kind == "boss" and roam.has_area():

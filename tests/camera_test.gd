@@ -141,6 +141,18 @@ func run() -> void:
 	game.player.position = game.stage.bounds.position + Vector2.ONE * 32
 	game._update_camera(0,true)
 	check(not game.camera.limit_enabled and game.camera.position.x < game.stage.bounds.position.x + T.VIEW_SIZE.x/2 and game.camera.position.y < game.stage.bounds.position.y + T.VIEW_SIZE.y/2,"camera has no enclosing-world edge clamp even over outer rock")
+	game.player.velocity = Vector2.ZERO
+	game.player.gravity_sign = -1
+	game.player.up_direction = Vector2.DOWN
+	var flipped_target: Vector2 = game.camera_target(0,true)
+	var flipped_screen_y: float = game.player.position.y-(flipped_target.y-T.VIEW_SIZE.y/2)
+	check(flipped_screen_y < T.VIEW_SIZE.y/2 and absf(flipped_screen_y-T.CAMERA_VERTICAL_OFFSET)<0.01,"inverted gravity places the player above screen center")
+	check(absf(flipped_target.y-(game.player.position.y+T.CAMERA_VERTICAL_OFFSET))<0.01,"inverted gravity focuses below the player")
+	game.player.gravity_sign = 1
+	game.player.up_direction = Vector2.UP
+	var normal_target: Vector2 = game.camera_target(0,true)
+	check(absf(normal_target.y-(game.player.position.y-T.CAMERA_VERTICAL_OFFSET))<0.01,"normal gravity keeps the previous camera target")
+	measurements.inverted_camera = {"screen_y":flipped_screen_y,"focus_y":flipped_target.y,"normal_focus_y":normal_target.y}
 	game.queue_free()
 	await frames(2)
 	DirAccess.make_dir_recursive_absolute("res://builds/qa/seamless")

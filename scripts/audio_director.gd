@@ -4,6 +4,7 @@ extends Node
 const Bank := preload("res://scripts/sound_bank.gd")
 const Settings := preload("res://scripts/audio_settings.gd")
 const Assets := preload("res://scripts/sound_assets.gd")
+const MusicSets := preload("res://scripts/music_sets.gd")
 const LIMIT := 32
 const RESERVED := 8
 const PRIORITY := ["hurt", "death", "absorb", "charge", "heal", "potion", "homing", "ability_get", "arrow_unlock", "boss_appear", "boss_defeat", "loop_up", "key", "item_get", "buy", "deny", "equip", "shop_open", "tutorial_step", "win", "lose", "pause", "map_open", "map_close", "empty"]
@@ -15,6 +16,10 @@ var streams: Dictionary = {}
 var synthesis_override := -1 # -1 auto, 0 off, 1 on (also --audio-synthesis=on)
 var sound_set_override := "" # "", "synth", "assets"; set before _ready for tests.
 var sound_set := "assets"
+var music_set_override := "" # "", "standard", "dark", "junkala"; set before _ready for tests.
+var music_set := "standard"
+var music_set_warned := false
+var music_set_warnings := 0
 var asset_paths_override: Dictionary = {} # Test-only missing/import-failure fixtures.
 var asset_loaded: Dictionary = {}
 var asset_pending: Dictionary = {}
@@ -129,16 +134,31 @@ func _ready() -> void:
 		if arg == "--audio-synthesis=off": synth = false
 		if arg == "--sound-set=synth": sound_set = "synth"
 		if arg == "--sound-set=assets": sound_set = "assets"
+		if arg.begins_with("--music-set="): _select_music_set(arg.get_slice("=", 1))
 	if sound_set_override.is_empty(): sound_set_override = game.get_meta("sound_set_override", "")
 	if sound_set_override in ["synth", "assets"]: sound_set = sound_set_override
+	if music_set_override.is_empty(): music_set_override = game.get_meta("music_set_override", "")
+	if not music_set_override.is_empty(): _select_music_set(music_set_override)
+	if DisplayServer.get_name() != "headless":
+		print("Audio music set: ", music_set)
 	if synthesis_override >= 0: synth = synthesis_override == 1
 	if synth:
 		if sound_set == "assets":
 			asset_started_usec = Time.get_ticks_usec()
-			asset_queue = Assets.EFFECTS.keys() + Assets.MUSIC.keys()
+			asset_queue = Assets.EFFECTS.keys() + MusicSets.music(music_set).keys()
 			bank.start(asset_queue)
 		else: bank.start()
 	setup_ms = (Time.get_ticks_usec() - began) / 1000.0
+
+func _select_music_set(value: String) -> void:
+	if MusicSets.is_known(value):
+		music_set = value
+		return
+	music_set = "standard"
+	music_set_warnings += 1
+	if not music_set_warned:
+		music_set_warned = true
+		push_warning("Unknown music set; using standard: " + value)
 
 func _exit_tree() -> void:
 	for voice: Dictionary in voices:
@@ -160,10 +180,22 @@ func _exit_tree() -> void:
 
 func asset_spec(id: String) -> Dictionary:
 	if not asset_loaded.has(id): return {}
-	return Assets.EFFECTS.get(id, Assets.MUSIC.get(id, {}))
+	var table := MusicSets.music(music_set)
+	return table.get(id, Assets.EFFECTS.get(id, {}))
+
+func source_spec(id: String) -> Dictionary:
+	var table := MusicSets.music(music_set)
+	return table.get(id, Assets.EFFECTS.get(id, {}))
+
+func music_gain_db(id: String) -> float:
+	if sound_set != "assets": return 0.0
+	var spec := asset_spec(id)
+	if not spec.is_empty(): return float(spec.get("gain_db", 0.0))
+	if MusicSets.synth_music(music_set).has(id): return MusicSets.synth_gain_db(music_set)
+	return 0.0
 
 func music_asset_db(slot: int) -> float:
-	return float(asset_spec(music_ids[slot]).get("gain_db", 0.0))
+	return music_gain_db(music_ids[slot])
 
 func _asset_failed(id: String) -> void:
 	if not asset_warned.has(id):
@@ -179,7 +211,7 @@ func _service_assets() -> void:
 	# Both effects and QOA tracks use Godot's background resource loader.
 	while not asset_queue.is_empty() and Time.get_ticks_usec() - began < 1500:
 		var id: String = asset_queue.pop_front()
-		var spec: Dictionary = Assets.EFFECTS.get(id, Assets.MUSIC.get(id, {}))
+		var spec: Dictionary = source_spec(id)
 		var path: String = asset_paths_override.get(id, spec.path)
 		var op := Time.get_ticks_usec()
 		if asset_pending.values().has(path):
@@ -401,7 +433,7 @@ func set_music(id: String, seconds: float) -> void:
 	var player := music[music_slot]
 	player.stop()
 	player.stream = streams[id]
-	player.volume_db = -80.0 + float(asset_spec(id).get("gain_db", 0.0))
+	player.volume_db = -80.0 + music_gain_db(id)
 	player.play()
 	music_result_db[music_slot] = -9.0 if ending_started and source_game().state != "audio_settings" else 0.0
 	music_ids[music_slot] = id
@@ -551,5 +583,5 @@ func boss_defeated() -> void:
 
 func measurements() -> Dictionary:
 	var result := {"setup_ms": setup_ms, "process_mean_ms": process_usec_total / float(maxi(1, process_samples)) / 1000, "process_max_ms": process_usec_max / 1000.0, "play_mean_ms": play_usec_total / float(maxi(1, play_samples)) / 1000, "play_max_ms": play_usec_max / 1000.0, "play_calls": play_samples, "process_frames": process_samples, "frame_work_mean_ms": frame_work_usec_total / float(maxi(1, process_samples)) / 1000, "frame_work_max_ms": frame_work_usec_max / 1000.0, "synthesis": bank.snapshot()}
-	result.assets = {"sound_set": sound_set, "loaded": asset_loaded.size(), "pending": asset_pending.size(), "stream_bytes": asset_stream_bytes, "ready_ms": asset_ready_ms.duplicate(), "service_max_ms": asset_service_max_usec / 1000.0, "operation_max_ms": asset_operation_max_usec / 1000.0, "fallback_ids": asset_warned.keys()}
+	result.assets = {"sound_set": sound_set, "music_set": music_set, "loaded": asset_loaded.size(), "pending": asset_pending.size(), "stream_bytes": asset_stream_bytes, "ready_ms": asset_ready_ms.duplicate(), "service_max_ms": asset_service_max_usec / 1000.0, "operation_max_ms": asset_operation_max_usec / 1000.0, "fallback_ids": asset_warned.keys()}
 	return result

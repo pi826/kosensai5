@@ -115,7 +115,7 @@ const ABILITY_HOP_PROFILES := {"dash_side": [173.0190, 394.5601, 54], "dash_up":
 const DETOUR_WIDTH := 128.0
 const DETOUR_REWARD := 40
 # Merchant / run inventory. Catalog order also defines the equipment screen.
-const MERCHANT_CHANCE := 0.2
+const MERCHANT_CHANCE := 0.6
 const MERCHANT_SIZE := Vector2(30, 44)
 const MERCHANT_COLOR := Color("94edcb")
 const MERCHANT_EQUIPMENT_MIN := 3
@@ -282,18 +282,21 @@ const ENHANCER_DAMAGE_RATIO := 0.5
 const ENHANCER_FIELD_COLOR := Color("a8efb51e")
 const ENHANCER_RING_COLOR := Color("baf9bd")
 const ENEMY_PLACEMENT_MARGIN := 8.0
+# Final-boss clear c raises the count stage on odd clears (ceil(c / 2)) and
+# the stat stage on even clears (floor(c / 2)). Ratios apply per stat stage.
 const LOOP_HP_RATIO_PER_CLEAR := 2
 const LOOP_DAMAGE_PER_CLEAR := 0.2
 const LOOP_ATTACK_PER_CLEAR := 0.15
 const LOOP_SPEED_PER_CLEAR := 0.1
-const LOOP_COUNT_CAP := 4
+const LOOP_COUNT_CAP := 3 # Count stages 1 and 2; stage 3 is never reserved.
 const LOOP_POPULATION_BATCH := 16
 const LOOP_FLYER_ALTITUDES := [64.0, 176.0, 288.0, 400.0]
 const LOOP_FLYER_LANE_WIDTH := 128.0
 const LOOP_WALKER_PATROL := 24.0
 const LOOP_POPULATION_WORKERS := 1
 const LOOP_PLACEMENT_RETRIES := 3
-const LOOP_NOTICE := "敵が強くなり、数が増えた"
+const LOOP_COUNT_NOTICE := "敵の数が増えた"
+const LOOP_STAT_NOTICE := "敵が強くなった"
 # Boss direction aid (unlocked for the rest of the current run).
 const BOSS_ARROW_RADIUS := 70.0
 const BOSS_ARROW_LENGTH := 16.0
